@@ -41,10 +41,22 @@ packages/
   aggregator-processor/
   aggregator-summarize-rank/
   aggregator-web/
-docker-compose.yml              # postgres + the four services
+docker-compose.yml              # postgres only (app service definitions added per service spec)
 ```
 
 Each service package depends on `aggregator-common`, installs only its own deps, exposes a console-script entrypoint (`aggregator-retriever`, etc.), and ships its own `Dockerfile`.
+
+**`aggregator-common` module layout:**
+
+```
+src/aggregator_common/
+  models.py        # SQLAlchemy ORM: Article, Source, InterestProfile
+  state.py         # ArticleStatus enum + allowed transition table
+  claim.py         # claim_batch / complete / fail / reap_stale_claims
+  db.py            # engine + session factory
+  config.py        # pydantic-settings Settings (reads DATABASE_URL from env/.env)
+  migrations/      # Alembic environment; versions/ holds migration scripts
+```
 
 ## Containers & tests
 
@@ -62,6 +74,55 @@ This is a takt repo. Work is broken into **beads** executed by worker agents in 
 - Specs live in `specs/drafts/ → planned/ → done/`. A spec is the planning input: `uv run takt plan --write <spec>` turns it into beads.
 - Use `uv run takt merge <id>`, never `git merge`. Let the scheduler resolve merge-conflict beads — do not resolve them manually.
 - Never manually mark a developer bead `done`; it must go through the scheduler to trigger followup test/docs/review beads.
+
+## Foundation implementation notes
+
+### Database schema (Alembic)
+
+- Initial migration revision ID: **`a1b2c3d4e5f6`** (`packages/aggregator-common/src/aggregator_common/migrations/versions/a1b2c3d4e5f6_initial_schema.py`)
+- Run migrations from the `packages/aggregator-common/` directory: `uv run alembic upgrade head`
+- `DATABASE_URL` is injected at runtime by Alembic's `env.py` via `Settings`; `alembic.ini` leaves `sqlalchemy.url` blank.
+
+### Tables
+
+Three tables: `sources`, `articles`, `interest_profile`.
+
+`interest_profile` is a singleton row enforced by a boolean PK (`id` always `true`) plus a CHECK constraint. It holds the free-text user interest profile used by the summarize-rank service.
+
+### Article state machine
+
+Six statuses and nine allowed transitions:
+
+```
+                  ┌──────────────────────────────────┐
+                  │           reaper                  │
+pending_processing ──processor success──► pending_ranking ──summarize-rank success──► ready
+      │                                       │                                         │
+      │ processor fail                        │ summarize-rank fail                    │ web re-rank
+      ▼                                       ▼                                         ▼
+failed_processing ◄──reaper retry──     failed_ranking ◄──reaper retry──      pending_ranking
+      │ processor skip                        │ summarize-rank skip
+      ▼                                       ▼
+   skipped                                 skipped
+```
+
+Transitions are enforced in `state.py` via `_ALLOWED_TRANSITIONS` (a frozen set of `(from, to)` pairs). `claim.py` always calls `can_transition()` before writing a new status.
+
+### Claim lease and retry backoff
+
+- **Lease timeout:** `claim_lease_seconds` — default **600 s** (10 min). Configurable via env var / `.env`.
+- **Retry backoff:** exponential — `backoff * 2^(retry_count-1)` seconds. Both `backoff` (base delay in seconds) and `max_retries` are caller-supplied parameters to `claim.fail()`; each service sets its own policy.
+- **Reaper:** `reap_stale_claims()` clears `claimed_by`/`claimed_at` on any row whose `claimed_at` is older than `lease_seconds`. The row stays in its current pending status and becomes re-claimable on the next worker poll.
+
+### Config
+
+`Settings` (pydantic-settings) reads from environment variables and a `.env` file in the working directory:
+
+| Variable | Default | Description |
+|---|---|---|
+| `DATABASE_URL` | *(required)* | PostgreSQL DSN |
+| `CLAIM_LEASE_SECONDS` | `600` | Work-claim lease duration (seconds) |
+| `LOG_LEVEL` | `INFO` | Log level for all services |
 
 ## Spec order
 
