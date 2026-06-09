@@ -7,3 +7,14 @@
 .takt/beads/
 .takt/memory/
 plan.json
+
+# python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# claude local
+.claude/settings.local.json
