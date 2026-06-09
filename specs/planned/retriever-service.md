@@ -5,7 +5,7 @@ description: "aggregator-retriever service: long-running ThreadPoolExecutor loop
 dependencies: null
 priority: high
 complexity: null
-status: draft
+status: planned
 tags:
 - retriever
 - service
@@ -14,7 +14,7 @@ tags:
 scope:
   in: null
   out: null
-feature_root_id: null
+feature_root_id: B-3037f6ce
 ---
 # Retriever Service
 
