@@ -9,7 +9,7 @@ from typing import Sequence, Union
 
 from alembic import op
 import sqlalchemy as sa
-from sqlalchemy.dialects.postgresql import JSONB, TIMESTAMP, TSVECTOR
+from sqlalchemy.dialects.postgresql import ENUM, JSONB, TIMESTAMP, TSVECTOR
 
 # revision identifiers, used by Alembic.
 revision: str = "a1b2c3d4e5f6"
@@ -84,7 +84,7 @@ def upgrade() -> None:
         sa.Column("dedup_key", sa.Text, nullable=False),
         sa.Column(
             "status",
-            sa.Enum(
+            ENUM(
                 "pending_processing",
                 "pending_ranking",
                 "ready",
