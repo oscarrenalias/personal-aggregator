@@ -5,7 +5,7 @@ description: "Shared foundation: uv monorepo skeleton, aggregator-common package
 dependencies: null
 priority: high
 complexity: null
-status: planned
+status: done
 tags:
 - foundation
 - schema
