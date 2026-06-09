@@ -1,4 +1,12 @@
+import base64
+import hashlib
+import json
+import logging
+import time
+from typing import Any
 from urllib.parse import urlparse, urlunparse, urlencode, parse_qsl
+
+logger = logging.getLogger(__name__)
 
 _TRACKING_PARAMS = frozenset(
     {"fbclid", "gclid", "mc_eid", "igshid"}
