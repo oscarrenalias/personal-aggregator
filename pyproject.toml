@@ -1,6 +1,12 @@
 [tool.uv.workspace]
 members = ["packages/*"]
 
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "testcontainers[postgres]>=4",
+]
+
 [tool.pytest.ini_options]
 testpaths = ["packages"]
 addopts = "-ra -q"
