@@ -5,7 +5,7 @@ description: "Shared foundation: uv monorepo skeleton, aggregator-common package
 dependencies: null
 priority: high
 complexity: null
-status: draft
+status: planned
 tags:
 - foundation
 - schema
@@ -14,7 +14,7 @@ tags:
 scope:
   in: null
   out: null
-feature_root_id: null
+feature_root_id: B-d585b1bf
 ---
 # Foundation - Schema and State Machine
 
