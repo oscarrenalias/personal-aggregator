@@ -6,7 +6,7 @@ import pytest
 from sqlalchemy import delete as sql_delete
 from sqlalchemy.orm import Session
 
-from aggregator_common.claim import claim_batch, fail, reap_stale_claims
+from aggregator_common.claim import claim_batch, complete, fail, reap_stale_claims
 from aggregator_common.models import Article, Source
 from aggregator_common.state import ArticleStatus
 
@@ -201,6 +201,25 @@ class TestFail:
         fail(session, article, "err2", max_retries, backoff, _NOW)
         assert article.retry_count == max_retries
         assert article.status == ArticleStatus.failed_ranking
+        assert article.next_retry_at is None
+
+
+class TestComplete:
+    def test_complete_resets_retry_count(self, session: Session):
+        """complete() resets retry_count to 0 so cross-stage contamination cannot occur."""
+        src = _make_source(session, "-complete-reset")
+        article = _make_article(
+            session, src.id, "complete-reset-1",
+            ArticleStatus.pending_processing,
+            retry_count=2,
+        )
+
+        complete(session, article, ArticleStatus.pending_ranking)
+
+        assert article.status == ArticleStatus.pending_ranking
+        assert article.retry_count == 0
+        assert article.claimed_by is None
+        assert article.claimed_at is None
         assert article.next_retry_at is None
 
 

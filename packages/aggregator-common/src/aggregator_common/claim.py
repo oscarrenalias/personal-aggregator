@@ -46,6 +46,7 @@ def complete(
     article.claimed_by = None
     article.claimed_at = None
     article.next_retry_at = None
+    article.retry_count = 0
     session.flush()
 
 
