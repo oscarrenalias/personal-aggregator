@@ -55,6 +55,7 @@ src/aggregator_common/
   claim.py         # claim_batch / complete / fail / reap_stale_claims
   db.py            # engine + session factory
   config.py        # pydantic-settings Settings (reads DATABASE_URL from env/.env)
+  logging_setup.py # configure_logging() — shared log setup for all services
   migrations/      # Alembic environment; versions/ holds migration scripts
 ```
 
