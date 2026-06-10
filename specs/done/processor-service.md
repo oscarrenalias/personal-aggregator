@@ -5,7 +5,7 @@ description: "aggregator-processor service: claims pending_processing articles, 
 dependencies: null
 priority: high
 complexity: null
-status: planned
+status: done
 tags:
 - processor
 - service
