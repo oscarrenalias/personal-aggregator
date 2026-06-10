@@ -5,7 +5,7 @@ description: "aggregator-admin Typer CLI to operate the datastore: sources (add/
 dependencies: null
 priority: high
 complexity: null
-status: draft
+status: planned
 tags:
 - admin
 - cli
@@ -14,7 +14,7 @@ tags:
 scope:
   in: null
   out: null
-feature_root_id: null
+feature_root_id: B-a209300c
 ---
 # Admin CLI
 
