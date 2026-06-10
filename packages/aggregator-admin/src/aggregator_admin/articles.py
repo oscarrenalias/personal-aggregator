@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any, Optional
 
 import typer
 from sqlalchemy import func
+
+from sqlalchemy.orm import Session
 
 from aggregator_common.db import get_session
 from aggregator_common.models import Article
@@ -211,3 +214,79 @@ def rerank_article(
         article.claimed_by = None
         article.claimed_at = None
     typer.echo(f"Article {article_id} queued for re-ranking (→ pending_ranking).")
+
+
+def _get_article_or_exit(session: Session, article_id: int) -> Article:
+    article = session.get(Article, article_id)
+    if article is None:
+        typer.echo(f"Error: article {article_id} not found.", err=True)
+        raise typer.Exit(code=1)
+    return article
+
+
+@articles_app.command("mark-read")
+def mark_read(
+    article_id: int = typer.Argument(..., help="Article ID."),
+) -> None:
+    """Mark an article as read."""
+    with get_session() as session:
+        article = _get_article_or_exit(session, article_id)
+        article.is_read = True
+        article.read_at = datetime.now(tz=timezone.utc)
+    typer.echo(f"Article {article_id} marked as read.")
+
+
+@articles_app.command("mark-unread")
+def mark_unread(
+    article_id: int = typer.Argument(..., help="Article ID."),
+) -> None:
+    """Mark an article as unread."""
+    with get_session() as session:
+        article = _get_article_or_exit(session, article_id)
+        article.is_read = False
+        article.read_at = None
+    typer.echo(f"Article {article_id} marked as unread.")
+
+
+@articles_app.command("save")
+def save_article(
+    article_id: int = typer.Argument(..., help="Article ID."),
+) -> None:
+    """Save an article."""
+    with get_session() as session:
+        article = _get_article_or_exit(session, article_id)
+        article.is_saved = True
+    typer.echo(f"Article {article_id} saved.")
+
+
+@articles_app.command("unsave")
+def unsave_article(
+    article_id: int = typer.Argument(..., help="Article ID."),
+) -> None:
+    """Unsave an article."""
+    with get_session() as session:
+        article = _get_article_or_exit(session, article_id)
+        article.is_saved = False
+    typer.echo(f"Article {article_id} unsaved.")
+
+
+@articles_app.command("hide")
+def hide_article(
+    article_id: int = typer.Argument(..., help="Article ID."),
+) -> None:
+    """Hide an article."""
+    with get_session() as session:
+        article = _get_article_or_exit(session, article_id)
+        article.is_hidden = True
+    typer.echo(f"Article {article_id} hidden.")
+
+
+@articles_app.command("unhide")
+def unhide_article(
+    article_id: int = typer.Argument(..., help="Article ID."),
+) -> None:
+    """Unhide an article."""
+    with get_session() as session:
+        article = _get_article_or_exit(session, article_id)
+        article.is_hidden = False
+    typer.echo(f"Article {article_id} unhidden.")
