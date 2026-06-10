@@ -5,7 +5,7 @@ description: "aggregator-summarize-rank service: claims pending_ranking, calls a
 dependencies: null
 priority: high
 complexity: null
-status: planned
+status: done
 tags:
 - summarize-rank
 - service
