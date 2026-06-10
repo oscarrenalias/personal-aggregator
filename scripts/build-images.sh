@@ -1,8 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+if ! command -v uv &>/dev/null; then
+    echo "Error: uv is not on PATH. Install it from https://docs.astral.sh/uv/" >&2
+    exit 1
+fi
+
 IMAGE_PREFIX=${IMAGE_PREFIX:-personal-aggregator}
-VERSION=$(git describe --tags --always --dirty)
+VERSION=$(uv version --output-format value)
 SERVICES=(retriever processor summarize-rank admin)
 
 echo "Building images version=${VERSION} prefix=${IMAGE_PREFIX}"
@@ -13,7 +18,7 @@ for SERVICE in "${SERVICES[@]}"; do
         --platform linux/arm64 \
         --build-arg APP_VERSION="${VERSION}" \
         -t "${IMAGE_PREFIX}/aggregator-${SERVICE}:${VERSION}" \
-        -t "${IMAGE_PREFIX}/aggregator-${SERVICE}:dev" \
+        -t "${IMAGE_PREFIX}/aggregator-${SERVICE}:latest" \
         -f "packages/aggregator-${SERVICE}/Dockerfile" \
         .
 done
