@@ -154,6 +154,30 @@ class TestClaimBatchRetryGate:
         assert ready.id in claimed_ids
         assert blocked.id not in claimed_ids
 
+    def test_already_claimed_row_not_poached(self, session: Session):
+        """A row already claimed by another worker (claimed_at set) must not be
+        re-claimed, even while it is unlocked between claim and complete."""
+        src = _make_source(session, "-claimed-guard")
+        held = _make_article(
+            session, src.id, "held-by-other",
+            ArticleStatus.pending_processing,
+            claimed_by="other-worker",
+            claimed_at=_NOW - timedelta(seconds=10),
+        )
+        free = _make_article(
+            session, src.id, "free-row",
+            ArticleStatus.pending_processing,
+        )
+
+        claimed = claim_batch(session, ArticleStatus.pending_processing, "worker", 10, _NOW)
+        claimed_ids = {a.id for a in claimed}
+
+        assert free.id in claimed_ids
+        assert held.id not in claimed_ids
+        # The existing claim is left intact.
+        session.refresh(held)
+        assert held.claimed_by == "other-worker"
+
 
 class TestFail:
     def test_backoff_and_exhaustion_processor_stage(self, session: Session):

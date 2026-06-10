@@ -22,6 +22,7 @@ def claim_batch(
     stmt = (
         select(Article)
         .where(Article.status == status)
+        .where(Article.claimed_at.is_(None))
         .where(or_(Article.next_retry_at.is_(None), Article.next_retry_at <= now))
         .limit(limit)
         .with_for_update(skip_locked=True)

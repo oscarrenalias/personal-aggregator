@@ -26,7 +26,7 @@ Every worker claims work with `SELECT … FOR UPDATE SKIP LOCKED`, setting `stat
 - **Python + uv** (workspace). Always run via `uv run`.
 - **Postgres** for all persistence; full-text search via `tsvector` + GIN.
 - **FastAPI** for the web service.
-- Feed parsing: `feedparser`. Content extraction: `trafilatura`/readability. LLM: official Anthropic SDK (`claude-*` models).
+- Feed parsing: `feedparser`. Content extraction: `trafilatura`/readability. LLM: `litellm` abstraction layer (defaults to `gpt-4.1-mini`; any litellm-supported model works, configurable via `LLM_MODEL`).
 - **Separate, independently deployable services** — each its own package, entrypoint, and Dockerfile.
 
 ## Monorepo layout
