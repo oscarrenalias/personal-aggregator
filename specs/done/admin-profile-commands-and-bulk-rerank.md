@@ -5,7 +5,7 @@ description: "Add aggregator-admin 'profile' command group (show/set/clear the i
 dependencies: null
 priority: high
 complexity: null
-status: planned
+status: done
 tags:
 - admin
 - cli
