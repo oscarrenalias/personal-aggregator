@@ -5,7 +5,7 @@ description: "aggregator-admin Typer CLI to operate the datastore: sources (add/
 dependencies: null
 priority: high
 complexity: null
-status: planned
+status: done
 tags:
 - admin
 - cli
