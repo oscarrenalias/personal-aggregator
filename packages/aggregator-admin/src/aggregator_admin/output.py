@@ -1,0 +1,57 @@
+"""Shared presentation utilities: table rendering, JSON output, and confirmation."""
+
+from __future__ import annotations
+
+import json
+import sys
+from typing import Any
+
+import typer
+from rich.console import Console
+from rich.table import Table
+
+console = Console()
+
+
+def render_table(rows: list[dict[str, Any]], columns: list[str]) -> None:
+    """Render a list of dicts as a Rich table with the given column order."""
+    table = Table(show_header=True, header_style="bold")
+    for col in columns:
+        table.add_column(col)
+    for row in rows:
+        table.add_row(*[str(row.get(col, "")) for col in columns])
+    console.print(table)
+
+
+def json_or_table(
+    rows: list[dict[str, Any]],
+    columns: list[str],
+    *,
+    as_json: bool,
+) -> None:
+    """Print rows as JSON when as_json is True, otherwise render as a Rich table."""
+    if as_json:
+        typer.echo(json.dumps(rows, default=str))
+    else:
+        render_table(rows, columns)
+
+
+def confirm(*, yes: bool, prompt: str = "Continue?") -> None:
+    """Uniform confirmation gate for destructive commands.
+
+    --yes flag: proceed silently.
+    TTY stdin: prompt interactively and abort on anything other than 'y'/'yes'.
+    Non-interactive without --yes: exit non-zero without acting.
+    """
+    if yes:
+        return
+    if sys.stdin.isatty():
+        answer = typer.prompt(f"{prompt} [y/N]", default="N")
+        if answer.strip().lower() not in ("y", "yes"):
+            raise typer.Exit(code=1)
+    else:
+        typer.echo(
+            "Error: non-interactive session — pass --yes to confirm destructive action.",
+            err=True,
+        )
+        raise typer.Exit(code=1)
