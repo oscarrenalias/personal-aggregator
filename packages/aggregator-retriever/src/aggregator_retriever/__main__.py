@@ -1,4 +1,4 @@
-from aggregator_retriever.loop import run
+from aggregator_retriever.loop import cli
 
 if __name__ == "__main__":
-    run()
+    cli()

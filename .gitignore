@@ -18,3 +18,8 @@ __pycache__/
 
 # claude local
 .claude/settings.local.json
+
+# env (local secrets/config; keep the example committed)
+.env
+.env.*
+!.env.example
