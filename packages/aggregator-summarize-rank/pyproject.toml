@@ -4,11 +4,12 @@ version = "0.1.0"
 requires-python = ">=3.12"
 dependencies = [
     "aggregator-common",
-    "anthropic>=0.25",
+    "litellm>=1",
+    "pydantic>=2",
 ]
 
 [project.scripts]
-aggregator-summarize-rank = "aggregator_summarize_rank.main:main"
+aggregator-summarize-rank = "aggregator_summarize_rank.__main__:main"
 
 [tool.uv.sources]
 aggregator-common = { workspace = true }
