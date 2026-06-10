@@ -67,6 +67,20 @@ src/aggregator_common/
 - **Tests:** `pytest` with **testcontainers** — each test session spins up an ephemeral Postgres on a random port. This isolates concurrent takt workers running in parallel worktrees; never assume a shared/fixed test database. The test harness resolves the Docker socket in this order: `DOCKER_HOST` env → `/var/run/docker.sock` → `~/.orbstack/run/docker.sock`, setting `DOCKER_HOST` for testcontainers when it falls through. This makes `pytest`/`takt merge` work for every worker without per-worker env setup.
 - **Deploy:** per-service Dockerfiles + compose. No devcontainers.
 
+### Production compose (headless backend)
+
+The headless stack (`postgres → migrate → retriever → processor → summarize-rank`) is managed via `Makefile` targets that wrap `docker-compose.prod.yml`:
+
+| Command | Effect |
+|---|---|
+| `make build` | Builds all four arm64 service images (calls `scripts/build-images.sh`) |
+| `make up` | `docker compose -f docker-compose.prod.yml up -d` |
+| `make down` | `docker compose -f docker-compose.prod.yml down` |
+| `make logs` | `docker compose -f docker-compose.prod.yml logs -f` |
+| `make version` | Print the current git-derived version |
+
+**Version scheme:** `APP_VERSION` is computed at build time from `git describe --tags --always --dirty`. This produces a SemVer tag (e.g. `v0.1.0`) when the repo is on a tag, or `v0.1.0-3-gabc123` / a short SHA when it is not. The value is passed as a Docker `--build-arg`, embedded as `ENV APP_VERSION` in the image, and exposed via `aggregator_common.version()` at runtime. The default when the env var is absent is `dev`.
+
 ## takt orchestration
 
 This is a takt repo. Work is broken into **beads** executed by worker agents in git worktrees. **Read the `takt` skill before any takt action.** Non-negotiable rules:

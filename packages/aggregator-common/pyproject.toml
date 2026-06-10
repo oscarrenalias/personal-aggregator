@@ -10,6 +10,9 @@ dependencies = [
     "python-dotenv",
 ]
 
+[project.scripts]
+aggregator-migrate = "aggregator_common.migrate:main"
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"

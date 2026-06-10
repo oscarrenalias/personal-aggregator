@@ -1,0 +1,13 @@
+.git
+.takt
+.venv
+**/__pycache__
+**/.pytest_cache
+**/.ruff_cache
+**/tests
+specs
+.agents
+.claude
+templates
+.env
+*.md
