@@ -120,21 +120,36 @@ class TestSigterm:
     def test_sigterm_exits_with_code_zero(self, db_url, tmp_path):
         """SIGTERM causes the retriever loop to drain in-flight tasks and exit cleanly."""
         script = tmp_path / "run_loop.py"
+        # Print "ready" after imports complete so the test knows signal handlers are about to
+        # be installed — avoids the startup-race that causes returncode -15.
         script.write_text(
-            f"import os\n"
+            f"import os, sys, signal as _sig\n"
             f"from unittest.mock import patch\n"
             f"os.environ['DATABASE_URL'] = {db_url!r}\n"
             f"os.environ['RETRIEVER_POLL_INTERVAL_SECONDS'] = '1'\n"
+            f"# Spy on signal.signal so we print 'ready' the moment SIGTERM handler is wired\n"
+            f"_orig = _sig.signal\n"
+            f"def _spy(sig, h):\n"
+            f"    r = _orig(sig, h)\n"
+            f"    if sig == _sig.SIGTERM and callable(h):\n"
+            f"        print('ready', flush=True)\n"
+            f"    return r\n"
+            f"_sig.signal = _spy\n"
             f"with patch('aggregator_retriever.loop._query_due_sources', return_value=[]):\n"
             f"    from aggregator_retriever.loop import run\n"
             f"    run()\n"
         )
         proc = subprocess.Popen(
             [sys.executable, str(script)],
-            stdout=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
         )
-        time.sleep(0.5)
+        # Block until subprocess confirms its SIGTERM handler is installed.
+        ready = proc.stdout.readline()
+        proc.stdout.close()
+        if not ready.strip():
+            proc.kill()
+            pytest.fail("Subprocess did not emit ready signal before exiting")
         proc.send_signal(signal.SIGTERM)
         try:
             proc.wait(timeout=15)
