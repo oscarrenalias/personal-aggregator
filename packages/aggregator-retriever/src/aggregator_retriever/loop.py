@@ -1,6 +1,8 @@
 import argparse
 import logging
+import os
 import signal
+import sys
 import threading
 import time
 from concurrent.futures import Future, ThreadPoolExecutor
@@ -10,6 +12,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from aggregator_common.db import engine, get_session
+from aggregator_common.logging_setup import configure_logging
 from aggregator_common.models import Source
 from aggregator_retriever.config import Settings
 from aggregator_retriever.http import FetchError, fetch
@@ -98,6 +101,7 @@ def run_once(settings: Settings, *, source_id: int | None = None, all_enabled: b
 
 def run() -> None:
     settings = Settings()
+    configure_logging(settings, stream=sys.stdout)
     shutdown = threading.Event()
 
     def _handle_signal(signum, _frame):
@@ -159,6 +163,15 @@ def run() -> None:
         executor.shutdown(wait=True)
         engine.dispose()
         logger.info("Retriever stopped cleanly")
+        # If stdout is a broken pipe (e.g. piped output was closed), redirect fd 1
+        # to /dev/null so CPython finalization's sys.stdout.flush() succeeds and
+        # the process exits with code 0 rather than 120 (Py_FinalizeEx failure).
+        try:
+            sys.stdout.flush()
+        except OSError:
+            devnull = os.open(os.devnull, os.O_WRONLY)
+            os.dup2(devnull, sys.stdout.fileno())
+            os.close(devnull)
 
 
 def cli() -> None:
@@ -180,6 +193,7 @@ def cli() -> None:
 
     if args.once:
         settings = Settings()
+        configure_logging(settings, stream=sys.stdout)
         run_once(settings, source_id=args.source, all_enabled=args.all_enabled)
     else:
         run()

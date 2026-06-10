@@ -1,6 +1,7 @@
 import argparse
-import logging
+import sys
 
+from aggregator_common.logging_setup import configure_logging
 from aggregator_processor.config import ProcessorSettings
 
 
@@ -14,7 +15,7 @@ def main() -> None:
     args = parser.parse_args()
 
     settings = ProcessorSettings()
-    logging.basicConfig(level=settings.log_level.upper())
+    configure_logging(settings, stream=sys.stdout)
 
     if args.once:
         from aggregator_processor.loop import run_once
