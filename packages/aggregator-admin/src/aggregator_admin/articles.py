@@ -194,26 +194,50 @@ def retry_article(
 
 @articles_app.command("rerank")
 def rerank_article(
-    article_id: int = typer.Argument(..., help="Article ID to rerank."),
+    article_id: Optional[int] = typer.Argument(None, help="Article ID to rerank."),
+    all_ready: bool = typer.Option(False, "--all", help="Requeue all ready articles for re-ranking."),
+    yes: bool = typer.Option(False, "--yes", help="Confirm bulk requeue without prompting."),
 ) -> None:
-    """Queue a ready article for re-ranking."""
-    with get_session() as session:
-        article = session.get(Article, article_id)
-        if article is None:
-            typer.echo(f"Error: article {article_id} not found.", err=True)
-            raise typer.Exit(code=1)
-        current = ArticleStatus(article.status)
-        target = ArticleStatus.pending_ranking
-        if not can_transition(current, target):
-            typer.echo(
-                f"Error: article {article_id} cannot be reranked (current status: {article.status}; must be ready).",
-                err=True,
-            )
-            raise typer.Exit(code=1)
-        article.status = target
-        article.claimed_by = None
-        article.claimed_at = None
-    typer.echo(f"Article {article_id} queued for re-ranking (→ pending_ranking).")
+    """Queue a ready article (or all ready articles) for re-ranking."""
+    if article_id is not None and all_ready:
+        typer.echo("Error: provide either an article ID or --all, not both.", err=True)
+        raise typer.Exit(code=1)
+    if article_id is None and not all_ready:
+        typer.echo("Error: provide either an article ID or --all.", err=True)
+        raise typer.Exit(code=1)
+
+    target = ArticleStatus.pending_ranking
+
+    if all_ready:
+        confirm(yes=yes, prompt="This will requeue all ready articles for re-ranking.")
+        requeued = 0
+        with get_session() as session:
+            articles = session.query(Article).filter(Article.status == ArticleStatus.ready).all()
+            for article in articles:
+                current = ArticleStatus(article.status)
+                if can_transition(current, target):
+                    article.status = target
+                    article.claimed_by = None
+                    article.claimed_at = None
+                    requeued += 1
+        typer.echo(f"Requeued {requeued} article(s) for re-ranking (→ pending_ranking).")
+    else:
+        with get_session() as session:
+            article = session.get(Article, article_id)
+            if article is None:
+                typer.echo(f"Error: article {article_id} not found.", err=True)
+                raise typer.Exit(code=1)
+            current = ArticleStatus(article.status)
+            if not can_transition(current, target):
+                typer.echo(
+                    f"Error: article {article_id} cannot be reranked (current status: {article.status}; must be ready).",
+                    err=True,
+                )
+                raise typer.Exit(code=1)
+            article.status = target
+            article.claimed_by = None
+            article.claimed_at = None
+        typer.echo(f"Article {article_id} queued for re-ranking (→ pending_ranking).")
 
 
 def _get_article_or_exit(session: Session, article_id: int) -> Article:
