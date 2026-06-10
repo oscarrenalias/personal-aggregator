@@ -1,0 +1,22 @@
+[project]
+name = "aggregator-admin"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    "aggregator-common",
+    "typer>=0.12",
+    "rich>=13",
+]
+
+[project.scripts]
+aggregator-admin = "aggregator_admin.main:main"
+
+[tool.uv.sources]
+aggregator-common = { workspace = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/aggregator_admin"]
