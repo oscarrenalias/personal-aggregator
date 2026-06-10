@@ -1,3 +1,4 @@
+import argparse
 import logging
 import signal
 import threading
@@ -30,15 +31,16 @@ def _query_due_sources(session: Session, exclude_ids: set[int]) -> list[int]:
     return [sid for sid in rows if sid not in exclude_ids]
 
 
-def _process_source(source_id: int, settings: Settings) -> None:
+def _process_source(source_id: int, settings: Settings) -> int:
     with get_session() as session:
         source = session.get(Source, source_id)
         if source is None:
             logger.warning("Source %s not found, skipping", source_id)
-            return
+            return 0
 
         try:
             fetch_result = fetch(source, settings)
+            new_count = 0
             if not fetch_result.not_modified and fetch_result.body is not None:
                 entries = parse_feed(fetch_result.body, source_id)
                 new_count = insert_articles(session, source_id, entries)
@@ -51,9 +53,43 @@ def _process_source(source_id: int, settings: Settings) -> None:
             else:
                 logger.debug("Source %s not modified", source_id)
             update_source_success(session, source, fetch_result)
+            return new_count
         except FetchError as exc:
             logger.warning("Source %s fetch failed: %s", source_id, exc)
             update_source_failure(session, source, str(exc), settings)
+            return 0
+
+
+def run_once(settings: Settings, *, source_id: int | None = None, all_enabled: bool = False) -> None:
+    """Run a single poll cycle and exit.
+
+    source_id: poll only this source, ignoring its schedule.
+    all_enabled: poll all enabled sources regardless of schedule.
+    Default (both False): poll only sources that are currently due.
+    """
+    if source_id is not None:
+        source_ids = [source_id]
+    else:
+        with get_session() as session:
+            if all_enabled:
+                stmt = select(Source.id).where(Source.enabled == True)  # noqa: E712
+                source_ids = list(session.execute(stmt).scalars().all())
+            else:
+                source_ids = _query_due_sources(session, set())
+
+    if not source_ids:
+        print("No sources to poll.")
+        return
+
+    results: list[tuple[int, int]] = []
+    for sid in source_ids:
+        count = _process_source(sid, settings)
+        results.append((sid, count))
+
+    for sid, count in results:
+        print(f"  source {sid}: {count} inserted")
+    total = sum(c for _, c in results)
+    print(f"Total: {total} inserted across {len(results)} source(s).")
 
 
 def run() -> None:
@@ -119,3 +155,27 @@ def run() -> None:
         executor.shutdown(wait=True)
         engine.dispose()
         logger.info("Retriever stopped cleanly")
+
+
+def cli() -> None:
+    parser = argparse.ArgumentParser(prog="aggregator-retriever", description="RSS/Atom feed retriever")
+    parser.add_argument("--once", action="store_true", help="Run a single poll cycle then exit")
+    parser.add_argument("--source", type=int, metavar="ID", help="Poll only this source ID (requires --once)")
+    parser.add_argument(
+        "--all",
+        dest="all_enabled",
+        action="store_true",
+        help="Poll all enabled sources regardless of schedule (requires --once)",
+    )
+    args = parser.parse_args()
+
+    if args.source is not None and not args.once:
+        parser.error("--source requires --once")
+    if args.all_enabled and not args.once:
+        parser.error("--all requires --once")
+
+    if args.once:
+        settings = Settings()
+        run_once(settings, source_id=args.source, all_enabled=args.all_enabled)
+    else:
+        run()

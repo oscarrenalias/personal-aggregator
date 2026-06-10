@@ -10,6 +10,34 @@ uv run aggregator-retriever
 
 Reads configuration from environment variables or a `.env` file in the working directory. Requires `DATABASE_URL` to be set. Runs until `SIGINT` or `SIGTERM`.
 
+## One-off run mode
+
+Three flags let you trigger an immediate poll without starting the long-running daemon.
+
+**Poll only sources that are currently due (same selection as the daemon):**
+
+```bash
+uv run aggregator-retriever --once
+```
+
+**Poll a specific source immediately, ignoring its schedule:**
+
+```bash
+uv run aggregator-retriever --once --source <ID>
+```
+
+The source is fetched even if `next_check_at` is in the future or the source is disabled.
+
+**Poll all enabled sources regardless of schedule:**
+
+```bash
+uv run aggregator-retriever --once --all
+```
+
+All three modes print a per-source article count and a total to stdout, then exit with code 0. Per-source failures are logged and isolated — a single failing source does not abort the rest.
+
+`--source` and `--all` are only valid in combination with `--once` and will produce an error otherwise.
+
 ## Configuration
 
 All variables are optional except `DATABASE_URL` (inherited from `aggregator-common`).
