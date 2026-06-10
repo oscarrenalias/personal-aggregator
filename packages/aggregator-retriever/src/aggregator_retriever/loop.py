@@ -1,5 +1,6 @@
 import argparse
 import logging
+import os
 import signal
 import sys
 import threading
@@ -162,6 +163,15 @@ def run() -> None:
         executor.shutdown(wait=True)
         engine.dispose()
         logger.info("Retriever stopped cleanly")
+        # If stdout is a broken pipe (e.g. piped output was closed), redirect fd 1
+        # to /dev/null so CPython finalization's sys.stdout.flush() succeeds and
+        # the process exits with code 0 rather than 120 (Py_FinalizeEx failure).
+        try:
+            sys.stdout.flush()
+        except OSError:
+            devnull = os.open(os.devnull, os.O_WRONLY)
+            os.dup2(devnull, sys.stdout.fileno())
+            os.close(devnull)
 
 
 def cli() -> None:
