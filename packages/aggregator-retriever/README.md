@@ -70,9 +70,12 @@ src/aggregator_retriever/
   persist.py    Article upsert (INSERT … ON CONFLICT DO NOTHING) and source metadata updates
                 (success resets failures; failure increments counter, schedules backoff, and
                 disables the source when the failure threshold is reached).
-  loop.py       Main polling loop. Uses ThreadPoolExecutor to fetch sources concurrently.
-                Tracks in-flight source IDs to avoid double-scheduling. Handles SIGINT/SIGTERM
-                gracefully by draining in-flight tasks before exiting.
+  loop.py       Polling loop and one-off run mode. `run()` is the long-running daemon:
+                ThreadPoolExecutor for concurrent fetches, in-flight tracking to avoid
+                double-scheduling, graceful drain on SIGINT/SIGTERM. `run_once()` executes
+                a single poll cycle (due sources, a specific source, or all enabled sources)
+                then returns. `cli()` is the argparse entry point that dispatches between
+                the two modes.
 ```
 
 ## dedup_key precedence
