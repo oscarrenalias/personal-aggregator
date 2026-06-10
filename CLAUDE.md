@@ -126,6 +126,18 @@ Transitions are enforced in `state.py` via `_ALLOWED_TRANSITIONS` (a frozen set 
 
 **Per-service config convention:** Each service subclasses `aggregator_common.config.Settings` and adds its own fields using a `<SERVICE>_` prefix (e.g., `PROCESSOR_BATCH_SIZE`, `RETRIEVER_POLL_INTERVAL_SECONDS`). Shared fields live in the base class; service-specific fields never bleed into other services' namespaces.
 
+## Logging
+
+Centralized, env-driven logging configured via `aggregator_common.logging_setup.configure_logging(settings, *, stream)`:
+
+- **Level** comes from `settings.log_level` (the `LOG_LEVEL` env var; default `INFO`). Accepts any standard name (DEBUG/INFO/WARNING/ERROR/CRITICAL), case-insensitive.
+- **Format:** plain text — `%(asctime)s %(levelname)s %(name)s %(message)s`. No JSON, no file handlers (container runtime captures stdout/stderr).
+- **Idempotent:** calling it twice replaces the previously installed handler rather than stacking a duplicate.
+- **Stream convention:**
+  - Daemon services (retriever, processor, summarize-rank, web): `stream=sys.stdout` — `docker logs` captures stdout by default.
+  - Admin CLI: `stream=sys.stderr` — keeps stdout clean for Rich tables and `--json` output.
+- **Convention:** every new service entrypoint must call `configure_logging(settings, stream=sys.stdout)` (or `sys.stderr` for admin-style CLIs) as the first action after constructing its `Settings` object, before any other work.
+
 ## Spec order
 
 Build in dependency order, one spec per component:

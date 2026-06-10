@@ -1,6 +1,7 @@
 import argparse
 import logging
 import signal
+import sys
 import threading
 import time
 from concurrent.futures import Future, ThreadPoolExecutor
@@ -10,6 +11,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from aggregator_common.db import engine, get_session
+from aggregator_common.logging_setup import configure_logging
 from aggregator_common.models import Source
 from aggregator_retriever.config import Settings
 from aggregator_retriever.http import FetchError, fetch
@@ -98,6 +100,7 @@ def run_once(settings: Settings, *, source_id: int | None = None, all_enabled: b
 
 def run() -> None:
     settings = Settings()
+    configure_logging(settings, stream=sys.stdout)
     shutdown = threading.Event()
 
     def _handle_signal(signum, _frame):
@@ -180,6 +183,7 @@ def cli() -> None:
 
     if args.once:
         settings = Settings()
+        configure_logging(settings, stream=sys.stdout)
         run_once(settings, source_id=args.source, all_enabled=args.all_enabled)
     else:
         run()
