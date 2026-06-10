@@ -7,6 +7,7 @@ dependencies = [
     "alembic",
     "psycopg[binary]",
     "pydantic-settings",
+    "python-dotenv",
 ]
 
 [build-system]

@@ -55,6 +55,7 @@ src/aggregator_common/
   claim.py         # claim_batch / complete / fail / reap_stale_claims
   db.py            # engine + session factory
   config.py        # pydantic-settings Settings (reads DATABASE_URL from env/.env)
+  env.py           # load_env() — loads .env into os.environ at startup
   logging_setup.py # configure_logging() — shared log setup for all services
   migrations/      # Alembic environment; versions/ holds migration scripts
 ```
@@ -83,6 +84,7 @@ This is a takt repo. Work is broken into **beads** executed by worker agents in 
 - Initial migration revision ID: **`a1b2c3d4e5f6`** (`packages/aggregator-common/src/aggregator_common/migrations/versions/a1b2c3d4e5f6_initial_schema.py`)
 - Run migrations from the `packages/aggregator-common/` directory: `uv run alembic upgrade head`
 - `DATABASE_URL` is injected at runtime by Alembic's `env.py` via `Settings`; `alembic.ini` leaves `sqlalchemy.url` blank.
+- Alembic's `env.py` calls `load_env()` before constructing `Settings`, so the root `.env` is auto-loaded — no need to export `DATABASE_URL` separately.
 
 ### Tables
 
@@ -117,7 +119,9 @@ Transitions are enforced in `state.py` via `_ALLOWED_TRANSITIONS` (a frozen set 
 
 ### Config
 
-`Settings` (pydantic-settings) reads from environment variables and a `.env` file in the working directory:
+At process startup, every service calls `aggregator_common.load_env()` (python-dotenv, `override=False`) **before** constructing `Settings` or calling `configure_logging`. `load_env()` uses `find_dotenv(usecwd=True)` to walk up the directory tree from the current working directory, so it finds the repo-root `.env` regardless of where the process was launched. Because `override=False`, a variable already present in `os.environ` always wins over the `.env` value. After `load_env()`, both pydantic-settings and any third-party library that reads `os.environ` directly (e.g. litellm) see the same config. Adding a new variable requires only editing `.env` — no code change needed.
+
+`Settings` (pydantic-settings) also reads from environment variables and a `.env` file in the working directory (belt-and-suspenders, harmless):
 
 | Variable | Default | Description |
 |---|---|---|
@@ -137,7 +141,7 @@ Centralized, env-driven logging configured via `aggregator_common.logging_setup.
 - **Stream convention:**
   - Daemon services (retriever, processor, summarize-rank, web): `stream=sys.stdout` — `docker logs` captures stdout by default.
   - Admin CLI: `stream=sys.stderr` — keeps stdout clean for Rich tables and `--json` output.
-- **Convention:** every new service entrypoint must call `configure_logging(settings, stream=sys.stdout)` (or `sys.stderr` for admin-style CLIs) as the first action after constructing its `Settings` object, before any other work.
+- **Convention:** every new service entrypoint must call `load_env()` first (before `Settings()` and before `configure_logging`), then call `configure_logging(settings, stream=sys.stdout)` (or `sys.stderr` for admin-style CLIs) after constructing `Settings`.
 
 ## Spec order
 

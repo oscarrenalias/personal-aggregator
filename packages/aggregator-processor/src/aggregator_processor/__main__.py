@@ -1,11 +1,13 @@
 import argparse
 import sys
 
+from aggregator_common import load_env
 from aggregator_common.logging_setup import configure_logging
 from aggregator_processor.config import ProcessorSettings
 
 
 def main() -> None:
+    load_env()
     parser = argparse.ArgumentParser(description="Article processor service")
     parser.add_argument(
         "--once",

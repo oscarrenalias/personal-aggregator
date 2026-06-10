@@ -1,11 +1,13 @@
 import argparse
 import sys
 
+from aggregator_common import load_env
 from aggregator_common.logging_setup import configure_logging
 from aggregator_summarize_rank.config import SummarizeRankSettings
 
 
 def main() -> None:
+    load_env()
     parser = argparse.ArgumentParser(description="Summarize-rank service")
     parser.add_argument(
         "--once",
