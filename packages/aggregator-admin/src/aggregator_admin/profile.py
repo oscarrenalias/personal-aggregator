@@ -75,8 +75,10 @@ def show_profile(
     """Show the current interest profile."""
     with get_session() as session:
         profile = session.get(InterestProfile, True)
+        profile_text = profile.profile_text if profile else ""
+        updated_at = profile.updated_at if profile else None
 
-    if profile is None or not profile.profile_text:
+    if not profile_text:
         if as_json:
             typer.echo(json.dumps({"profile_text": "", "updated_at": None}))
         else:
@@ -87,11 +89,11 @@ def show_profile(
         typer.echo(
             json.dumps(
                 {
-                    "profile_text": profile.profile_text,
-                    "updated_at": profile.updated_at.isoformat() if profile.updated_at else None,
+                    "profile_text": profile_text,
+                    "updated_at": updated_at.isoformat() if updated_at else None,
                 }
             )
         )
     else:
-        typer.echo(profile.profile_text)
-        typer.echo(f"Updated at: {profile.updated_at}")
+        typer.echo(profile_text)
+        typer.echo(f"Updated at: {updated_at}")

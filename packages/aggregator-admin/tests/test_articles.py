@@ -364,3 +364,52 @@ def test_articles_purge_invalid_before_date(runner, db_session):
     result = runner.invoke(app, ["articles", "purge", "--before", "not-a-date", "--yes"])
     assert result.exit_code == 1
     assert "not a valid ISO date" in result.output
+
+
+# ---------------------------------------------------------------------------
+# articles rerank --all
+# ---------------------------------------------------------------------------
+
+def test_articles_rerank_all_happy_path(runner, db_session):
+    src = make_source(db_session)
+    art1 = make_article(db_session, source_id=src.id, status=ArticleStatus.ready, dedup_key="k1")
+    art2 = make_article(db_session, source_id=src.id, status=ArticleStatus.ready, dedup_key="k2")
+    result = runner.invoke(app, ["articles", "rerank", "--all", "--yes"])
+    assert result.exit_code == 0
+    assert "2" in result.output
+    db_session.refresh(art1)
+    db_session.refresh(art2)
+    assert art1.status == ArticleStatus.pending_ranking.value
+    assert art2.status == ArticleStatus.pending_ranking.value
+
+
+def test_articles_rerank_all_non_ready_untouched(runner, db_session):
+    src = make_source(db_session)
+    art_ready = make_article(db_session, source_id=src.id, status=ArticleStatus.ready, dedup_key="k1")
+    art_failed = make_article(db_session, source_id=src.id, status=ArticleStatus.failed_processing, dedup_key="k2")
+    result = runner.invoke(app, ["articles", "rerank", "--all", "--yes"])
+    assert result.exit_code == 0
+    db_session.refresh(art_ready)
+    db_session.refresh(art_failed)
+    assert art_ready.status == ArticleStatus.pending_ranking.value
+    assert art_failed.status == ArticleStatus.failed_processing.value
+
+
+def test_articles_rerank_all_no_yes_noninteractive_exits_nonzero(runner, db_session):
+    src = make_source(db_session)
+    make_article(db_session, source_id=src.id, status=ArticleStatus.ready)
+    result = runner.invoke(app, ["articles", "rerank", "--all"])
+    assert result.exit_code == 1
+    assert "non-interactive" in result.output
+
+
+def test_articles_rerank_all_and_id_exits_nonzero(runner, db_session):
+    src = make_source(db_session)
+    art = make_article(db_session, source_id=src.id, status=ArticleStatus.ready)
+    result = runner.invoke(app, ["articles", "rerank", str(art.id), "--all"])
+    assert result.exit_code == 1
+
+
+def test_articles_rerank_neither_id_nor_all_exits_nonzero(runner):
+    result = runner.invoke(app, ["articles", "rerank"])
+    assert result.exit_code == 1

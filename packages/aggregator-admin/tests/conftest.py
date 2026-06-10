@@ -77,7 +77,7 @@ def db_engine():
 def clean_db(db_engine):
     """Truncate all data tables before each test for isolation."""
     with db_engine.connect() as conn:
-        conn.execute(text("TRUNCATE TABLE articles, sources RESTART IDENTITY CASCADE"))
+        conn.execute(text("TRUNCATE TABLE articles, sources, interest_profile RESTART IDENTITY CASCADE"))
         conn.commit()
     yield
 

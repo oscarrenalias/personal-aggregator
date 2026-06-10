@@ -1,6 +1,6 @@
 # aggregator-admin
 
-Command-line interface for operating the personal-aggregator datastore. It provides three command groups — `sources`, `articles`, and `ops` — that give direct read/write access to the shared Postgres state used by the retriever, processor, and summarize-rank pipeline services.
+Command-line interface for operating the personal-aggregator datastore. It provides four command groups — `sources`, `articles`, `ops`, and `profile` — that give direct read/write access to the shared Postgres state used by the retriever, processor, and summarize-rank pipeline services.
 
 The admin CLI is a maintenance tool and does **not** replace any pipeline service. It reads and writes the same rows that the pipeline workers do, so it respects the article state machine and all allowed transitions.
 
@@ -20,9 +20,13 @@ uv run aggregator-admin <command>
 
 Every read command (`list`, `show`, `search`, `status`, `stuck`, `failures`) accepts `--json`. When set, the command emits a JSON array (or object for `ops status`) to stdout instead of the default Rich table. Use this for scripting or piping to `jq`.
 
+### `--file`
+
+`profile set` accepts either an inline text argument or `--file <path>` pointing to a plain-text file. The two are mutually exclusive — providing both is an error.
+
 ### `--yes` / TTY confirmation
 
-Destructive commands (`sources remove`, `articles purge`) require confirmation before acting:
+Destructive commands (`sources remove`, `articles purge`, `profile clear`, `articles rerank --all`) require confirmation before acting:
 
 - **Interactive session (TTY):** the command prompts `[y/N]`; anything other than `y`/`yes` aborts.
 - **Non-interactive session (no TTY):** pass `--yes` (or `-y`) to proceed without a prompt. Without `--yes` the command exits with a non-zero code and prints an error.
@@ -60,7 +64,7 @@ uv run aggregator-admin articles <subcommand>
 | `show` | `ARTICLE_ID` | `--json` | Show full article details including claim fields, LLM outputs, and reader flags. |
 | `search` | `QUERY` | `--limit` (default 50), `--json` | Full-text search over processed articles using Postgres `tsvector`. Only articles that have been through the processor and have a `search_vector` are matched. |
 | `retry` | `[ARTICLE_ID]` | `--status` | Retry a single failed article, or all articles with a given failed status. Provide either an article ID or `--status failed_processing` / `--status failed_ranking`, not both. Resets `claimed_by`, `claimed_at`, `last_error`, and `retry_count`. |
-| `rerank` | `ARTICLE_ID` | | Queue a `ready` article for re-ranking by moving it back to `pending_ranking`. |
+| `rerank` | `[ARTICLE_ID]` | `--all`, `--yes/-y` | Queue a `ready` article for re-ranking by moving it back to `pending_ranking`. Pass `--all` instead of an article ID to requeue every `ready` article at once. `ARTICLE_ID` and `--all` are mutually exclusive; providing both is an error. `--all` requires confirmation. |
 | `mark-read` | `ARTICLE_ID` | | Set `is_read = true` and record `read_at`. |
 | `mark-unread` | `ARTICLE_ID` | | Clear `is_read` and `read_at`. |
 | `save` | `ARTICLE_ID` | | Set `is_saved = true`. |
