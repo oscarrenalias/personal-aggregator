@@ -1,0 +1,62 @@
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: aggregator
+      POSTGRES_PASSWORD: aggregator
+      POSTGRES_DB: aggregator
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aggregator -d aggregator"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  migrate:
+    image: ${IMAGE_PREFIX:-personal-aggregator}/aggregator-admin:${APP_VERSION:-dev}
+    entrypoint: ["aggregator-migrate"]
+    environment:
+      DATABASE_URL: postgresql://aggregator:aggregator@postgres:5432/aggregator
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  retriever:
+    image: ${IMAGE_PREFIX:-personal-aggregator}/aggregator-retriever:${APP_VERSION:-dev}
+    environment:
+      DATABASE_URL: postgresql://aggregator:aggregator@postgres:5432/aggregator
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  processor:
+    image: ${IMAGE_PREFIX:-personal-aggregator}/aggregator-processor:${APP_VERSION:-dev}
+    environment:
+      DATABASE_URL: postgresql://aggregator:aggregator@postgres:5432/aggregator
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  summarize-rank:
+    image: ${IMAGE_PREFIX:-personal-aggregator}/aggregator-summarize-rank:${APP_VERSION:-dev}
+    environment:
+      DATABASE_URL: postgresql://aggregator:aggregator@postgres:5432/aggregator
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+volumes:
+  pgdata:
