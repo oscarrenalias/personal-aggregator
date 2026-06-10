@@ -8,12 +8,12 @@ SERVICES=(retriever processor summarize-rank admin)
 echo "Building images version=${VERSION} prefix=${IMAGE_PREFIX}"
 
 for SERVICE in "${SERVICES[@]}"; do
-    echo "  -> ${IMAGE_PREFIX}/${SERVICE}:${VERSION}"
+    echo "  -> ${IMAGE_PREFIX}/aggregator-${SERVICE}:${VERSION}"
     docker buildx build \
         --platform linux/arm64 \
         --build-arg APP_VERSION="${VERSION}" \
-        -t "${IMAGE_PREFIX}/${SERVICE}:${VERSION}" \
-        -t "${IMAGE_PREFIX}/${SERVICE}:dev" \
+        -t "${IMAGE_PREFIX}/aggregator-${SERVICE}:${VERSION}" \
+        -t "${IMAGE_PREFIX}/aggregator-${SERVICE}:dev" \
         -f "packages/aggregator-${SERVICE}/Dockerfile" \
         .
 done
