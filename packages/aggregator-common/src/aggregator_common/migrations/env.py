@@ -3,8 +3,11 @@ from logging.config import fileConfig
 from alembic import context
 from sqlalchemy import engine_from_config, pool
 
+from aggregator_common.env import load_env
 from aggregator_common.config import Settings
 from aggregator_common.models import Base
+
+load_env()
 
 config = context.config
 

@@ -2,6 +2,7 @@ import sys
 
 import typer
 
+from aggregator_common import load_env
 from aggregator_common.config import Settings
 from aggregator_common.logging_setup import configure_logging
 
@@ -18,6 +19,7 @@ app.add_typer(ops_app, name="ops")
 
 @app.callback()
 def _startup() -> None:
+    load_env()
     configure_logging(Settings(), stream=sys.stderr)
 
 

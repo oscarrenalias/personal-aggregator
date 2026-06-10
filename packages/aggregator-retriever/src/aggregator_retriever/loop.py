@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
+from aggregator_common import load_env
 from aggregator_common.db import engine, get_session
 from aggregator_common.logging_setup import configure_logging
 from aggregator_common.models import Source
@@ -100,6 +101,7 @@ def run_once(settings: Settings, *, source_id: int | None = None, all_enabled: b
 
 
 def run() -> None:
+    load_env()
     settings = Settings()
     configure_logging(settings, stream=sys.stdout)
     shutdown = threading.Event()
@@ -175,6 +177,7 @@ def run() -> None:
 
 
 def cli() -> None:
+    load_env()
     parser = argparse.ArgumentParser(prog="aggregator-retriever", description="RSS/Atom feed retriever")
     parser.add_argument("--once", action="store_true", help="Run a single poll cycle then exit")
     parser.add_argument("--source", type=int, metavar="ID", help="Poll only this source ID (requires --once)")

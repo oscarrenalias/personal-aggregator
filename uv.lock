@@ -43,6 +43,7 @@ dependencies = [
     { name = "alembic" },
     { name = "psycopg", extra = ["binary"] },
     { name = "pydantic-settings" },
+    { name = "python-dotenv" },
     { name = "sqlalchemy" },
 ]
 
@@ -51,6 +52,7 @@ requires-dist = [
     { name = "alembic" },
     { name = "psycopg", extras = ["binary"] },
     { name = "pydantic-settings" },
+    { name = "python-dotenv" },
     { name = "sqlalchemy", specifier = ">=2" },
 ]
 
