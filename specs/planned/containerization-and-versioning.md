@@ -5,7 +5,7 @@ description: "Containerize the headless backend: per-service arm64 Dockerfiles (
 dependencies: null
 priority: high
 complexity: null
-status: draft
+status: planned
 tags:
 - packaging
 - docker
@@ -15,7 +15,7 @@ tags:
 scope:
   in: null
   out: null
-feature_root_id: null
+feature_root_id: B-21d9c973
 ---
 # Containerization and Versioning
 
