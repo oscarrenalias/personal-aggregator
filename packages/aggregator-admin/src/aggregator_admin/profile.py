@@ -9,6 +9,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from aggregator_common.db import get_session
 from aggregator_common.models import InterestProfile
+from aggregator_admin.output import confirm
 
 profile_app = typer.Typer(help="Manage the interest profile used for article ranking.")
 
@@ -49,6 +50,22 @@ def set_profile(
         session.execute(stmt)
 
     typer.echo(f"Profile set ({len(profile_text)} characters).")
+
+
+@profile_app.command("clear")
+def clear_profile(
+    yes: bool = typer.Option(False, "--yes", help="Skip confirmation prompt."),
+) -> None:
+    """Clear the interest profile (sets it to empty string)."""
+    confirm(yes=yes, prompt="Clear the interest profile?")
+
+    with get_session() as session:
+        profile = session.get(InterestProfile, True)
+        if profile is None:
+            return
+        profile.profile_text = ""
+
+    typer.echo("Profile cleared.")
 
 
 @profile_app.command("show")
