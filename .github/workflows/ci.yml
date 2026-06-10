@@ -105,3 +105,24 @@ jobs:
               -f "packages/aggregator-${SERVICE}/Dockerfile" \
               .
           done
+
+  publish:
+    needs: [build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create GitHub release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${{ needs.build.outputs.version }}"
+          gh release create "${VERSION}" \
+            --title "Release ${VERSION}" \
+            --generate-notes \
+            docker-compose.prod.yml \
+            deploy/aggregator.service \
+            deploy/install.sh \
+            .env.example
