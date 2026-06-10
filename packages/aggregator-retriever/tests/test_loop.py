@@ -2,11 +2,55 @@ import signal
 import subprocess
 import sys
 import time
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
+from unittest.mock import patch
 
 import pytest
 
-from aggregator_common.models import Source
+from aggregator_common.models import Article, Source
+
+# ---------------------------------------------------------------------------
+# Minimal mock httpx infrastructure reused by TestRunOnce
+# ---------------------------------------------------------------------------
+
+_MINIMAL_RSS_FEED = b"""<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>Test Feed</title>
+    <link>https://run-once-test.example.com</link>
+    <item>
+      <title>Test Article</title>
+      <link>https://run-once-test.example.com/article/1</link>
+      <guid>https://run-once-test.example.com/article/1</guid>
+    </item>
+  </channel>
+</rss>"""
+
+
+class _FeedResponse:
+    def __init__(self, body: bytes = _MINIMAL_RSS_FEED):
+        self.status_code = 200
+        self._body = body
+        self.headers = {}
+
+    def iter_bytes(self):
+        yield self._body
+
+
+class _FeedMockClient:
+    def __init__(self, body: bytes = _MINIMAL_RSS_FEED):
+        self._body = body
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        pass
+
+    @contextmanager
+    def stream(self, method, url, headers=None, **kwargs):
+        yield _FeedResponse(self._body)
 
 
 @pytest.fixture
@@ -114,6 +158,155 @@ class TestQueryDueSources:
 
         ids = _query_due_sources(session, set())
         assert ids.index(s_high.id) < ids.index(s_low.id)
+
+
+class TestRunOnce:
+    """Integration tests for run_once using testcontainer DB and stubbed httpx."""
+
+    def test_once_polls_only_due_sources(self, db_url, db_session_factory):
+        """--once fetches due sources and skips sources whose next_check_at is in the future."""
+        from sqlalchemy import select
+
+        from aggregator_retriever.config import Settings
+        from aggregator_retriever.loop import run_once
+
+        s = db_session_factory()
+        future = datetime.now(tz=timezone.utc) + timedelta(hours=1)
+        due_src = Source(
+            name="RunOnce-Due",
+            feed_url="https://runonce-due.example.com/feed.xml",
+            enabled=True,
+            refresh_interval_seconds=3600,
+        )
+        not_due_src = Source(
+            name="RunOnce-NotDue",
+            feed_url="https://runonce-notdue.example.com/feed.xml",
+            enabled=True,
+            refresh_interval_seconds=3600,
+            next_check_at=future,
+        )
+        s.add_all([due_src, not_due_src])
+        s.commit()
+        due_id = due_src.id
+        not_due_id = not_due_src.id
+        s.close()
+
+        settings = Settings()
+        with patch("httpx.Client", return_value=_FeedMockClient()):
+            run_once(settings)
+
+        s2 = db_session_factory()
+        due_articles = s2.execute(select(Article).where(Article.source_id == due_id)).scalars().all()
+        not_due_articles = s2.execute(select(Article).where(Article.source_id == not_due_id)).scalars().all()
+        s2.close()
+
+        assert len(due_articles) >= 1, "Due source should have articles"
+        assert all(a.status == "pending_processing" for a in due_articles)
+        assert len(not_due_articles) == 0, "Not-due source must be skipped under plain --once"
+
+    def test_once_source_polls_not_due_source(self, db_url, db_session_factory):
+        """--once --source <id> polls the target source regardless of next_check_at."""
+        from sqlalchemy import select
+
+        from aggregator_retriever.config import Settings
+        from aggregator_retriever.loop import run_once
+
+        s = db_session_factory()
+        future = datetime.now(tz=timezone.utc) + timedelta(hours=2)
+        not_due_src = Source(
+            name="RunOnce-SourceFlag",
+            feed_url="https://runonce-sourceflag.example.com/feed.xml",
+            enabled=True,
+            refresh_interval_seconds=3600,
+            next_check_at=future,
+        )
+        s.add(not_due_src)
+        s.commit()
+        src_id = not_due_src.id
+        s.close()
+
+        settings = Settings()
+        with patch("httpx.Client", return_value=_FeedMockClient()):
+            run_once(settings, source_id=src_id)
+
+        s2 = db_session_factory()
+        articles = s2.execute(select(Article).where(Article.source_id == src_id)).scalars().all()
+        s2.close()
+
+        assert len(articles) >= 1, "Source should be polled via --source even when not due"
+        assert all(a.status == "pending_processing" for a in articles)
+
+    def test_once_source_polls_disabled_source(self, db_url, db_session_factory):
+        """--once --source <id> polls the target source even when it is disabled."""
+        from sqlalchemy import select
+
+        from aggregator_retriever.config import Settings
+        from aggregator_retriever.loop import run_once
+
+        s = db_session_factory()
+        disabled_src = Source(
+            name="RunOnce-Disabled",
+            feed_url="https://runonce-disabled.example.com/feed.xml",
+            enabled=False,
+            refresh_interval_seconds=3600,
+        )
+        s.add(disabled_src)
+        s.commit()
+        src_id = disabled_src.id
+        s.close()
+
+        settings = Settings()
+        with patch("httpx.Client", return_value=_FeedMockClient()):
+            run_once(settings, source_id=src_id)
+
+        s2 = db_session_factory()
+        articles = s2.execute(select(Article).where(Article.source_id == src_id)).scalars().all()
+        s2.close()
+
+        assert len(articles) >= 1, "Disabled source should be polled via --source even when disabled"
+        assert all(a.status == "pending_processing" for a in articles)
+
+    def test_once_all_polls_all_enabled_sources(self, db_url, db_session_factory):
+        """--once --all polls both due and not-due enabled sources."""
+        from sqlalchemy import select
+
+        from aggregator_retriever.config import Settings
+        from aggregator_retriever.loop import run_once
+
+        s = db_session_factory()
+        future = datetime.now(tz=timezone.utc) + timedelta(hours=3)
+        all_due_src = Source(
+            name="RunOnce-All-Due",
+            feed_url="https://runonce-all-due.example.com/feed.xml",
+            enabled=True,
+            refresh_interval_seconds=3600,
+        )
+        all_not_due_src = Source(
+            name="RunOnce-All-NotDue",
+            feed_url="https://runonce-all-notdue.example.com/feed.xml",
+            enabled=True,
+            refresh_interval_seconds=3600,
+            next_check_at=future,
+        )
+        s.add_all([all_due_src, all_not_due_src])
+        s.commit()
+        all_due_id = all_due_src.id
+        all_not_due_id = all_not_due_src.id
+        s.close()
+
+        settings = Settings()
+        with patch("httpx.Client", return_value=_FeedMockClient()):
+            run_once(settings, all_enabled=True)
+
+        s2 = db_session_factory()
+        due_articles = s2.execute(select(Article).where(Article.source_id == all_due_id)).scalars().all()
+        not_due_articles = s2.execute(select(Article).where(Article.source_id == all_not_due_id)).scalars().all()
+        s2.close()
+
+        assert len(due_articles) >= 1, "Due source should be polled under --all"
+        assert all(a.status == "pending_processing" for a in due_articles)
+        assert len(not_due_articles) >= 1, "Not-due source should also be polled under --all"
+        assert all(a.status == "pending_processing" for a in not_due_articles)
 
 
 class TestSigterm:

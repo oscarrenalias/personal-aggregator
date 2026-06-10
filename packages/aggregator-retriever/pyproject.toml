@@ -9,7 +9,7 @@ dependencies = [
 ]
 
 [project.scripts]
-aggregator-retriever = "aggregator_retriever.loop:run"
+aggregator-retriever = "aggregator_retriever.loop:cli"
 
 [tool.uv.sources]
 aggregator-common = { workspace = true }
