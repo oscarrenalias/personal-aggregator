@@ -12,7 +12,7 @@ from aggregator_common.db import get_session
 from aggregator_common.models import Article
 from aggregator_common.state import ArticleStatus, can_transition
 
-from .output import json_or_table
+from .output import confirm, json_or_table
 
 articles_app = typer.Typer(help="Inspect and operate on articles.")
 
@@ -290,3 +290,41 @@ def unhide_article(
         article = _get_article_or_exit(session, article_id)
         article.is_hidden = False
     typer.echo(f"Article {article_id} unhidden.")
+
+
+@articles_app.command("purge")
+def purge_articles(
+    status: Optional[str] = typer.Option(None, "--status", help="Delete articles with this status."),
+    source: Optional[int] = typer.Option(None, "--source", help="Delete articles from this source ID."),
+    before: Optional[str] = typer.Option(None, "--before", help="Delete articles retrieved before this ISO date (e.g. 2024-01-01)."),
+    yes: bool = typer.Option(False, "--yes", help="Confirm deletion without prompting."),
+) -> None:
+    """Delete articles matching the given filters.
+
+    At least one of --status, --source, or --before is required.
+    """
+    if status is None and source is None and before is None:
+        typer.echo("Error: at least one filter (--status, --source, or --before) is required.", err=True)
+        raise typer.Exit(code=1)
+
+    before_dt: Optional[datetime] = None
+    if before is not None:
+        try:
+            before_dt = datetime.fromisoformat(before).replace(tzinfo=timezone.utc)
+        except ValueError:
+            typer.echo(f"Error: --before value {before!r} is not a valid ISO date.", err=True)
+            raise typer.Exit(code=1)
+
+    confirm(yes=yes, prompt="This will permanently delete matching articles.")
+
+    with get_session() as session:
+        q = session.query(Article)
+        if status is not None:
+            q = q.filter(Article.status == status)
+        if source is not None:
+            q = q.filter(Article.source_id == source)
+        if before_dt is not None:
+            q = q.filter(Article.retrieved_at < before_dt)
+        deleted = q.delete(synchronize_session=False)
+
+    typer.echo(f"Deleted {deleted} article(s).")
