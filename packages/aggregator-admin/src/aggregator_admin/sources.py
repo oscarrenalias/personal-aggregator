@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Optional
 
 import typer
@@ -86,3 +87,58 @@ def add_source(
         typer.echo(f"Error: a source with URL '{url}' already exists.", err=True)
         raise typer.Exit(code=1)
     typer.echo(new_id)
+
+
+def _get_source_or_exit(session, source_id: int) -> Source:
+    source = session.get(Source, source_id)
+    if source is None:
+        typer.echo(f"Error: source {source_id} not found.", err=True)
+        raise typer.Exit(code=1)
+    return source
+
+
+@sources_app.command("enable")
+def enable_source(
+    source_id: int = typer.Argument(..., help="Source ID."),
+) -> None:
+    """Enable a source, reset failure count, and schedule it for immediate check."""
+    with get_session() as session:
+        source = _get_source_or_exit(session, source_id)
+        source.enabled = True
+        source.consecutive_failures = 0
+        source.next_check_at = datetime.now(timezone.utc)
+    typer.echo(f"Source {source_id} enabled.")
+
+
+@sources_app.command("disable")
+def disable_source(
+    source_id: int = typer.Argument(..., help="Source ID."),
+) -> None:
+    """Disable a source."""
+    with get_session() as session:
+        source = _get_source_or_exit(session, source_id)
+        source.enabled = False
+    typer.echo(f"Source {source_id} disabled.")
+
+
+@sources_app.command("set-interval")
+def set_interval(
+    source_id: int = typer.Argument(..., help="Source ID."),
+    seconds: int = typer.Argument(..., help="Refresh interval in seconds."),
+) -> None:
+    """Update the refresh interval for a source."""
+    with get_session() as session:
+        source = _get_source_or_exit(session, source_id)
+        source.refresh_interval_seconds = seconds
+    typer.echo(f"Source {source_id} interval set to {seconds}s.")
+
+
+@sources_app.command("refresh-now")
+def refresh_now(
+    source_id: int = typer.Argument(..., help="Source ID."),
+) -> None:
+    """Schedule a source for immediate retrieval on the next poll cycle."""
+    with get_session() as session:
+        source = _get_source_or_exit(session, source_id)
+        source.next_check_at = datetime.now(timezone.utc)
+    typer.echo(f"Source {source_id} scheduled for immediate refresh.")
