@@ -83,7 +83,11 @@ def run_once(settings: Settings, *, source_id: int | None = None, all_enabled: b
 
     results: list[tuple[int, int]] = []
     for sid in source_ids:
-        count = _process_source(sid, settings)
+        try:
+            count = _process_source(sid, settings)
+        except Exception:
+            logger.exception("Source %s raised an unexpected error; skipping", sid)
+            count = 0
         results.append((sid, count))
 
     for sid, count in results:

@@ -236,6 +236,36 @@ class TestRunOnce:
         assert len(articles) >= 1, "Source should be polled via --source even when not due"
         assert all(a.status == "pending_processing" for a in articles)
 
+    def test_once_source_polls_disabled_source(self, db_url, db_session_factory):
+        """--once --source <id> polls the target source even when it is disabled."""
+        from sqlalchemy import select
+
+        from aggregator_retriever.config import Settings
+        from aggregator_retriever.loop import run_once
+
+        s = db_session_factory()
+        disabled_src = Source(
+            name="RunOnce-Disabled",
+            feed_url="https://runonce-disabled.example.com/feed.xml",
+            enabled=False,
+            refresh_interval_seconds=3600,
+        )
+        s.add(disabled_src)
+        s.commit()
+        src_id = disabled_src.id
+        s.close()
+
+        settings = Settings()
+        with patch("httpx.Client", return_value=_FeedMockClient()):
+            run_once(settings, source_id=src_id)
+
+        s2 = db_session_factory()
+        articles = s2.execute(select(Article).where(Article.source_id == src_id)).scalars().all()
+        s2.close()
+
+        assert len(articles) >= 1, "Disabled source should be polled via --source even when disabled"
+        assert all(a.status == "pending_processing" for a in articles)
+
     def test_once_all_polls_all_enabled_sources(self, db_url, db_session_factory):
         """--once --all polls both due and not-due enabled sources."""
         from sqlalchemy import select
