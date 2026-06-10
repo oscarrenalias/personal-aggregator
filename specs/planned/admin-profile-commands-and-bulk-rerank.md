@@ -5,7 +5,7 @@ description: "Add aggregator-admin 'profile' command group (show/set/clear the i
 dependencies: null
 priority: high
 complexity: null
-status: draft
+status: planned
 tags:
 - admin
 - cli
@@ -15,7 +15,7 @@ tags:
 scope:
   in: null
   out: null
-feature_root_id: null
+feature_root_id: B-9bd94eab
 ---
 # Admin Profile Commands and Bulk Rerank
 
