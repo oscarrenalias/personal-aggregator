@@ -7,6 +7,7 @@ from typing import Optional
 import typer
 from sqlalchemy import func, select
 
+from aggregator_common.claim import reap_stale_claims
 from aggregator_common.config import Settings
 from aggregator_common.db import get_session
 from aggregator_common.models import Article, Source
@@ -152,3 +153,19 @@ def failures_cmd(
         ]
 
     json_or_table(rows, ["id", "status", "retry_count", "last_error", "source"], as_json=as_json)
+
+
+@ops_app.command("reap")
+def reap_cmd(
+    lease_seconds: Optional[int] = typer.Option(
+        None,
+        "--lease-seconds",
+        help="Lease timeout in seconds (default: CLAIM_LEASE_SECONDS from config).",
+    ),
+) -> None:
+    """Release stale work claims older than the lease timeout."""
+    threshold = lease_seconds if lease_seconds is not None else Settings().claim_lease_seconds
+    now = datetime.now(tz=timezone.utc)
+    with get_session() as session:
+        released = reap_stale_claims(session, lease_seconds=threshold, now=now)
+    typer.echo(f"Released {released} stale claim(s).")

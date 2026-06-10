@@ -7,6 +7,7 @@ from sqlalchemy import func
 
 from aggregator_common.db import get_session
 from aggregator_common.models import Article
+from aggregator_common.state import ArticleStatus, can_transition
 
 from .output import json_or_table
 
@@ -67,6 +68,12 @@ def list_articles(
             q = q.filter(Article.source_id == source)
         rows = [_to_row(a, _LIST_COLUMNS) for a in q.limit(limit).all()]
     json_or_table(rows, _LIST_COLUMNS, as_json=as_json)
+
+
+_RETRY_TARGET: dict[ArticleStatus, ArticleStatus] = {
+    ArticleStatus.failed_processing: ArticleStatus.pending_processing,
+    ArticleStatus.failed_ranking: ArticleStatus.pending_ranking,
+}
 
 
 @articles_app.command("show")

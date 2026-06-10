@@ -7,9 +7,9 @@ import typer
 from sqlalchemy.exc import IntegrityError
 
 from aggregator_common.db import get_session
-from aggregator_common.models import Source
+from aggregator_common.models import Article, Source
 
-from .output import json_or_table
+from .output import confirm, json_or_table
 
 sources_app = typer.Typer(help="Manage feed sources.")
 
