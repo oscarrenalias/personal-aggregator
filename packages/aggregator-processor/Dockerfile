@@ -2,12 +2,12 @@ FROM python:3.13-slim AS builder
 
 RUN pip install uv
 
-WORKDIR /build
+WORKDIR /app
 
 COPY pyproject.toml uv.lock ./
 COPY packages/ packages/
 
-RUN uv sync --frozen --no-dev --package aggregator-processor
+RUN uv sync --frozen --no-dev --no-editable --package aggregator-processor
 
 FROM python:3.13-slim AS runtime
 
@@ -21,7 +21,7 @@ LABEL org.opencontainers.image.title="aggregator-processor" \
 
 RUN useradd --system --no-create-home --shell /sbin/nologin appuser
 
-COPY --from=builder /build/.venv /app/.venv
+COPY --from=builder /app/.venv /app/.venv
 
 USER appuser
 
