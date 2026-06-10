@@ -86,7 +86,42 @@ uv run aggregator-admin ops <subcommand>
 | `failures` | `--stage processing\|ranking`, `--limit` (default 50), `--json` | List failed articles with `last_error`, `retry_count`, and source name. Omit `--stage` to show all failures. |
 | `reap` | `--lease-seconds` | Immediately release all stale claims older than the lease threshold, returning the affected articles to their pending state so workers can re-claim them. Defaults to `CLAIM_LEASE_SECONDS` from config. |
 
+### `profile` — manage the interest profile
+
+The `profile` group manages the free-text interest profile that the summarize-rank service uses when scoring articles. The profile is a singleton row in the database: there is at most one active profile at any time.
+
+```
+uv run aggregator-admin profile <subcommand>
+```
+
+| Subcommand | Arguments | Options | Description |
+|---|---|---|---|
+| `show` | | `--json` | Print the current profile text and its last-updated timestamp. Prints `(empty — neutral ranking)` when no profile is set. `--json` emits `{"profile_text": "...", "updated_at": "..."}`. |
+| `set` | `[TEXT]` | `--file PATH` | Set (or replace) the interest profile. Pass the profile as an inline argument **or** via `--file <path>`; providing both is an error. Prints the character count of the saved profile on success. |
+| `clear` | | `--yes/-y` | Clear the profile (sets it to an empty string). Requires confirmation; pass `--yes` to skip the prompt in non-interactive sessions. |
+
+**Examples:**
+
+```bash
+# Set profile from inline text
+uv run aggregator-admin profile set "I'm interested in AI, distributed systems, and climate tech."
+
+# Set profile from a file
+uv run aggregator-admin profile set --file ~/my-interests.txt
+
+# Show the current profile
+uv run aggregator-admin profile show
+
+# Show as JSON (for scripting)
+uv run aggregator-admin profile show --json
+
+# Clear the profile (interactive confirmation)
+uv run aggregator-admin profile clear
+
+# Clear without prompting (non-interactive / CI)
+uv run aggregator-admin profile clear --yes
+```
+
 ## Known limitations (v1)
 
 - **No article re-extraction.** There is no command to re-run content extraction on a processed article. To force re-processing, use `articles retry --status failed_processing` (if the article previously failed) or reset the article's status directly in the database.
-- **Profile management deferred.** The `profile` command group for managing the interest profile used by the summarize-rank service is not included in v1. It will be added as part of the summarize-rank milestone.
