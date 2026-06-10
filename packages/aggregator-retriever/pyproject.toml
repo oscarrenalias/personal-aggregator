@@ -5,10 +5,11 @@ requires-python = ">=3.12"
 dependencies = [
     "aggregator-common",
     "feedparser>=6",
+    "httpx>=0.27",
 ]
 
 [project.scripts]
-aggregator-retriever = "aggregator_retriever.main:main"
+aggregator-retriever = "aggregator_retriever.loop:run"
 
 [tool.uv.sources]
 aggregator-common = { workspace = true }
