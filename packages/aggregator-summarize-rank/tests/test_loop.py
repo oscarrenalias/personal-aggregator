@@ -188,19 +188,23 @@ class TestConcurrentRunOnce:
 
         def _worker():
             try:
-                with (
-                    patch("litellm.completion", return_value=_make_litellm_response()),
-                    patch("litellm.completion_cost", return_value=0.001),
-                ):
-                    from aggregator_summarize_rank.loop import run_once
-                    run_once(settings)
+                from aggregator_summarize_rank.loop import run_once
+                run_once(settings)
             except Exception as exc:
                 errors.append(exc)
 
-        with ThreadPoolExecutor(max_workers=2) as pool:
-            futures = [pool.submit(_worker) for _ in range(2)]
-            for f in futures:
-                f.result()
+        # Patch once in the main thread so the mock stays installed for the whole
+        # concurrent run. Patching the global litellm.completion from inside each
+        # worker thread races: one thread restores the original while the other's
+        # pool sub-threads are still calling it.
+        with (
+            patch("litellm.completion", return_value=_make_litellm_response()),
+            patch("litellm.completion_cost", return_value=0.001),
+        ):
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                futures = [pool.submit(_worker) for _ in range(2)]
+                for f in futures:
+                    f.result()
 
         assert not errors, f"Worker errors: {errors}"
 
