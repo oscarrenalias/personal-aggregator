@@ -133,6 +133,38 @@ def set_interval(
     typer.echo(f"Source {source_id} interval set to {seconds}s.")
 
 
+@sources_app.command("remove")
+def remove_source(
+    source_id: int = typer.Argument(..., help="Source ID."),
+    force: bool = typer.Option(False, "--force", help="Cascade delete to associated articles."),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation prompt."),
+) -> None:
+    """Delete a source.
+
+    Refused when the source has associated articles unless --force is given.
+    With --force all articles belonging to the source are deleted first.
+    """
+    with get_session() as session:
+        source = _get_source_or_exit(session, source_id)
+        article_count = session.query(Article).filter(Article.source_id == source_id).count()
+        if article_count > 0 and not force:
+            typer.echo(
+                f"Error: source {source_id} has {article_count} article(s). "
+                "Use --force to cascade the delete.",
+                err=True,
+            )
+            raise typer.Exit(code=1)
+        confirm(
+            yes=yes,
+            prompt=f"Delete source {source_id} ('{source.name}')"
+            + (f" and {article_count} article(s)?" if article_count > 0 else "?"),
+        )
+        if article_count > 0:
+            session.query(Article).filter(Article.source_id == source_id).delete()
+        session.delete(source)
+    typer.echo(f"Source {source_id} deleted.")
+
+
 @sources_app.command("refresh-now")
 def refresh_now(
     source_id: int = typer.Argument(..., help="Source ID."),
