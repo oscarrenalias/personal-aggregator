@@ -5,7 +5,7 @@ description: "aggregator-processor service: claims pending_processing articles, 
 dependencies: null
 priority: high
 complexity: null
-status: draft
+status: planned
 tags:
 - processor
 - service
@@ -14,7 +14,7 @@ tags:
 scope:
   in: null
   out: null
-feature_root_id: null
+feature_root_id: B-aec923f0
 ---
 # Processor Service
 
