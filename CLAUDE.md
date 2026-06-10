@@ -124,6 +124,8 @@ Transitions are enforced in `state.py` via `_ALLOWED_TRANSITIONS` (a frozen set 
 | `CLAIM_LEASE_SECONDS` | `600` | Work-claim lease duration (seconds) |
 | `LOG_LEVEL` | `INFO` | Log level for all services |
 
+**Per-service config convention:** Each service subclasses `aggregator_common.config.Settings` and adds its own fields using a `<SERVICE>_` prefix (e.g., `PROCESSOR_BATCH_SIZE`, `RETRIEVER_POLL_INTERVAL_SECONDS`). Shared fields live in the base class; service-specific fields never bleed into other services' namespaces.
+
 ## Spec order
 
 Build in dependency order, one spec per component:
