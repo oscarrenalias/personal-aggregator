@@ -1,0 +1,10 @@
+extends: relaxed
+
+rules:
+  # GitHub Actions uses 'on:' as a trigger keyword; PyYAML parses it as boolean
+  # true under YAML 1.1 — this is a yamllint/PyYAML quirk, not a real error.
+  truthy:
+    allowed-values: ['true', 'false', 'on', 'off']
+  # Docker build commands and GHCR image paths regularly exceed 80 chars.
+  line-length:
+    max: 120
