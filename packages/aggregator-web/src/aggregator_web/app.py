@@ -102,27 +102,30 @@ def _render_interaction_response(
     article: Article,
     hx_target: Optional[str],
 ) -> Response:
-    """Return _article_detail.html when the HTMX target is the detail pane, else _article_card.html.
+    """Return primary fragment + OOB counterpart so both list card and detail pane stay in sync.
 
-    Every response also sets ``HX-Trigger: refreshSidebar``.  The sidebar nav
-    in shell.html listens for this event (``hx-trigger="refreshSidebar from:body"``)
-    and re-fetches /sidebar, keeping unread counts in sync after any read/save
-    action.  The three ``/read-all`` endpoints return the same header directly.
+    When the reader pane is the target (HX-Target == 'article-detail'), the detail
+    fragment is primary and the matching card is appended with hx-swap-oob="true".
+    When a card is the target, the card is primary and the detail pane is appended
+    OOB.  HTMX only applies the OOB swap when the target element exists in the DOM,
+    so it silently no-ops when the other representation is not currently rendered.
+
+    Every response also sets ``HX-Trigger: refreshSidebar`` to keep sidebar counts
+    in sync.
     """
     if hx_target == "article-detail":
-        response: Response = templates.TemplateResponse(
-            request,
-            "_article_detail.html",
-            {"article": article},
+        primary = templates.get_template("_article_detail.html").render(article=article)
+        oob = templates.get_template("_article_card.html").render(
+            article=article, is_last=False, next_url=None, oob=True
         )
     else:
-        response = HTMLResponse(
-            templates.get_template("_article_card.html").render(
-                article=article,
-                is_last=False,
-                next_url=None,
-            )
+        primary = templates.get_template("_article_card.html").render(
+            article=article, is_last=False, next_url=None
         )
+        oob = templates.get_template("_article_detail.html").render(
+            article=article, oob=True
+        )
+    response: Response = HTMLResponse(primary + oob)
     response.headers["HX-Trigger"] = "refreshSidebar"
     return response
 

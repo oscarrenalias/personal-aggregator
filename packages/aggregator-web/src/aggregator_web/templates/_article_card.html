@@ -25,11 +25,13 @@
 {% set date = article.published_at or article.feed_published_at %}
 {% set excerpt_text = article.excerpt or article.feed_summary or "" %}
 
-<article class="article-card{% if article.is_read %} is-read{% endif %}{% if article.is_saved %} is-saved{% endif %}"
+<article id="article-card-{{ article.id }}"
+         class="article-card{% if article.is_read %} is-read{% endif %}{% if article.is_saved %} is-saved{% endif %}"
          data-article-id="{{ article.id }}"
          data-source-url="{{ article.feed_url or '' }}"
          :class="{ 'is-selected': selectedId === {{ article.id }} }"
          @click="select({{ article.id }})"
+         {% if oob %}hx-swap-oob="true"{% endif %}
          {% if is_last and next_url %}
          hx-get="{{ next_url }}"
          hx-trigger="revealed"

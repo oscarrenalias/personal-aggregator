@@ -305,6 +305,108 @@ def test_post_interaction_returns_detail_when_hx_target_is_detail(db_session, cl
     assert 'id="article-detail"' in response.text
 
 
+# ---------------------------------------------------------------------------
+# OOB sync: card ↔ detail state stays in sync via hx-swap-oob
+# ---------------------------------------------------------------------------
+
+
+def test_article_card_has_stable_id_attribute(db_session, client):
+    """Article card must render id='article-card-{id}' so hx-swap-oob can target it."""
+    src = make_source(db_session)
+    article = make_article(db_session, source_id=src.id)
+    response = client.get(f"/feed/source/{src.id}")
+    assert response.status_code == 200
+    assert f'id="article-card-{article.id}"' in response.text
+
+
+def test_post_read_with_detail_target_returns_both_fragments(db_session, client):
+    """POST /read with HX-Target=article-detail must return primary detail + OOB card."""
+    src = make_source(db_session)
+    article = make_article(db_session, source_id=src.id, is_read=False)
+    response = client.post(
+        f"/article/{article.id}/read",
+        headers={"HX-Target": "article-detail"},
+    )
+    assert response.status_code == 200
+    html = response.text
+    assert 'id="article-detail"' in html
+    assert f'id="article-card-{article.id}"' in html
+    assert 'hx-swap-oob="true"' in html
+    assert "is-read" in html
+
+
+def test_post_read_with_card_target_returns_both_fragments(db_session, client):
+    """POST /read without article-detail HX-Target must return primary card + OOB detail."""
+    src = make_source(db_session)
+    article = make_article(db_session, source_id=src.id, is_read=False)
+    response = client.post(f"/article/{article.id}/read")
+    assert response.status_code == 200
+    html = response.text
+    assert f'id="article-card-{article.id}"' in html
+    assert 'id="article-detail"' in html
+    assert 'hx-swap-oob="true"' in html
+    assert "is-read" in html
+
+
+def test_post_unread_with_detail_target_returns_both_fragments(db_session, client):
+    """POST /unread with HX-Target=article-detail returns detail primary + OOB card."""
+    src = make_source(db_session)
+    article = make_article(db_session, source_id=src.id, is_read=True)
+    response = client.post(
+        f"/article/{article.id}/unread",
+        headers={"HX-Target": "article-detail"},
+    )
+    assert response.status_code == 200
+    html = response.text
+    assert 'id="article-detail"' in html
+    assert f'id="article-card-{article.id}"' in html
+    assert 'hx-swap-oob="true"' in html
+
+
+def test_post_save_with_detail_target_returns_both_fragments(db_session, client):
+    """POST /save with HX-Target=article-detail returns detail primary + OOB card."""
+    src = make_source(db_session)
+    article = make_article(db_session, source_id=src.id, is_saved=False)
+    response = client.post(
+        f"/article/{article.id}/save",
+        headers={"HX-Target": "article-detail"},
+    )
+    assert response.status_code == 200
+    html = response.text
+    assert 'id="article-detail"' in html
+    assert f'id="article-card-{article.id}"' in html
+    assert 'hx-swap-oob="true"' in html
+    assert "is-saved" in html
+
+
+def test_post_save_with_card_target_returns_both_fragments(db_session, client):
+    """POST /save without article-detail HX-Target returns card primary + OOB detail."""
+    src = make_source(db_session)
+    article = make_article(db_session, source_id=src.id, is_saved=False)
+    response = client.post(f"/article/{article.id}/save")
+    assert response.status_code == 200
+    html = response.text
+    assert f'id="article-card-{article.id}"' in html
+    assert 'id="article-detail"' in html
+    assert 'hx-swap-oob="true"' in html
+    assert "is-saved" in html
+
+
+def test_post_unsave_with_detail_target_returns_both_fragments(db_session, client):
+    """POST /unsave with HX-Target=article-detail returns detail primary + OOB card."""
+    src = make_source(db_session)
+    article = make_article(db_session, source_id=src.id, is_saved=True)
+    response = client.post(
+        f"/article/{article.id}/unsave",
+        headers={"HX-Target": "article-detail"},
+    )
+    assert response.status_code == 200
+    html = response.text
+    assert 'id="article-detail"' in html
+    assert f'id="article-card-{article.id}"' in html
+    assert 'hx-swap-oob="true"' in html
+
+
 def test_post_article_read_not_found(client):
     response = client.post("/article/99999/read")
     assert response.status_code == 404

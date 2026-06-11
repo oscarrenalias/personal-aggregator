@@ -14,7 +14,8 @@
 <div class="article-detail{% if article.is_read %} is-read{% endif %}{% if article.is_saved %} is-saved{% endif %}"
      id="article-detail"
      data-article-id="{{ article.id }}"
-     data-source-url="{{ article.feed_url or '' }}">
+     data-source-url="{{ article.feed_url or '' }}"
+     {% if oob %}hx-swap-oob="true"{% endif %}>
 
   {% if article.header_image_url %}
   <div class="detail-hero">
