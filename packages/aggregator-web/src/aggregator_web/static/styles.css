@@ -680,3 +680,20 @@ button {
   border-radius: var(--r-md);
   margin: 12px 0;
 }
+
+/* ── Article detail — chips, actions, body divider ──────────── */
+.detail-chips {
+  margin-bottom: 12px;
+}
+
+.detail-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.detail-body {
+  border-top: 1px solid var(--c-border);
+  margin-top: 20px;
+  padding-top: 20px;
+}
