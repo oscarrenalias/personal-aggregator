@@ -66,7 +66,7 @@ jobs:
       - name: Read version
         id: read_version
         run: |
-          VERSION="v$(uv version --output-format value)"
+          VERSION="v$(uv version --short)"
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
 
       - name: Commit and push version bump

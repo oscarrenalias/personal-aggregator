@@ -7,7 +7,7 @@ if ! command -v uv &>/dev/null; then
 fi
 
 IMAGE_PREFIX=${IMAGE_PREFIX:-personal-aggregator}
-VERSION=$(uv version --output-format value)
+VERSION="v$(uv version --short)"
 SERVICES=(retriever processor summarize-rank admin)
 
 echo "Building images version=${VERSION} prefix=${IMAGE_PREFIX}"
