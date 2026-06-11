@@ -67,6 +67,10 @@ src/aggregator_retriever/
                 dedup_key computation. Also serializes feedparser entries to JSON-safe dicts.
   parse.py      Wraps feedparser. Returns a list of NormalizedEntry dataclasses, one per feed entry.
                 Entries with no derivable dedup_key are logged and skipped.
+                Emits a WARNING when the response body is non-empty but feedparser yields 0 entries
+                and either bozo=True (malformed feed) or version='' (unrecognised format, e.g.
+                Brotli-encoded body not decoded before parsing). Includes bozo_exception for
+                diagnosis.
   persist.py    Article upsert (INSERT … ON CONFLICT DO NOTHING) and source metadata updates
                 (success resets failures; failure increments counter, schedules backoff, and
                 disables the source when the failure threshold is reached).
