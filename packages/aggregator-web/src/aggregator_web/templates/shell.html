@@ -82,6 +82,35 @@
 
   </div>
 
+  <!-- Keyboard shortcuts help overlay (toggled by ?, dismissed by Escape or close button) -->
+  <div class="shortcuts-overlay"
+       x-show="showHelp"
+       x-cloak
+       @click.self="showHelp = false"
+       role="dialog"
+       aria-modal="true"
+       aria-label="Keyboard shortcuts">
+    <div class="shortcuts-panel">
+      <div class="shortcuts-header">
+        <h2 class="shortcuts-title">Keyboard shortcuts</h2>
+        <button class="shortcuts-close"
+                type="button"
+                @click="showHelp = false"
+                aria-label="Close keyboard shortcuts">&#x2715;</button>
+      </div>
+      <table class="shortcuts-table">
+        <tbody>
+          <tr><td><kbd>j</kbd></td><td>Next article</td></tr>
+          <tr><td><kbd>k</kbd></td><td>Previous article</td></tr>
+          <tr><td><kbd>v</kbd></td><td>Open source in new tab</td></tr>
+          <tr><td><kbd>m</kbd></td><td>Toggle read / unread</td></tr>
+          <tr><td><kbd>/</kbd></td><td>Focus search</td></tr>
+          <tr><td><kbd>?</kbd></td><td>Toggle this help</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
   <script src="/static/app.js" defer></script>
   <script>
     if ('serviceWorker' in navigator) {

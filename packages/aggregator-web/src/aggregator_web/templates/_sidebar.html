@@ -1,5 +1,22 @@
 <div class="sidebar-content">
 
+  <!-- Search affordance -->
+  <div class="sidebar-search-wrap">
+    <button class="sidebar-search-btn"
+            type="button"
+            aria-label="Search articles"
+            @click="focusSearch()">
+      <svg class="sidebar-search-icon" aria-hidden="true" focusable="false"
+           viewBox="0 0 20 20" fill="none" stroke="currentColor"
+           stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="8.5" cy="8.5" r="5.5"/>
+        <line x1="13" y1="13" x2="18" y2="18"/>
+      </svg>
+      <span class="sidebar-search-label">Search</span>
+      <kbd class="sidebar-search-hint">/</kbd>
+    </button>
+  </div>
+
   <!-- Smart views -->
   <section class="sidebar-section" aria-labelledby="smart-views-heading">
     <h2 class="sidebar-section-title" id="smart-views-heading">Smart Views</h2>

@@ -7,11 +7,21 @@
 function aggregatorApp() {
   return {
     drawerOpen: false,
+    showHelp: false,
 
     /* Handles keydown events on the window (delegated from @keydown.window). */
     handleKey(event) {
-      if (event.key !== '/') return;
+      if (event.key === 'Escape') {
+        if (this.showHelp) { this.showHelp = false; }
+        return;
+      }
       if (event.target.tagName === 'INPUT' || event.target.tagName === 'TEXTAREA') return;
+      if (event.key === '?') {
+        event.preventDefault();
+        this.showHelp = !this.showHelp;
+        return;
+      }
+      if (event.key !== '/') return;
       event.preventDefault();
       this.focusSearch();
     },

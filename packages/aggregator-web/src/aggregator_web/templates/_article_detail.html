@@ -29,15 +29,37 @@
   <div class="detail-content">
 
     <header class="detail-header">
-      <div class="detail-meta">
-        <span class="source-name">{{ article.source_name }}</span>
+      <div class="detail-reader-toolbar">
+        <button class="toolbar-btn btn-read"
+                hx-post="/article/{{ article.id }}/{{ 'unread' if article.is_read else 'read' }}"
+                hx-target="#article-detail"
+                hx-swap="outerHTML"
+                aria-label="{{ 'Mark as unread' if article.is_read else 'Mark as read' }}"
+                title="{{ 'Mark as unread' if article.is_read else 'Mark as read' }}">
+          {% if article.is_read %}○{% else %}●{% endif %}
+        </button>
+
+        <button class="toolbar-btn btn-save{% if article.is_saved %} is-active{% endif %}"
+                hx-post="/article/{{ article.id }}/{{ 'unsave' if article.is_saved else 'save' }}"
+                hx-target="#article-detail"
+                hx-swap="outerHTML"
+                aria-label="{{ 'Remove from saved' if article.is_saved else 'Save article' }}"
+                title="{{ 'Remove from saved' if article.is_saved else 'Save article' }}">
+          {% if article.is_saved %}★{% else %}☆{% endif %}
+        </button>
 
         {% if article.feed_url %}
-        <a class="open-source-link"
+        <a class="toolbar-btn btn-open-source"
            href="{{ article.feed_url }}"
            target="_blank"
-           rel="noopener">Open source ↗</a>
+           rel="noopener"
+           aria-label="Open article source in new tab"
+           title="Open article source in new tab">↗</a>
         {% endif %}
+      </div>
+
+      <div class="detail-meta">
+        <span class="source-name">{{ article.source_name }}</span>
 
         {% if date %}
         <time datetime="{{ date.isoformat() }}" class="pub-date">
@@ -84,33 +106,6 @@
       </div>
       {% endif %}
 
-      <div class="detail-actions">
-        <button class="btn-read"
-                hx-post="/article/{{ article.id }}/{{ 'unread' if article.is_read else 'read' }}"
-                hx-target="#article-detail"
-                hx-swap="outerHTML"
-                aria-label="{{ 'Mark as unread' if article.is_read else 'Mark as read' }}">
-          <span aria-hidden="true">{% if article.is_read %}○{% else %}●{% endif %}</span>
-          {{ 'Mark unread' if article.is_read else 'Mark read' }}
-        </button>
-
-        <button class="btn-save{% if article.is_saved %} is-active{% endif %}"
-                hx-post="/article/{{ article.id }}/{{ 'unsave' if article.is_saved else 'save' }}"
-                hx-target="#article-detail"
-                hx-swap="outerHTML"
-                aria-label="{{ 'Remove from saved' if article.is_saved else 'Save article' }}">
-          <span aria-hidden="true">{% if article.is_saved %}★{% else %}☆{% endif %}</span>
-          {{ 'Saved' if article.is_saved else 'Save' }}
-        </button>
-
-        {% if article.feed_url %}
-        <a class="btn-open-source"
-           href="{{ article.feed_url }}"
-           target="_blank"
-           rel="noopener"
-           aria-label="Open article source in new tab">↗ Open source</a>
-        {% endif %}
-      </div>
     </header>
 
     {% if article.summary %}

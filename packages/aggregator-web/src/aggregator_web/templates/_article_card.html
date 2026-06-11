@@ -36,6 +36,28 @@
          hx-swap="afterend"
          {% endif %}>
 
+  <div class="card-actions">
+    <button class="btn-read"
+            hx-post="/article/{{ article.id }}/{{ 'unread' if article.is_read else 'read' }}"
+            hx-target="closest article"
+            hx-swap="outerHTML"
+            aria-label="{{ 'Mark as unread' if article.is_read else 'Mark as read' }}"
+            title="{{ 'Mark as unread' if article.is_read else 'Mark as read' }}">
+      <span aria-hidden="true">{% if article.is_read %}○{% else %}●{% endif %}</span>
+      <span class="sr-only">{% if article.is_read %}Unread{% else %}Read{% endif %}</span>
+    </button>
+
+    <button class="btn-save{% if article.is_saved %} is-active{% endif %}"
+            hx-post="/article/{{ article.id }}/{{ 'unsave' if article.is_saved else 'save' }}"
+            hx-target="closest article"
+            hx-swap="outerHTML"
+            aria-label="{{ 'Remove from saved' if article.is_saved else 'Save article' }}"
+            title="{{ 'Remove from saved' if article.is_saved else 'Save article' }}">
+      <span aria-hidden="true">{% if article.is_saved %}★{% else %}☆{% endif %}</span>
+      <span class="sr-only">{% if article.is_saved %}Saved{% else %}Save{% endif %}</span>
+    </button>
+  </div>
+
   {% if article.header_image_url %}
   <div class="card-image">
     <img src="{{ article.header_image_url }}"
@@ -94,25 +116,6 @@
     <p class="card-excerpt">{{ excerpt_text | truncate(220) }}</p>
     {% endif %}
 
-    <div class="card-actions">
-      <button class="btn-read"
-              hx-post="/article/{{ article.id }}/{{ 'unread' if article.is_read else 'read' }}"
-              hx-target="closest article"
-              hx-swap="outerHTML"
-              aria-label="{{ 'Mark as unread' if article.is_read else 'Mark as read' }}">
-        <span aria-hidden="true">{% if article.is_read %}○{% else %}●{% endif %}</span>
-        <span class="sr-only">{% if article.is_read %}Unread{% else %}Read{% endif %}</span>
-      </button>
-
-      <button class="btn-save{% if article.is_saved %} is-active{% endif %}"
-              hx-post="/article/{{ article.id }}/{{ 'unsave' if article.is_saved else 'save' }}"
-              hx-target="closest article"
-              hx-swap="outerHTML"
-              aria-label="{{ 'Remove from saved' if article.is_saved else 'Save article' }}">
-        <span aria-hidden="true">{% if article.is_saved %}★{% else %}☆{% endif %}</span>
-        <span class="sr-only">{% if article.is_saved %}Saved{% else %}Save{% endif %}</span>
-      </button>
-    </div>
   </div>
 
 </article>
