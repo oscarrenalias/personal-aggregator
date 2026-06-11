@@ -84,7 +84,7 @@
     </div>
     {% elif article.topics %}
     <div class="card-chips">
-      {% for topic in article.topics.keys() %}
+      {% for topic in article.topics %}
       <span class="chip chip-topic">{{ topic | e }}</span>
       {% endfor %}
     </div>

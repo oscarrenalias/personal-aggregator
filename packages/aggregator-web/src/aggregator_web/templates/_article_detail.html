@@ -77,7 +77,7 @@
           {% endfor %}
         {% endif %}
         {% if article.topics %}
-          {% for topic in article.topics.keys() %}
+          {% for topic in article.topics %}
           <span class="chip chip-topic">{{ topic | e }}</span>
           {% endfor %}
         {% endif %}

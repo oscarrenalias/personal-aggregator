@@ -220,6 +220,24 @@ def test_get_article_detail_has_open_source_link(db_session, client):
     assert "https://example.com/article/open-source" in response.text
 
 
+def test_article_with_topics_list_renders(db_session, client):
+    """Regression: topics is a JSONB list; templates must iterate it directly,
+    not call .keys(). Detail + card 500'd on real data before the fix."""
+    src = make_source(db_session)
+    article = make_article(
+        db_session,
+        source_id=src.id,
+        clean_title="Topic Article",
+        topics=["AI", "Gaming"],
+        categories=None,  # force the card's topics branch
+    )
+    detail = client.get(f"/article/{article.id}")
+    assert detail.status_code == 200
+    assert "AI" in detail.text and "Gaming" in detail.text
+    feed = client.get(f"/feed/source/{src.id}")
+    assert feed.status_code == 200
+
+
 def test_get_article_detail_not_found(client):
     response = client.get("/article/99999")
     assert response.status_code == 404
