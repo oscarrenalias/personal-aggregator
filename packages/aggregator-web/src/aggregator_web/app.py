@@ -87,18 +87,21 @@ def _render_interaction_response(
 ) -> Response:
     """Return _article_detail.html when the HTMX target is the detail pane, else _article_card.html."""
     if hx_target == "article-detail":
-        return templates.TemplateResponse(
+        response: Response = templates.TemplateResponse(
             request,
             "_article_detail.html",
             {"article": article},
         )
-    return HTMLResponse(
-        templates.get_template("_article_card.html").render(
-            article=article,
-            is_last=False,
-            next_url=None,
+    else:
+        response = HTMLResponse(
+            templates.get_template("_article_card.html").render(
+                article=article,
+                is_last=False,
+                next_url=None,
+            )
         )
-    )
+    response.headers["HX-Trigger"] = "refreshSidebar"
+    return response
 
 
 def _build_next_url(base: str, next_cursor: Optional[str], unread_only: bool) -> Optional[str]:
@@ -263,7 +266,7 @@ def smart_read_all(
     db: Session = Depends(get_db),
 ) -> Response:
     mark_all_read(db, FeedSpec(type="smart", value=view), settings.web_important_threshold)
-    return Response(status_code=200)
+    return Response(status_code=200, headers={"HX-Trigger": "refreshSidebar"})
 
 
 @app.post("/feed/category/{name}/read-all", status_code=200)
@@ -272,7 +275,7 @@ def category_read_all(
     db: Session = Depends(get_db),
 ) -> Response:
     mark_all_read(db, FeedSpec(type="category", value=name), settings.web_important_threshold)
-    return Response(status_code=200)
+    return Response(status_code=200, headers={"HX-Trigger": "refreshSidebar"})
 
 
 @app.post("/feed/source/{source_id}/read-all", status_code=200)
@@ -281,7 +284,7 @@ def source_read_all(
     db: Session = Depends(get_db),
 ) -> Response:
     mark_all_read(db, FeedSpec(type="source", value=source_id), settings.web_important_threshold)
-    return Response(status_code=200)
+    return Response(status_code=200, headers={"HX-Trigger": "refreshSidebar"})
 
 
 @app.get("/article/{article_id}")
