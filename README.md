@@ -96,6 +96,31 @@ uv run --all-packages aggregator-admin sources list
 uv run --all-packages aggregator-admin sources refresh-now <id>   # fetch on next poll cycle
 ```
 
+**Import sources from an OPML file:**
+
+```bash
+uv run --all-packages aggregator-admin sources import-opml subscriptions.opml
+# dry-run: preview what would be added without touching the database
+uv run --all-packages aggregator-admin sources import-opml subscriptions.opml --dry-run
+# import disabled, with a custom refresh interval, and capture the result as JSON
+uv run --all-packages aggregator-admin sources import-opml feedly-export.opml --disabled --interval 7200 --json
+```
+
+Flags: `--dry-run` (preview only), `--interval <seconds>` (default 3600), `--disabled` (import in disabled state), `--json` (machine-readable output).
+
+Nested OPML folders are flattened. Duplicate URLs — both within the file and against existing sources — are skipped automatically.
+
+**Export sources to OPML:**
+
+```bash
+# print to stdout
+uv run --all-packages aggregator-admin sources export-opml
+# write to a file
+uv run --all-packages aggregator-admin sources export-opml backup.opml
+```
+
+All sources are exported as OPML 2.0, sorted alphabetically by name. The optional positional argument is the output file path; omit it to write to stdout.
+
 **Manage categories** (the controlled set the LLM classifies articles into):
 
 ```bash
