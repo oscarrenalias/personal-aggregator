@@ -51,6 +51,8 @@ uv run aggregator-admin sources <subcommand>
 | `set-interval` | `SOURCE_ID SECONDS` | | Update the refresh interval for a source. |
 | `remove` | `SOURCE_ID` | `--force`, `--yes/-y` | Delete a source. Refused when the source has associated articles unless `--force` is given; `--force` cascade-deletes all articles first. Requires confirmation. |
 | `refresh-now` | `SOURCE_ID` | | Set `next_check_at` to now so the retriever picks the source up on its next poll cycle. |
+| `export-opml` | `[FILE]` | | Export all sources as an OPML file. Omit `FILE` to write to stdout. |
+| `import-opml` | `FILE` | `--dry-run`, `--interval` (default 3600 s), `--disabled`, `--json` | Import sources from an OPML file. Skips URLs that already exist. `--dry-run` previews without writing. `--json` emits `{"added": [...], "skipped": [...], "total": N}`. |
 
 ### `articles` — inspect and operate on articles
 
