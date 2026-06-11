@@ -9,6 +9,94 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aggregator -d aggregator"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  migrate:
+    build:
+      context: .
+      dockerfile: packages/aggregator-admin/Dockerfile
+    image: personal-aggregator/aggregator-admin:dev
+    entrypoint: ["aggregator-migrate"]
+    environment:
+      DATABASE_URL: postgresql://aggregator:aggregator@postgres:5432/aggregator
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  retriever:
+    build:
+      context: .
+      dockerfile: packages/aggregator-retriever/Dockerfile
+    image: personal-aggregator/aggregator-retriever:dev
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://aggregator:aggregator@postgres:5432/aggregator
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  processor:
+    build:
+      context: .
+      dockerfile: packages/aggregator-processor/Dockerfile
+    image: personal-aggregator/aggregator-processor:dev
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://aggregator:aggregator@postgres:5432/aggregator
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  summarize-rank:
+    build:
+      context: .
+      dockerfile: packages/aggregator-summarize-rank/Dockerfile
+    image: personal-aggregator/aggregator-summarize-rank:dev
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://aggregator:aggregator@postgres:5432/aggregator
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+      dockerfile: packages/aggregator-web/Dockerfile
+    image: personal-aggregator/aggregator-web:dev
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://aggregator:aggregator@postgres:5432/aggregator
+      WEB_HOST: 0.0.0.0
+    ports:
+      - "127.0.0.1:${WEB_PORT:-8000}:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/healthz || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
 
 volumes:
   postgres_data:

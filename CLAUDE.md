@@ -65,7 +65,7 @@ src/aggregator_common/
 ## Containers & tests
 
 - **Runtime:** OrbStack provides the Docker engine. Note it does **not** create `/var/run/docker.sock`; its socket is `~/.orbstack/run/docker.sock`. The `docker` CLI finds it via the active context, but headless test runs must resolve it explicitly (see below).
-- **Dev:** Postgres via `docker-compose`; the app and takt workers run on the **host** via `uv run` (not inside containers).
+- **Dev:** the root `docker-compose.yml` runs the **full stack built from source** (`docker compose up -d --build`): `postgres → migrate → retriever → processor → summarize-rank → web`. It keeps the `postgres_data` volume and the host `5432` port so data persists and host tooling (admin CLI, `uv run`) can reach it; the web container binds `127.0.0.1:8000` with `WEB_HOST=0.0.0.0`. This is the dev counterpart to `docker-compose.prod.yml` (which **pulls** released GHCR images instead of building). For fast iteration on a single service, run it on the **host** via `uv run` (e.g. `uv run --all-packages python -m aggregator_web`); takt workers always run on the host.
 - **Tests:** `pytest` with **testcontainers** — each test session spins up an ephemeral Postgres on a random port. This isolates concurrent takt workers running in parallel worktrees; never assume a shared/fixed test database. The test harness resolves the Docker socket in this order: `DOCKER_HOST` env → `/var/run/docker.sock` → `~/.orbstack/run/docker.sock`, setting `DOCKER_HOST` for testcontainers when it falls through. This makes `pytest`/`takt merge` work for every worker without per-worker env setup.
 - **Deploy:** per-service Dockerfiles + compose. No devcontainers.
 
