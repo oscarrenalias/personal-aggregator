@@ -1,0 +1,118 @@
+{#
+  _article_card.html — Single article card.
+
+  Context variables (inherited from _article_list.html include scope):
+    article       : Article ORM object with an additional .source_name str attribute
+                    appended by the route (e.g. via a join or a lookup dict).
+    is_last       : bool — True for the last card in the current page; gates
+                    the infinite-scroll HTMX trigger attrs.
+    next_url      : str | None — pre-built URL for next page (only used when is_last).
+
+  HTMX mark-read/save:
+    Both POST endpoints return this template re-rendered with updated article state
+    (hx-target="closest article" hx-swap="outerHTML").
+
+  HTMX infinite scroll (last card only):
+    hx-get="{{ next_url }}" hx-trigger="revealed" hx-swap="afterend"
+    Response: raw card fragments (no outer wrapper) from the route.
+
+  Alpine selection:
+    data-article-id and data-source-url are read by the articleList() component
+    (defined in static/app.js) to implement j/k/v/m keyboard shortcuts.
+    :class binding applies .is-selected when this card is the active selection.
+#}
+{% set title = article.clean_title or article.feed_title or "(untitled)" %}
+{% set date = article.published_at or article.feed_published_at %}
+{% set excerpt_text = article.excerpt or article.feed_summary or "" %}
+
+<article class="article-card{% if article.is_read %} is-read{% endif %}{% if article.is_saved %} is-saved{% endif %}"
+         data-article-id="{{ article.id }}"
+         data-source-url="{{ article.feed_url or '' }}"
+         :class="{ 'is-selected': selectedId === {{ article.id }} }"
+         @click="select({{ article.id }})"
+         {% if is_last and next_url %}
+         hx-get="{{ next_url }}"
+         hx-trigger="revealed"
+         hx-swap="afterend"
+         {% endif %}>
+
+  {% if article.header_image_url %}
+  <div class="card-image">
+    <img src="{{ article.header_image_url }}"
+         alt=""
+         loading="lazy"
+         decoding="async"
+         onerror="this.closest('.card-image').remove()">
+  </div>
+  {% endif %}
+
+  <div class="card-body">
+    <div class="card-meta">
+      <span class="source-name">{{ article.source_name }}</span>
+
+      {% if date %}
+      <time datetime="{{ date.isoformat() }}" class="pub-date">
+        {{ date.strftime('%-d %b %Y') }}
+      </time>
+      {% endif %}
+
+      {% if article.importance_score is not none %}
+        {% if article.importance_score >= 80 %}{% set score_tier = "high" %}
+        {% elif article.importance_score >= 50 %}{% set score_tier = "medium" %}
+        {% else %}{% set score_tier = "low" %}{% endif %}
+      <span class="importance-badge importance-{{ score_tier }}"
+            title="Importance score: {{ article.importance_score }}/100">{{ article.importance_score }}</span>
+      {% endif %}
+    </div>
+
+    <h2 class="card-title">
+      <a href="/article/{{ article.id }}"
+         hx-get="/article/{{ article.id }}"
+         hx-target="#article-reader"
+         hx-push-url="true">{{ title | e }}</a>
+    </h2>
+
+    {% if article.categories %}
+    <div class="card-chips">
+      {% for cat in article.categories %}
+      <a class="chip chip-category"
+         href="/feed/category/{{ cat }}"
+         hx-get="/feed/category/{{ cat }}"
+         hx-target="#article-list"
+         hx-swap="innerHTML">{{ cat | e }}</a>
+      {% endfor %}
+    </div>
+    {% elif article.topics %}
+    <div class="card-chips">
+      {% for topic in article.topics.keys() %}
+      <span class="chip chip-topic">{{ topic | e }}</span>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if excerpt_text %}
+    <p class="card-excerpt">{{ excerpt_text | truncate(220) }}</p>
+    {% endif %}
+
+    <div class="card-actions">
+      <button class="btn-read"
+              hx-post="/article/{{ article.id }}/{{ 'unread' if article.is_read else 'read' }}"
+              hx-target="closest article"
+              hx-swap="outerHTML"
+              aria-label="{{ 'Mark as unread' if article.is_read else 'Mark as read' }}">
+        <span aria-hidden="true">{% if article.is_read %}○{% else %}●{% endif %}</span>
+        <span class="sr-only">{% if article.is_read %}Unread{% else %}Read{% endif %}</span>
+      </button>
+
+      <button class="btn-save{% if article.is_saved %} is-active{% endif %}"
+              hx-post="/article/{{ article.id }}/{{ 'unsave' if article.is_saved else 'save' }}"
+              hx-target="closest article"
+              hx-swap="outerHTML"
+              aria-label="{{ 'Remove from saved' if article.is_saved else 'Save article' }}">
+        <span aria-hidden="true">{% if article.is_saved %}★{% else %}☆{% endif %}</span>
+        <span class="sr-only">{% if article.is_saved %}Saved{% else %}Save{% endif %}</span>
+      </button>
+    </div>
+  </div>
+
+</article>
