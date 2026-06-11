@@ -5,7 +5,7 @@ description: "aggregator-web reading-experience polish: live sidebar counter ref
 dependencies: null
 priority: medium
 complexity: low
-status: planned
+status: done
 tags:
 - web
 - ui
