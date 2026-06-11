@@ -5,7 +5,7 @@ description: "aggregator-web layout pass: make the existing full-text search dis
 dependencies: null
 priority: medium
 complexity: low
-status: planned
+status: done
 tags:
 - web
 - ui
