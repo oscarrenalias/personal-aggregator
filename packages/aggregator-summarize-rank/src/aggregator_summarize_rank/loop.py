@@ -54,6 +54,7 @@ def run(settings: SummarizeRankSettings) -> None:
             pending_futures = [f for f in pending_futures if not f.done()]
 
             articles: list[Article] = []
+            article_ids: list[int] = []
             interest_profile_text = ""
             enabled_categories: list[_CategoryEntry] = []
             session = SessionFactory()
@@ -69,6 +70,7 @@ def run(settings: SummarizeRankSettings) -> None:
                     settings.summarize_rank_batch_size,
                     now,
                 )
+                article_ids = [a.id for a in articles]
                 interest_profile_text = _read_interest_profile(session)
                 enabled_categories = _read_enabled_categories(session)
                 session.commit()
@@ -78,20 +80,20 @@ def run(settings: SummarizeRankSettings) -> None:
             finally:
                 session.close()
 
-            if not articles:
+            if not article_ids:
                 stop_event.wait(timeout=settings.summarize_rank_poll_interval_seconds)
                 continue
 
             if not enabled_categories:
                 logger.debug("No enabled categories; classification will be skipped")
 
-            for article in articles:
+            for aid in article_ids:
                 if stop_event.is_set():
                     break
                 pending_futures.append(
                     executor.submit(
                         process_article,
-                        article.id,
+                        aid,
                         interest_profile_text,
                         enabled_categories,
                         settings,

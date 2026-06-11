@@ -8,6 +8,7 @@ Covers:
 - SIGTERM handler fires stop_event, run() exits cleanly
 - __main__ --once flag calls run_once; daemon path calls run
 - configure_logging called before loop dispatch
+- run() submits integer IDs to executor after session close (no DetachedInstanceError)
 """
 
 from __future__ import annotations
@@ -388,3 +389,80 @@ class TestEntrypoint:
 
         out = capsys.readouterr().out
         assert "ranked=0" in out
+
+
+# ─── Regression: no DetachedInstanceError after session close ─────────────────
+
+
+class TestRunDaemonDetachedInstance:
+    """Regression: run() must not raise DetachedInstanceError when accessing article IDs.
+
+    Before the fix, the daemon claimed Article ORM objects in a session, called
+    session.close(), then accessed article.id on the now-detached instances —
+    raising sqlalchemy.orm.exc.DetachedInstanceError on every cycle and crash-looping.
+    The fix captures article_ids = [a.id for a in articles] inside the try block
+    before session.close(), then iterates integer IDs when submitting to the executor.
+    """
+
+    def test_run_submits_integer_ids_after_session_close(
+        self, db_session, src, settings
+    ):
+        """run() must pass integer article IDs to process_article after the claim session closes.
+
+        Without the fix this test raises DetachedInstanceError before process_article
+        is ever called, so submitted_ids stays empty and errors is non-empty.
+        """
+        article = make_article(
+            db_session,
+            source_id=src.id,
+            dedup_key="daemon-detach-1",
+            clean_text=_ENOUGH_TEXT,
+        )
+        article_id = article.id
+
+        submitted_ids: list = []
+        process_called = threading.Event()
+        captured_handlers: dict[int, object] = {}
+        errors: list[Exception] = []
+
+        def _capture_signal(signum: int, handler: object) -> None:
+            captured_handlers[signum] = handler
+
+        def _fake_process_article(aid, *args, **kwargs):
+            submitted_ids.append(aid)
+            process_called.set()
+
+        done = threading.Event()
+
+        def _run_thread():
+            try:
+                from aggregator_summarize_rank.loop import run
+                run(settings)
+            except Exception as exc:
+                errors.append(exc)
+            finally:
+                done.set()
+
+        with (
+            patch("signal.signal", side_effect=_capture_signal),
+            patch("aggregator_summarize_rank.loop.process_article", side_effect=_fake_process_article),
+        ):
+            t = threading.Thread(target=_run_thread, daemon=True)
+            t.start()
+
+            assert process_called.wait(timeout=10), (
+                "process_article was never called — daemon may have crashed before submitting"
+            )
+
+            assert signal.SIGTERM in captured_handlers, "SIGTERM handler was never registered"
+            captured_handlers[signal.SIGTERM](signal.SIGTERM, None)  # type: ignore[call-arg]
+            assert done.wait(timeout=5), "run() did not exit within 5s after stop signal"
+
+        assert not errors, f"run() raised an unexpected exception: {errors}"
+        assert submitted_ids, "process_article was never called"
+        assert all(isinstance(aid, int) for aid in submitted_ids), (
+            f"Expected integer IDs but got ORM instances or other types: {submitted_ids!r}"
+        )
+        assert article_id in submitted_ids, (
+            f"Expected article {article_id} to be submitted, got: {submitted_ids}"
+        )
