@@ -71,11 +71,11 @@ src/aggregator_common/
 
 ### Production compose (headless backend)
 
-The headless stack (`postgres → migrate → retriever → processor → summarize-rank`) is managed via `Makefile` targets that wrap `docker-compose.prod.yml`:
+The full production stack (`postgres → migrate → retriever → processor → summarize-rank → web`) is managed via `Makefile` targets that wrap `docker-compose.prod.yml`:
 
 | Command | Effect |
 |---|---|
-| `make build` | Builds all four arm64 service images (calls `scripts/build-images.sh`) |
+| `make build` | Builds all five arm64 service images (calls `scripts/build-images.sh`) |
 | `make up` | `docker compose -f docker-compose.prod.yml up -d` |
 | `make down` | `docker compose -f docker-compose.prod.yml down` |
 | `make logs` | `docker compose -f docker-compose.prod.yml logs -f` |
@@ -186,7 +186,7 @@ Versioning and image publishing run entirely in CI — do not bump the version m
 
 **GHCR image paths:**
 
-Images are pushed to `ghcr.io/oscarrenalias/personal-aggregator/aggregator-<service>` for each service (`retriever`, `processor`, `summarize-rank`, `admin`). Three tags are applied on every successful build:
+Images are pushed to `ghcr.io/oscarrenalias/personal-aggregator/aggregator-<service>` for each service (`retriever`, `processor`, `summarize-rank`, `admin`, `web`). Three tags are applied on every successful build:
 
 | Tag | When to use |
 |---|---|

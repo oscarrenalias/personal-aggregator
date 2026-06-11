@@ -17,6 +17,14 @@ SmartViewName = Literal["all", "unread", "saved", "important", "uncategorized"]
 
 @dataclass
 class Cursor:
+    """Opaque keyset pagination token.
+
+    Serialised as base64url(JSON) with keys:
+      "s" = importance_score (int | null)
+      "p" = feed_published_at as ISO-8601 string (str | null)
+      "i" = article id (int)
+    """
+
     importance_score: Optional[int]
     feed_published_at: Optional[datetime]
     id: int

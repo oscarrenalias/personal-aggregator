@@ -1,6 +1,7 @@
 [project]
 name = "aggregator-web"
 version = "0.1.0"
+description = "FastAPI + HTMX + Alpine.js PWA web UI for the personal aggregator"
 requires-python = ">=3.12"
 dependencies = [
     "aggregator-common",
@@ -15,6 +16,9 @@ aggregator-web = "aggregator_web.__main__:main"
 
 [tool.uv.sources]
 aggregator-common = { workspace = true }
+
+[dependency-groups]
+dev = ["httpx>=0.27"]
 
 [build-system]
 requires = ["hatchling"]
