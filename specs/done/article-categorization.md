@@ -5,7 +5,7 @@ description: "LLM-driven controlled categorization for topic feeds: data-driven 
 dependencies: null
 priority: high
 complexity: null
-status: planned
+status: done
 tags:
 - categorization
 - llm
