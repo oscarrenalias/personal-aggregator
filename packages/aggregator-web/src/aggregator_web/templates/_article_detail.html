@@ -80,10 +80,7 @@
         {% else %}{% set score_tier = "low" %}{% endif %}
       <div class="detail-importance">
         <span class="importance-badge importance-{{ score_tier }}"
-              title="Importance score: {{ article.importance_score }}/100">{{ article.importance_score }}</span>
-        {% if article.importance_reason %}
-        <span class="importance-reason">{{ article.importance_reason | e }}</span>
-        {% endif %}
+              title="{{ article.importance_score }}/100{% if article.importance_reason %} — {{ article.importance_reason }}{% endif %}">{{ article.importance_score }}</span>
       </div>
       {% endif %}
 
