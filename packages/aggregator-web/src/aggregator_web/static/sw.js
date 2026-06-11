@@ -8,6 +8,10 @@ const SHELL_URLS = [
   '/static/icons/icon-512.png',
 ];
 
+// Assets that change between deploys — network-first so new code reaches users
+// on a normal reload without manual SW unregistration.
+const NETWORK_FIRST_PATHS = new Set(['/', '/static/app.js', '/static/styles.css']);
+
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) =>
@@ -33,14 +37,29 @@ self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
 
   const url = new URL(event.request.url);
-  const isCacheable =
-    url.pathname === '/' || url.pathname.startsWith('/static/');
 
-  if (!isCacheable) return;
+  if (NETWORK_FIRST_PATHS.has(url.pathname)) {
+    // Network-first: fetch fresh asset, update cache, fall back to cache offline.
+    event.respondWith(
+      fetch(event.request)
+        .then((response) => {
+          const clone = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+          return response;
+        })
+        .catch(() => caches.match(event.request))
+    );
+    return;
+  }
 
-  event.respondWith(
-    caches
-      .match(event.request)
-      .then((cached) => cached || fetch(event.request))
-  );
+  // Cache-first for icons and manifest (content-addressed, never changes in place).
+  const isCacheFirst =
+    url.pathname.startsWith('/static/icons/') ||
+    url.pathname === '/static/manifest.webmanifest';
+
+  if (isCacheFirst) {
+    event.respondWith(
+      caches.match(event.request).then((cached) => cached || fetch(event.request))
+    );
+  }
 });

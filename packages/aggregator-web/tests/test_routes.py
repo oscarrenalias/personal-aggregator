@@ -566,6 +566,47 @@ def test_get_sw_js(client):
     assert response.status_code == 200
 
 
+def test_sw_js_uses_network_first_for_dynamic_assets(client):
+    """Service worker must use network-first for '/', app.js, and styles.css.
+
+    A bare 'cached || fetch' strategy would serve stale assets after a deploy.
+    This test fails against the old cache-first implementation.
+    """
+    response = client.get("/static/sw.js")
+    assert response.status_code == 200
+    content = response.text
+
+    # The key paths that change between deploys must be in the network-first set.
+    assert "NETWORK_FIRST_PATHS" in content, "Expected a NETWORK_FIRST_PATHS set"
+    for path in ("'/'", "'/static/app.js'", "'/static/styles.css'"):
+        assert path in content, f"Expected {path} to be listed as a network-first path"
+
+    # The network-first handler must call fetch() first (not caches.match first).
+    # The characteristic signature is fetch(event.request).then(...).catch(...)
+    assert "fetch(event.request)" in content and ".catch(" in content, (
+        "Expected fetch-first with cache fallback (.catch) in SW fetch handler"
+    )
+
+    # Regression: the old bare cache-first pattern must not be the only handler.
+    # The old code had exactly: caches.match(event.request).then((cached) => cached || fetch(event.request))
+    # as the sole respondWith. We confirm the new code does NOT use that as the
+    # universal strategy (it is still used for icons/manifest, so we check it is
+    # not the handler for the network-first paths).
+    assert "NETWORK_FIRST_PATHS.has(url.pathname)" in content, (
+        "Expected NETWORK_FIRST_PATHS.has check before responding"
+    )
+
+
+def test_sw_js_cache_first_preserved_for_static_assets(client):
+    """Icons and manifest should still use cache-first (they are content-addressed)."""
+    response = client.get("/static/sw.js")
+    assert response.status_code == 200
+    content = response.text
+
+    assert "/static/icons/" in content, "Expected icons path in cache-first branch"
+    assert "/static/manifest.webmanifest" in content, "Expected manifest in cache-first branch"
+
+
 def test_get_styles_css(client):
     response = client.get("/static/styles.css")
     assert response.status_code == 200
