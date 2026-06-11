@@ -5,7 +5,7 @@ description: "aggregator-admin: add `sources import-opml <file>` and `sources ex
 dependencies: null
 priority: medium
 complexity: low
-status: planned
+status: done
 tags:
 - admin
 - opml
