@@ -5,7 +5,7 @@ description: "aggregator-web: Feedly-style FastAPI + HTMX + Alpine PWA. Left pan
 dependencies: null
 priority: high
 complexity: null
-status: draft
+status: planned
 tags:
 - web
 - ui
@@ -16,7 +16,7 @@ tags:
 scope:
   in: null
   out: null
-feature_root_id: null
+feature_root_id: B-eded7de5
 ---
 # Web UI
 
