@@ -1,9 +1,10 @@
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Literal, Union
+from typing import Literal, Union, cast as typing_cast
 
 from sqlalchemy import func, or_, update
 from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.orm import Session
 
 from aggregator_common.models import Article
@@ -100,6 +101,6 @@ def mark_all_read(
         .where(_feed_membership_filter(feed_spec, important_threshold))
         .values(is_read=True, read_at=now)
     )
-    result = session.execute(stmt)
+    result = typing_cast(CursorResult, session.execute(stmt))
     session.flush()
     return result.rowcount
