@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import logging
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Sequence
 
 from aggregator_common.claim import complete, fail
 from aggregator_common.models import Article, Source
 from aggregator_common.state import ArticleStatus
 
 from .config import SummarizeRankSettings
+from .prompt import _CategoryEntry
 from .ranker import rank
 
 logger = logging.getLogger(__name__)
@@ -17,6 +18,7 @@ logger = logging.getLogger(__name__)
 def process_article(
     article_id: int,
     interest_profile_text: str,
+    enabled_categories: Sequence[_CategoryEntry],
     settings: SummarizeRankSettings,
     session_factory: Any,
 ) -> None:
@@ -49,7 +51,7 @@ def process_article(
 
         now = datetime.now(UTC)
         try:
-            result, usage_dict = rank(article_input, interest_profile_text, settings)
+            result, usage_dict = rank(article_input, interest_profile_text, settings, enabled_categories)
         except Exception as exc:
             logger.warning("Ranking failed for article %d: %s", article_id, exc)
             fail(

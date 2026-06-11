@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any
+from typing import Any, Sequence
 
 import litellm
 from pydantic import ValidationError
 
 from .config import SummarizeRankSettings
-from .prompt import build_messages, get_prompt_version
+from .prompt import _CategoryEntry, build_messages, get_prompt_version
 from .schema import RankResult
 
 logger = logging.getLogger(__name__)
@@ -36,8 +36,9 @@ def rank(
     article_input: dict[str, Any],
     interest_profile_text: str,
     settings: SummarizeRankSettings,
+    enabled_categories: Sequence[_CategoryEntry] | None = None,
 ) -> tuple[RankResult, dict]:
-    messages = build_messages(article_input, interest_profile_text, settings)
+    messages = build_messages(article_input, interest_profile_text, settings, enabled_categories)
     prompt_version = get_prompt_version()
 
     last_error: Exception | None = None

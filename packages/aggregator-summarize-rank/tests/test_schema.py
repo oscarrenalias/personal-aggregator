@@ -67,6 +67,20 @@ class TestTopicsTruncation:
         assert r.topics == []
 
 
+class TestCategoriesField:
+    def test_categories_defaults_to_empty_list(self):
+        r = RankResult(summary="s", topics=[], importance_score=0, importance_reason="r")
+        assert r.categories == []
+
+    def test_categories_can_be_set(self):
+        r = RankResult(summary="s", topics=[], importance_score=0, importance_reason="r", categories=["Tech", "AI"])
+        assert r.categories == ["Tech", "AI"]
+
+    def test_categories_field_present(self):
+        r = RankResult(summary="s", topics=[], importance_score=0, importance_reason="r")
+        assert hasattr(r, "categories")
+
+
 class TestPromptVersion:
     def test_prompt_version_nonempty(self):
         assert PROMPT_VERSION

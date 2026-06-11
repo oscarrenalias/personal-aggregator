@@ -1,11 +1,17 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Protocol, Sequence
 
 from .config import SummarizeRankSettings
 from .schema import PROMPT_VERSION
 
 INTEREST_PROFILE_MAX_CHARS = 2_000
+
+
+class _CategoryEntry(Protocol):
+    name: str
+    description: str | None
+
 
 _SYSTEM_WITH_PROFILE = """\
 You are an article analyst. For the article provided:
@@ -17,9 +23,7 @@ You are an article analyst. For the article provided:
    - 61-80: relevant, directly related to one or more stated interests
    - 81-100: highly important, strongly matches interests
    Consider: interest match, source relevance, novelty, and practical usefulness.
-4. Give a one-sentence reason for the score.
-
-Respond with valid JSON matching the RankResult schema."""
+4. Give a one-sentence reason for the score."""
 
 _SYSTEM_NEUTRAL = """\
 You are an article analyst. For the article provided:
@@ -31,18 +35,40 @@ You are an article analyst. For the article provided:
    - 61-80: relevant and informative for a general audience
    - 81-100: highly newsworthy, broadly important, or widely applicable
    Consider: newsworthiness, novelty, practical value, and breadth of potential interest.
-4. Give a one-sentence reason for the score.
+4. Give a one-sentence reason for the score."""
 
-Respond with valid JSON matching the RankResult schema."""
+_SYSTEM_SUFFIX = "\n\nRespond with valid JSON matching the RankResult schema."
+
+
+def _build_category_instruction(categories: Sequence[_CategoryEntry]) -> str:
+    lines = []
+    for cat in categories:
+        if cat.description:
+            lines.append(f"- {cat.name}: {cat.description}")
+        else:
+            lines.append(f"- {cat.name}")
+    category_list = "\n".join(lines)
+    return (
+        "5. Assign the article to zero or more of these categories, using the exact names. "
+        f"Only use names from this list:\n{category_list}"
+    )
 
 
 def build_messages(
     article_data: dict[str, Any],
     interest_profile_text: str,
     settings: SummarizeRankSettings,
+    enabled_categories: Sequence[_CategoryEntry] | None = None,
 ) -> list[dict[str, str]]:
     is_profiled = bool(interest_profile_text and interest_profile_text.strip())
-    system_content = _SYSTEM_WITH_PROFILE if is_profiled else _SYSTEM_NEUTRAL
+    system_base = _SYSTEM_WITH_PROFILE if is_profiled else _SYSTEM_NEUTRAL
+
+    if enabled_categories:
+        system_content = (
+            system_base + "\n" + _build_category_instruction(enabled_categories) + _SYSTEM_SUFFIX
+        )
+    else:
+        system_content = system_base + _SYSTEM_SUFFIX
 
     source_name = article_data.get("source_name") or "Unknown Source"
     title = (

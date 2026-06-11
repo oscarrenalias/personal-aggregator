@@ -74,7 +74,7 @@ class TestHappyPath:
             patch("litellm.completion_cost", return_value=0.001),
         ):
             from aggregator_summarize_rank.rank import process_article
-            process_article(article.id, "I like AI.", settings, session_factory)
+            process_article(article.id, "I like AI.", [], settings, session_factory)
 
         db_session.expire(article)
         db_session.refresh(article)
@@ -93,7 +93,7 @@ class TestHappyPath:
             patch("litellm.completion_cost", return_value=0.001),
         ):
             from aggregator_summarize_rank.rank import process_article
-            process_article(article.id, "", settings, session_factory)
+            process_article(article.id, "", [], settings, session_factory)
 
         db_session.expire(article)
         db_session.refresh(article)
@@ -117,7 +117,7 @@ class TestHappyPath:
             patch("litellm.completion_cost", return_value=0.001),
         ):
             from aggregator_summarize_rank.rank import process_article
-            process_article(article.id, "", settings, session_factory)
+            process_article(article.id, "", [], settings, session_factory)
 
         db_session.expire(article)
         db_session.refresh(article)
@@ -146,7 +146,7 @@ class TestHappyPath:
             patch("litellm.completion_cost", return_value=0.001),
         ):
             from aggregator_summarize_rank.rank import process_article
-            process_article(article.id, "I love deep-sea biology.", settings, session_factory)
+            process_article(article.id, "I love deep-sea biology.", [], settings, session_factory)
 
         assert captured, "litellm.completion was not called"
         user_msg = captured[0][1]["content"]
@@ -168,7 +168,7 @@ class TestShortContent:
         )
 
         from aggregator_summarize_rank.rank import process_article
-        process_article(article.id, "", settings, session_factory)
+        process_article(article.id, "", [], settings, session_factory)
 
         db_session.expire(article)
         db_session.refresh(article)
@@ -183,7 +183,7 @@ class TestShortContent:
         )
 
         from aggregator_summarize_rank.rank import process_article
-        process_article(article.id, "", settings, session_factory)
+        process_article(article.id, "", [], settings, session_factory)
 
         db_session.expire(article)
         db_session.refresh(article)
@@ -199,7 +199,7 @@ class TestShortContent:
 
         with patch("litellm.completion") as mock_llm:
             from aggregator_summarize_rank.rank import process_article
-            process_article(article.id, "", settings, session_factory)
+            process_article(article.id, "", [], settings, session_factory)
 
         mock_llm.assert_not_called()
 
@@ -231,7 +231,7 @@ class TestRankingFailure:
 
         with patch("litellm.completion", return_value=bad_response):
             from aggregator_summarize_rank.rank import process_article
-            process_article(article.id, "", fail_settings, factory)
+            process_article(article.id, "", [], fail_settings, factory)
 
         db_session.expire(article)
         db_session.refresh(article)
@@ -260,7 +260,7 @@ class TestRankingFailure:
 
         with patch("litellm.completion", return_value=bad_response):
             from aggregator_summarize_rank.rank import process_article
-            process_article(article.id, "", fail_settings, factory)
+            process_article(article.id, "", [], fail_settings, factory)
 
         db_session.expire(article)
         db_session.refresh(article)
@@ -291,7 +291,7 @@ class TestRankingFailure:
 
         with patch("litellm.completion", return_value=bad_response):
             from aggregator_summarize_rank.rank import process_article
-            process_article(article.id, "", retry_settings, factory)
+            process_article(article.id, "", [], retry_settings, factory)
 
         db_session.expire(article)
         db_session.refresh(article)
@@ -306,7 +306,7 @@ class TestRankingFailure:
 class TestMissingArticle:
     def test_missing_article_id_does_not_raise(self, settings, session_factory):
         from aggregator_summarize_rank.rank import process_article
-        process_article(999_999, "", settings, session_factory)
+        process_article(999_999, "", [], settings, session_factory)
 
 
 # ─── Source name in LLM input ────────────────────────────────────────────────
@@ -335,7 +335,7 @@ class TestSourceLookup:
             patch("litellm.completion_cost", return_value=0.001),
         ):
             from aggregator_summarize_rank.rank import process_article
-            process_article(article.id, "", settings, factory)
+            process_article(article.id, "", [], settings, factory)
 
         assert captured, "litellm.completion was not called"
         user_msg = captured[0][1]["content"]

@@ -5,16 +5,18 @@ import socket
 import threading
 from concurrent.futures import Future, ThreadPoolExecutor
 from datetime import datetime, timezone
+from types import SimpleNamespace
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from aggregator_common.claim import claim_batch, reap_stale_claims
 from aggregator_common.db import SessionFactory
-from aggregator_common.models import Article, InterestProfile
+from aggregator_common.models import Article, Category, InterestProfile
 from aggregator_common.state import ArticleStatus
 
 from aggregator_summarize_rank.config import SummarizeRankSettings
+from aggregator_summarize_rank.prompt import _CategoryEntry
 from aggregator_summarize_rank.rank import process_article
 
 logger = logging.getLogger(__name__)
@@ -23,6 +25,13 @@ logger = logging.getLogger(__name__)
 def _read_interest_profile(session: Session) -> str:
     row = session.get(InterestProfile, True)
     return row.profile_text if row and row.profile_text else ""
+
+
+def _read_enabled_categories(session: Session) -> list[_CategoryEntry]:
+    rows = session.scalars(
+        select(Category).where(Category.enabled == True).order_by(Category.sort_order)
+    ).all()
+    return [SimpleNamespace(name=row.name, description=row.description) for row in rows]  # type: ignore[return-value]
 
 
 def run(settings: SummarizeRankSettings) -> None:
@@ -46,6 +55,7 @@ def run(settings: SummarizeRankSettings) -> None:
 
             articles: list[Article] = []
             interest_profile_text = ""
+            enabled_categories: list[_CategoryEntry] = []
             session = SessionFactory()
             try:
                 now = datetime.now(timezone.utc)
@@ -60,6 +70,7 @@ def run(settings: SummarizeRankSettings) -> None:
                     now,
                 )
                 interest_profile_text = _read_interest_profile(session)
+                enabled_categories = _read_enabled_categories(session)
                 session.commit()
             except Exception:
                 session.rollback()
@@ -71,12 +82,20 @@ def run(settings: SummarizeRankSettings) -> None:
                 stop_event.wait(timeout=settings.summarize_rank_poll_interval_seconds)
                 continue
 
+            if not enabled_categories:
+                logger.debug("No enabled categories; classification will be skipped")
+
             for article in articles:
                 if stop_event.is_set():
                     break
                 pending_futures.append(
                     executor.submit(
-                        process_article, article.id, interest_profile_text, settings, SessionFactory
+                        process_article,
+                        article.id,
+                        interest_profile_text,
+                        enabled_categories,
+                        settings,
+                        SessionFactory,
                     )
                 )
 
@@ -94,6 +113,7 @@ def run_once(settings: SummarizeRankSettings) -> None:
     worker_id = f"summarize-rank-{socket.gethostname()}-{os.getpid()}"
     article_ids: list[int] = []
     interest_profile_text = ""
+    enabled_categories: list[_CategoryEntry] = []
 
     session = SessionFactory()
     try:
@@ -110,6 +130,7 @@ def run_once(settings: SummarizeRankSettings) -> None:
         )
         article_ids = [a.id for a in articles]
         interest_profile_text = _read_interest_profile(session)
+        enabled_categories = _read_enabled_categories(session)
         session.commit()
     except Exception:
         session.rollback()
@@ -119,7 +140,9 @@ def run_once(settings: SummarizeRankSettings) -> None:
 
     with ThreadPoolExecutor(max_workers=settings.summarize_rank_max_workers) as executor:
         futures = [
-            executor.submit(process_article, aid, interest_profile_text, settings, SessionFactory)
+            executor.submit(
+                process_article, aid, interest_profile_text, enabled_categories, settings, SessionFactory
+            )
             for aid in article_ids
         ]
         for f in futures:

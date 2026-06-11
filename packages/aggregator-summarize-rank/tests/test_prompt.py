@@ -7,6 +7,7 @@ import pytest
 from aggregator_summarize_rank.config import SummarizeRankSettings
 from aggregator_summarize_rank.prompt import (
     INTEREST_PROFILE_MAX_CHARS,
+    _build_category_instruction,
     build_messages,
     get_prompt_version,
 )
@@ -144,3 +145,57 @@ class TestGetPromptVersion:
 
     def test_returns_string(self):
         assert isinstance(get_prompt_version(), str)
+
+
+class _Cat:
+    """Minimal _CategoryEntry stand-in for tests."""
+    def __init__(self, name: str, description: str | None = None):
+        self.name = name
+        self.description = description
+
+
+class TestBuildCategoryInstruction:
+    def test_category_with_description_included(self):
+        cats = [_Cat("Tech", "Technology news")]
+        text = _build_category_instruction(cats)
+        assert "Tech" in text
+        assert "Technology news" in text
+
+    def test_category_without_description_name_only(self):
+        cats = [_Cat("Sports")]
+        text = _build_category_instruction(cats)
+        assert "Sports" in text
+
+    def test_multiple_categories_all_present(self):
+        cats = [_Cat("Tech", "Technology"), _Cat("Science"), _Cat("Politics", "Political news")]
+        text = _build_category_instruction(cats)
+        assert "Tech" in text
+        assert "Science" in text
+        assert "Politics" in text
+
+    def test_instruction_mentions_exact_names(self):
+        cats = [_Cat("AI")]
+        text = _build_category_instruction(cats)
+        assert "exact names" in text.lower() or "using the exact" in text.lower()
+
+
+class TestBuildMessagesWithCategories:
+    def test_no_categories_omits_category_step(self, default_settings):
+        msgs = build_messages({"clean_text": "x" * 300}, "", default_settings)
+        assert "category" not in msgs[0]["content"].lower() or "5." not in msgs[0]["content"]
+
+    def test_with_categories_adds_instruction_to_system(self, default_settings):
+        cats = [_Cat("Tech", "Technology articles"), _Cat("Science")]
+        msgs = build_messages({"clean_text": "x" * 300}, "", default_settings, enabled_categories=cats)
+        assert "Tech" in msgs[0]["content"]
+        assert "Science" in msgs[0]["content"]
+
+    def test_with_categories_still_two_messages(self, default_settings):
+        cats = [_Cat("AI")]
+        msgs = build_messages({"clean_text": "x" * 300}, "", default_settings, enabled_categories=cats)
+        assert len(msgs) == 2
+
+    def test_empty_categories_list_treated_as_no_categories(self, default_settings):
+        msgs_none = build_messages({"clean_text": "x" * 300}, "", default_settings, enabled_categories=None)
+        msgs_empty = build_messages({"clean_text": "x" * 300}, "", default_settings, enabled_categories=[])
+        assert msgs_none[0]["content"] == msgs_empty[0]["content"]
