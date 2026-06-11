@@ -1,0 +1,130 @@
+{#
+  _article_detail.html — Single-article reader.
+
+  Context variables:
+    article  : Article ORM object with an additional .source_name str attribute.
+
+  HTMX mark-read/save:
+    Both POST endpoints re-render this template and replace #article-detail
+    (hx-target="#article-detail" hx-swap="outerHTML").
+#}
+{% set title = article.clean_title or article.feed_title or "(untitled)" %}
+{% set date = article.published_at or article.feed_published_at %}
+
+<div class="article-detail{% if article.is_read %} is-read{% endif %}{% if article.is_saved %} is-saved{% endif %}"
+     id="article-detail"
+     data-article-id="{{ article.id }}"
+     data-source-url="{{ article.feed_url or '' }}">
+
+  {% if article.header_image_url %}
+  <div class="detail-hero">
+    <img src="{{ article.header_image_url }}"
+         alt=""
+         loading="lazy"
+         decoding="async"
+         onerror="this.closest('.detail-hero').remove()">
+  </div>
+  {% endif %}
+
+  <div class="detail-content">
+
+    <header class="detail-header">
+      <div class="detail-meta">
+        <span class="source-name">{{ article.source_name }}</span>
+
+        {% if article.feed_url %}
+        <a class="open-source-link"
+           href="{{ article.feed_url }}"
+           target="_blank"
+           rel="noopener">Open source ↗</a>
+        {% endif %}
+
+        {% if date %}
+        <time datetime="{{ date.isoformat() }}" class="pub-date">
+          {{ date.strftime('%-d %b %Y') }}
+        </time>
+        {% endif %}
+
+        {% if article.author %}
+        <span class="author">{{ article.author | e }}</span>
+        {% endif %}
+      </div>
+
+      <h1 class="detail-title">{{ title | e }}</h1>
+
+      {% if article.importance_score is not none %}
+        {% if article.importance_score >= 80 %}{% set score_tier = "high" %}
+        {% elif article.importance_score >= 50 %}{% set score_tier = "medium" %}
+        {% else %}{% set score_tier = "low" %}{% endif %}
+      <div class="detail-importance">
+        <span class="importance-badge importance-{{ score_tier }}"
+              title="Importance score: {{ article.importance_score }}/100">{{ article.importance_score }}</span>
+        {% if article.importance_reason %}
+        <span class="importance-reason">{{ article.importance_reason | e }}</span>
+        {% endif %}
+      </div>
+      {% endif %}
+
+      {% if article.categories or article.topics %}
+      <div class="detail-chips">
+        {% if article.categories %}
+          {% for cat in article.categories %}
+          <a class="chip chip-category"
+             href="/feed/category/{{ cat }}"
+             hx-get="/feed/category/{{ cat }}"
+             hx-target="#article-list"
+             hx-swap="innerHTML">{{ cat | e }}</a>
+          {% endfor %}
+        {% endif %}
+        {% if article.topics %}
+          {% for topic in article.topics.keys() %}
+          <span class="chip chip-topic">{{ topic | e }}</span>
+          {% endfor %}
+        {% endif %}
+      </div>
+      {% endif %}
+
+      <div class="detail-actions">
+        <button class="btn-read"
+                hx-post="/article/{{ article.id }}/{{ 'unread' if article.is_read else 'read' }}"
+                hx-target="#article-detail"
+                hx-swap="outerHTML"
+                aria-label="{{ 'Mark as unread' if article.is_read else 'Mark as read' }}">
+          <span aria-hidden="true">{% if article.is_read %}○{% else %}●{% endif %}</span>
+          {{ 'Mark unread' if article.is_read else 'Mark read' }}
+        </button>
+
+        <button class="btn-save{% if article.is_saved %} is-active{% endif %}"
+                hx-post="/article/{{ article.id }}/{{ 'unsave' if article.is_saved else 'save' }}"
+                hx-target="#article-detail"
+                hx-swap="outerHTML"
+                aria-label="{{ 'Remove from saved' if article.is_saved else 'Save article' }}">
+          <span aria-hidden="true">{% if article.is_saved %}★{% else %}☆{% endif %}</span>
+          {{ 'Saved' if article.is_saved else 'Save' }}
+        </button>
+
+        {% if article.feed_url %}
+        <a class="btn-open-source"
+           href="{{ article.feed_url }}"
+           target="_blank"
+           rel="noopener"
+           aria-label="Open article source in new tab">↗ Open source</a>
+        {% endif %}
+      </div>
+    </header>
+
+    {% if article.summary %}
+    <section class="detail-summary">
+      <h2 class="detail-section-heading">Summary</h2>
+      <div class="summary-block">{{ article.summary | e }}</div>
+    </section>
+    {% endif %}
+
+    {% if article.clean_text %}
+    <section class="detail-body">
+      <div class="article-text">{{ article.clean_text | e }}</div>
+    </section>
+    {% endif %}
+
+  </div>
+</div>

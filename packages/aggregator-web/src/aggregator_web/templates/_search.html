@@ -1,0 +1,39 @@
+{#
+  _search.html — Search form + results pane.
+  Loaded into #article-list when search is activated (e.g. pressing /).
+  On submit/input the form re-targets #article-list with innerHTML swap,
+  replacing itself with a fresh render containing updated results.
+
+  Context variables (all optional on initial/empty load):
+    query    : str — current search query ('' when none)
+    articles : list[Article] with .source_name — search results
+    is_last  : bool — last page flag, forwarded to _article_list.html
+    next_url : str | None — next-page URL, forwarded to _article_list.html
+#}
+{% set query = query or '' %}
+
+<div class="search-pane">
+  <form class="search-form"
+        hx-get="/search"
+        hx-target="#article-list"
+        hx-swap="innerHTML"
+        hx-push-url="true"
+        hx-trigger="input changed delay:400ms from:#search-input, submit">
+    <label class="sr-only" for="search-input">Search articles</label>
+    <input type="search"
+           id="search-input"
+           name="q"
+           class="search-input"
+           placeholder="Search articles…"
+           value="{{ query | e }}"
+           autocomplete="off"
+           autofocus>
+    <button type="submit" class="search-submit" aria-label="Search">&#x2315;</button>
+  </form>
+
+  {% if articles is defined and articles %}
+  {% include "_article_list.html" %}
+  {% elif query %}
+  <p class="search-empty">No results for &#8220;{{ query | e }}&#8221;.</p>
+  {% endif %}
+</div>
