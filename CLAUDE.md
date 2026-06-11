@@ -4,7 +4,7 @@ Personal RSS reader and news aggregator. Periodically retrieves articles from co
 
 ## Architecture
 
-Four services communicating **only through shared Postgres state** (no synchronous service-to-service calls). Articles move through a durable state machine; each service finds its pending work by claiming rows.
+Five services communicating **only through shared Postgres state** (no synchronous service-to-service calls). Articles move through a durable state machine; each service finds its pending work by claiming rows.
 
 ```
 sources → retriever → processor → summarize-rank → web UI
@@ -13,7 +13,8 @@ sources → retriever → processor → summarize-rank → web UI
 - **retriever** — polls feeds, persists raw articles, marks them pending processing.
 - **processor** — cleans/extracts article content, header image, search index; marks ready for ranking.
 - **summarize-rank** — LLM summary, topics, importance score + reason (the only service that calls the LLM).
-- **web** — FastAPI read/UI surface + reader operations (mark read, save, search). Also the future seam for an MCP/agent interface.
+- **web** — FastAPI + HTMX + Alpine.js read/UI surface + reader operations (mark read, save, search). Served as a PWA; exposed privately over Tailscale (binds `127.0.0.1` by default). Also the future seam for an MCP/agent interface.
+- **admin** — Rich CLI for feed management and operational tasks.
 
 The shared contract lives in `aggregator-common`: SQLAlchemy models, DB access, config, and the **article state machine**. Because services integrate only through the DB, the schema and allowed state transitions are the API — treat them as such.
 
@@ -40,6 +41,7 @@ packages/
   aggregator-retriever/
   aggregator-processor/
   aggregator-summarize-rank/
+  aggregator-web/               # FastAPI + HTMX + Alpine.js PWA web UI
   aggregator-admin/
 docker-compose.yml              # postgres only (app service definitions added per service spec)
 ```
@@ -142,6 +144,10 @@ At process startup, every service calls `aggregator_common.load_env()` (python-d
 | `DATABASE_URL` | *(required)* | PostgreSQL DSN |
 | `CLAIM_LEASE_SECONDS` | `600` | Work-claim lease duration (seconds) |
 | `LOG_LEVEL` | `INFO` | Log level for all services |
+| `WEB_HOST` | `127.0.0.1` | Host to bind the web server (never `0.0.0.0` in production) |
+| `WEB_PORT` | `8000` | Port to bind the web server |
+| `WEB_PAGE_SIZE` | `50` | Number of articles per page in feed lists |
+| `WEB_IMPORTANT_THRESHOLD` | `70` | Minimum `importance_score` for the Important smart view |
 
 **Per-service config convention:** Each service subclasses `aggregator_common.config.Settings` and adds its own fields using a `<SERVICE>_` prefix (e.g., `PROCESSOR_BATCH_SIZE`, `RETRIEVER_POLL_INTERVAL_SECONDS`). Shared fields live in the base class; service-specific fields never bleed into other services' namespaces.
 

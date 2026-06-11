@@ -81,6 +81,42 @@ sudo systemctl status aggregator   # check whether it is running
 
 ---
 
+## Accessing the web UI
+
+The `web` service (aggregator-web) binds to `127.0.0.1` on port **8000** by default. This means it is only reachable from the Pi itself — it is **never exposed on `0.0.0.0`** and is not directly accessible from other machines.
+
+### Tailscale Serve (recommended — HTTPS over your tailnet)
+
+Use **Tailscale Serve** to expose the web UI to all your Tailscale-connected devices with automatic HTTPS:
+
+```bash
+sudo tailscale serve --bg 8000
+```
+
+This proxies `https://<hostname>.your-tailnet.ts.net/` to the local port 8000. Your devices (phone, laptop, etc.) can reach the UI at that URL without any open firewall ports.
+
+To check the current serve configuration:
+```bash
+tailscale serve status
+```
+
+To remove it later:
+```bash
+sudo tailscale serve --remove 8000
+```
+
+### iOS "Add to Home Screen" (PWA)
+
+The web UI ships as a Progressive Web App. To install it on iOS:
+
+1. Open the Tailscale Serve URL in Safari.
+2. Tap the **Share** button → **Add to Home Screen**.
+3. The app opens full-screen in standalone mode, without the Safari browser chrome.
+
+The service worker caches the app shell and static assets so the UI loads instantly on subsequent visits.
+
+---
+
 ## Viewing logs
 
 **Container logs** (per-service, the most useful view):
