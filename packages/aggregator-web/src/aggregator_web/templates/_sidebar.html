@@ -1,0 +1,102 @@
+<div class="sidebar-content">
+
+  <!-- Smart views -->
+  <section class="sidebar-section" aria-labelledby="smart-views-heading">
+    <h2 class="sidebar-section-title" id="smart-views-heading">Smart Views</h2>
+    <ul class="sidebar-nav-list" role="list">
+      <li>
+        <a class="sidebar-link"
+           hx-get="/feed/smart/all"
+           hx-target="#article-list"
+           hx-swap="innerHTML"
+           hx-push-url="true">
+          All
+          <span class="unread-badge">{{ counts.all | default(0) }}</span>
+        </a>
+      </li>
+      <li>
+        <a class="sidebar-link"
+           hx-get="/feed/smart/unread"
+           hx-target="#article-list"
+           hx-swap="innerHTML"
+           hx-push-url="true">
+          Unread
+          <span class="unread-badge">{{ counts.unread | default(0) }}</span>
+        </a>
+      </li>
+      <li>
+        <a class="sidebar-link"
+           hx-get="/feed/smart/saved"
+           hx-target="#article-list"
+           hx-swap="innerHTML"
+           hx-push-url="true">
+          Saved
+          <span class="unread-badge">{{ counts.saved | default(0) }}</span>
+        </a>
+      </li>
+      <li>
+        <a class="sidebar-link"
+           hx-get="/feed/smart/important"
+           hx-target="#article-list"
+           hx-swap="innerHTML"
+           hx-push-url="true">
+          Important
+          <span class="unread-badge">{{ counts.important | default(0) }}</span>
+        </a>
+      </li>
+      <li>
+        <a class="sidebar-link"
+           hx-get="/feed/smart/uncategorized"
+           hx-target="#article-list"
+           hx-swap="innerHTML"
+           hx-push-url="true">
+          Uncategorized
+          <span class="unread-badge">{{ counts.uncategorized | default(0) }}</span>
+        </a>
+      </li>
+    </ul>
+  </section>
+
+  <!-- Enabled categories, ordered by sort_order -->
+  {% if categories %}
+  <section class="sidebar-section" aria-labelledby="categories-heading">
+    <h2 class="sidebar-section-title" id="categories-heading">Categories</h2>
+    <ul class="sidebar-nav-list" role="list">
+      {% for cat in categories %}
+      <li>
+        <a class="sidebar-link"
+           hx-get="/feed/category/{{ cat.name | urlencode }}"
+           hx-target="#article-list"
+           hx-swap="innerHTML"
+           hx-push-url="true">
+          {{ cat.name }}
+          <span class="unread-badge">{{ cat.unread_count | default(0) }}</span>
+        </a>
+      </li>
+      {% endfor %}
+    </ul>
+  </section>
+  {% endif %}
+
+  <!-- Enabled sources -->
+  {% if sources %}
+  <section class="sidebar-section" aria-labelledby="sources-heading">
+    <h2 class="sidebar-section-title" id="sources-heading">Sources</h2>
+    <ul class="sidebar-nav-list" role="list">
+      {% for source in sources %}
+      <li>
+        <a class="sidebar-link"
+           hx-get="/feed/source/{{ source.id }}"
+           hx-target="#article-list"
+           hx-swap="innerHTML"
+           hx-push-url="true">
+          {{ source.name }}
+          <span class="unread-badge">{{ source.unread_count | default(0) }}</span>
+        </a>
+      </li>
+      {% endfor %}
+    </ul>
+  </section>
+  {% endif %}
+
+</div>

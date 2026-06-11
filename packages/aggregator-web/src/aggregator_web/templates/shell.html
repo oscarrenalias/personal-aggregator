@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+
+  <!-- PWA -->
+  <link rel="manifest" href="/static/manifest.webmanifest">
+  <meta name="theme-color" content="#1a1a2e">
+
+  <!-- iOS PWA -->
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Aggregator">
+  <link rel="apple-touch-icon" href="/static/icons/icon-192.png">
+
+  <title>Personal Aggregator</title>
+
+  <link rel="stylesheet" href="/static/styles.css">
+
+  <!-- Alpine.js (defer keeps it non-blocking; must precede htmx for x-cloak to work) -->
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.1/dist/cdn.min.js"></script>
+  <!-- HTMX -->
+  <script src="https://unpkg.com/htmx.org@1.9.12" defer></script>
+</head>
+<body x-data="aggregatorApp()" @keydown.window="handleKey($event)">
+
+  <!-- Mobile header (hidden on desktop via CSS) -->
+  <header class="mobile-header" role="banner">
+    <button class="hamburger"
+            type="button"
+            @click="drawerOpen = !drawerOpen"
+            :aria-expanded="drawerOpen.toString()"
+            :aria-label="drawerOpen ? 'Close menu' : 'Open menu'">
+      <span></span>
+      <span></span>
+      <span></span>
+    </button>
+    <span class="mobile-title">Aggregator</span>
+    <a class="mobile-search-btn"
+       href="#search-input"
+       @click.prevent="focusSearch()"
+       aria-label="Search">&#x2315;</a>
+  </header>
+
+  <!-- Three-pane app shell grid -->
+  <div class="app-shell">
+
+    <!-- Tap-away overlay for mobile drawer -->
+    <div class="sidebar-overlay"
+         x-show="drawerOpen"
+         x-cloak
+         @click="drawerOpen = false"
+         aria-hidden="true"></div>
+
+    <!-- Left: sidebar / feed nav -->
+    <nav class="sidebar"
+         id="sidebar"
+         :class="{ 'open': drawerOpen }"
+         aria-label="Feed navigation"
+         hx-get="/sidebar"
+         hx-trigger="load"
+         hx-swap="innerHTML">
+    </nav>
+
+    <!-- Centre: article list pane (primary HTMX swap target) -->
+    <main class="article-list-pane"
+          id="article-list"
+          hx-get="/feed/smart/unread"
+          hx-trigger="load"
+          hx-swap="innerHTML">
+    </main>
+
+    <!-- Right: reader pane (desktop, swapped by article links) -->
+    <aside class="reader-pane"
+           id="reader-pane"
+           aria-label="Article reader">
+      <div class="reader-empty">
+        <p>Select an article to read.</p>
+      </div>
+    </aside>
+
+  </div>
+
+  <script src="/static/app.js" defer></script>
+</body>
+</html>
