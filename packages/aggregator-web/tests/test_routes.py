@@ -510,3 +510,140 @@ def test_web_settings_default_host():
     assert s.web_port == 8000
     assert s.web_page_size == 50
     assert s.web_important_threshold == 70
+
+
+# ---------------------------------------------------------------------------
+# HX-Trigger: refreshSidebar — interaction endpoints
+# ---------------------------------------------------------------------------
+
+
+def test_post_article_read_returns_hx_trigger_refresh_sidebar(db_session, client):
+    src = make_source(db_session)
+    article = make_article(db_session, source_id=src.id, is_read=False)
+    response = client.post(f"/article/{article.id}/read")
+    assert response.headers.get("HX-Trigger") == "refreshSidebar"
+
+
+def test_post_article_unread_returns_hx_trigger_refresh_sidebar(db_session, client):
+    src = make_source(db_session)
+    article = make_article(db_session, source_id=src.id, is_read=True)
+    response = client.post(f"/article/{article.id}/unread")
+    assert response.headers.get("HX-Trigger") == "refreshSidebar"
+
+
+def test_post_article_save_returns_hx_trigger_refresh_sidebar(db_session, client):
+    src = make_source(db_session)
+    article = make_article(db_session, source_id=src.id, is_saved=False)
+    response = client.post(f"/article/{article.id}/save")
+    assert response.headers.get("HX-Trigger") == "refreshSidebar"
+
+
+def test_post_article_unsave_returns_hx_trigger_refresh_sidebar(db_session, client):
+    src = make_source(db_session)
+    article = make_article(db_session, source_id=src.id, is_saved=True)
+    response = client.post(f"/article/{article.id}/unsave")
+    assert response.headers.get("HX-Trigger") == "refreshSidebar"
+
+
+def test_post_smart_read_all_returns_hx_trigger_refresh_sidebar(db_session, client):
+    src = make_source(db_session)
+    make_article(db_session, source_id=src.id)
+    response = client.post("/feed/smart/all/read-all")
+    assert response.headers.get("HX-Trigger") == "refreshSidebar"
+
+
+def test_post_category_read_all_returns_hx_trigger_refresh_sidebar(db_session, client):
+    src = make_source(db_session)
+    make_article(db_session, source_id=src.id, categories=["tech"])
+    response = client.post("/feed/category/tech/read-all")
+    assert response.headers.get("HX-Trigger") == "refreshSidebar"
+
+
+def test_post_source_read_all_returns_hx_trigger_refresh_sidebar(db_session, client):
+    src = make_source(db_session)
+    make_article(db_session, source_id=src.id)
+    response = client.post(f"/feed/source/{src.id}/read-all")
+    assert response.headers.get("HX-Trigger") == "refreshSidebar"
+
+
+# ---------------------------------------------------------------------------
+# Sidebar refreshSidebar trigger wiring
+# ---------------------------------------------------------------------------
+
+
+def test_get_index_sidebar_has_refresh_sidebar_trigger(client):
+    """Shell HTML sidebar container must include the refreshSidebar hx-trigger so
+    interaction responses that fire the event cause sidebar counts to reload."""
+    response = client.get("/")
+    assert response.status_code == 200
+    assert "refreshSidebar" in response.text
+
+
+# ---------------------------------------------------------------------------
+# paragraphs filter — registration, rendering, and HTML escaping
+# ---------------------------------------------------------------------------
+
+
+def test_paragraphs_filter_is_registered():
+    """The paragraphs Jinja2 filter must be registered on the templates environment."""
+    from aggregator_web.app import templates
+
+    assert "paragraphs" in templates.env.filters
+
+
+def test_article_detail_multi_line_summary_renders_multiple_paragraphs(db_session, client):
+    """Multi-line summary text must be split into separate <p> elements."""
+    src = make_source(db_session)
+    article = make_article(
+        db_session,
+        source_id=src.id,
+        summary="First paragraph.\nSecond paragraph.\nThird paragraph.",
+    )
+    response = client.get(f"/article/{article.id}")
+    assert response.status_code == 200
+    assert response.text.count("<p>") >= 3
+
+
+def test_article_detail_multi_line_body_renders_multiple_paragraphs(db_session, client):
+    """Multi-line clean_text must be split into separate <p> elements."""
+    src = make_source(db_session)
+    article = make_article(
+        db_session,
+        source_id=src.id,
+        clean_text="Paragraph one.\nParagraph two.",
+    )
+    response = client.get(f"/article/{article.id}")
+    assert response.status_code == 200
+    assert response.text.count("<p>") >= 2
+
+
+def test_article_detail_clean_text_html_is_escaped(db_session, client):
+    """HTML tags in clean_text must be escaped, not injected as raw markup."""
+    src = make_source(db_session)
+    article = make_article(
+        db_session,
+        source_id=src.id,
+        clean_text="Safe text <script>alert('xss')</script>",
+    )
+    response = client.get(f"/article/{article.id}")
+    assert response.status_code == 200
+    assert "&lt;script&gt;" in response.text
+    assert "<script>" not in response.text
+
+
+# ---------------------------------------------------------------------------
+# Article section heading
+# ---------------------------------------------------------------------------
+
+
+def test_article_detail_has_article_section_heading(db_session, client):
+    """Detail view with body text must render the 'Article' section heading."""
+    src = make_source(db_session)
+    article = make_article(
+        db_session,
+        source_id=src.id,
+        clean_text="Body content here.",
+    )
+    response = client.get(f"/article/{article.id}")
+    assert response.status_code == 200
+    assert ">Article<" in response.text
