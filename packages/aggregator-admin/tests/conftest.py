@@ -73,7 +73,7 @@ def db_engine():
         engine.dispose()
 
 
-@pytest.fixture(autouse=True)
+@pytest.fixture
 def clean_db(db_engine):
     """Truncate all data tables before each test for isolation."""
     with db_engine.connect() as conn:
@@ -83,7 +83,7 @@ def clean_db(db_engine):
 
 
 @pytest.fixture
-def db_session(db_engine) -> Generator[Session, None, None]:
+def db_session(db_engine, clean_db) -> Generator[Session, None, None]:
     """Per-test session for direct DB setup and inspection."""
     factory = sessionmaker(bind=db_engine, autocommit=False, autoflush=False)
     s = factory()

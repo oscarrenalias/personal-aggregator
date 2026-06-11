@@ -214,3 +214,139 @@ def test_sources_refresh_now_not_found(runner, db_session):
     result = runner.invoke(app, ["sources", "refresh-now", "9999"])
     assert result.exit_code == 1
     assert "not found" in result.output
+
+
+# ---------------------------------------------------------------------------
+# sources import-opml
+# ---------------------------------------------------------------------------
+
+_SIMPLE_OPML = """\
+<?xml version='1.0' encoding='utf-8'?>
+<opml version="2.0">
+  <head><title>Test</title></head>
+  <body>
+    <outline type="rss" title="Feed A" text="Feed A" xmlUrl="http://a.com/feed.xml" />
+    <outline type="rss" title="Feed B" text="Feed B" xmlUrl="http://b.com/feed.xml" />
+  </body>
+</opml>"""
+
+_MALFORMED_OPML = "not xml <<<!"
+
+
+def test_import_opml_new_feeds_adds_rows(runner, db_session, tmp_path):
+    opml_file = tmp_path / "feeds.opml"
+    opml_file.write_text(_SIMPLE_OPML, encoding="utf-8")
+    result = runner.invoke(app, ["sources", "import-opml", str(opml_file)])
+    assert result.exit_code == 0
+    assert "2 added" in result.output
+    db_session.expire_all()
+    assert db_session.query(Source).count() == 2
+
+
+def test_import_opml_duplicate_url_is_skipped(runner, db_session, tmp_path):
+    make_source(db_session, name="Feed A", url="http://a.com/feed.xml")
+    opml_file = tmp_path / "feeds.opml"
+    opml_file.write_text(_SIMPLE_OPML, encoding="utf-8")
+    result = runner.invoke(app, ["sources", "import-opml", str(opml_file)])
+    assert result.exit_code == 0
+    assert "1 added" in result.output
+    assert "1 skipped" in result.output
+    db_session.expire_all()
+    assert db_session.query(Source).count() == 2
+
+
+def test_import_opml_dry_run_leaves_db_unchanged(runner, db_session, tmp_path):
+    opml_file = tmp_path / "feeds.opml"
+    opml_file.write_text(_SIMPLE_OPML, encoding="utf-8")
+    result = runner.invoke(app, ["sources", "import-opml", "--dry-run", str(opml_file)])
+    assert result.exit_code == 0
+    assert "dry-run" in result.output.lower() or "[dry-run]" in result.output
+    assert db_session.query(Source).count() == 0
+
+
+def test_import_opml_missing_file_exits_nonzero(runner, db_session, tmp_path):
+    result = runner.invoke(app, ["sources", "import-opml", str(tmp_path / "nonexistent.opml")])
+    assert result.exit_code == 1
+
+
+def test_import_opml_malformed_file_exits_nonzero(runner, db_session, tmp_path):
+    opml_file = tmp_path / "bad.opml"
+    opml_file.write_text(_MALFORMED_OPML, encoding="utf-8")
+    result = runner.invoke(app, ["sources", "import-opml", str(opml_file)])
+    assert result.exit_code == 1
+    assert db_session.query(Source).count() == 0
+
+
+def test_import_opml_json_output(runner, db_session, tmp_path):
+    opml_file = tmp_path / "feeds.opml"
+    opml_file.write_text(_SIMPLE_OPML, encoding="utf-8")
+    result = runner.invoke(app, ["sources", "import-opml", "--json", str(opml_file)])
+    assert result.exit_code == 0
+    data = json.loads(result.output)
+    assert set(data.keys()) >= {"added", "skipped", "total"}
+    assert len(data["added"]) == 2
+    assert len(data["skipped"]) == 0
+    assert data["total"] == 2
+
+
+def test_import_opml_disabled_flag(runner, db_session, tmp_path):
+    opml_file = tmp_path / "feeds.opml"
+    opml_file.write_text(_SIMPLE_OPML, encoding="utf-8")
+    result = runner.invoke(app, ["sources", "import-opml", "--disabled", str(opml_file)])
+    assert result.exit_code == 0
+    db_session.expire_all()
+    sources = db_session.query(Source).all()
+    assert len(sources) == 2
+    assert all(not s.enabled for s in sources)
+
+
+def test_import_opml_interval_flag(runner, db_session, tmp_path):
+    opml_file = tmp_path / "feeds.opml"
+    opml_file.write_text(_SIMPLE_OPML, encoding="utf-8")
+    result = runner.invoke(app, ["sources", "import-opml", "--interval", "7200", str(opml_file)])
+    assert result.exit_code == 0
+    db_session.expire_all()
+    sources = db_session.query(Source).all()
+    assert all(s.refresh_interval_seconds == 7200 for s in sources)
+
+
+# ---------------------------------------------------------------------------
+# sources export-opml
+# ---------------------------------------------------------------------------
+
+def test_export_opml_stdout(runner, db_session):
+    make_source(db_session, name="My Feed", url="http://myfeed.com/feed.xml")
+    result = runner.invoke(app, ["sources", "export-opml"])
+    assert result.exit_code == 0
+    assert "<opml" in result.output
+    assert "http://myfeed.com/feed.xml" in result.output
+
+
+def test_export_opml_file_write(runner, db_session, tmp_path):
+    make_source(db_session, name="My Feed", url="http://myfeed.com/feed.xml")
+    out_file = tmp_path / "out.opml"
+    result = runner.invoke(app, ["sources", "export-opml", str(out_file)])
+    assert result.exit_code == 0
+    content = out_file.read_text(encoding="utf-8")
+    assert "<opml" in content
+    assert "http://myfeed.com/feed.xml" in content
+
+
+def test_export_opml_unwritable_path_exits_nonzero(runner, db_session, tmp_path):
+    bad_path = tmp_path / "is_a_directory"
+    bad_path.mkdir()
+    result = runner.invoke(app, ["sources", "export-opml", str(bad_path)])
+    assert result.exit_code == 1
+
+
+def test_export_opml_roundtrip_import_adds_zero(runner, db_session, tmp_path):
+    make_source(db_session, name="Feed A", url="http://a.com/feed.xml")
+    make_source(db_session, name="Feed B", url="http://b.com/feed.xml")
+    out_file = tmp_path / "exported.opml"
+    export_result = runner.invoke(app, ["sources", "export-opml", str(out_file)])
+    assert export_result.exit_code == 0
+    import_result = runner.invoke(app, ["sources", "import-opml", "--json", str(out_file)])
+    assert import_result.exit_code == 0
+    data = json.loads(import_result.output)
+    assert len(data["added"]) == 0
+    assert len(data["skipped"]) == 2
