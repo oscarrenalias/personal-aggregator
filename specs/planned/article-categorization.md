@@ -5,7 +5,7 @@ description: "LLM-driven controlled categorization for topic feeds: data-driven 
 dependencies: null
 priority: high
 complexity: null
-status: draft
+status: planned
 tags:
 - categorization
 - llm
@@ -15,7 +15,7 @@ tags:
 scope:
   in: null
   out: null
-feature_root_id: null
+feature_root_id: B-298f8d73
 ---
 # Article Categorization
 
