@@ -41,14 +41,22 @@ def _parse_published_at(entry) -> Optional[datetime.datetime]:
 def parse_feed(body: bytes, source_id: int) -> list[NormalizedEntry]:
     parsed = feedparser.parse(body)
 
-    if body and getattr(parsed, "bozo", False) and not parsed.entries:
-        logger.warning(
-            "feedparser returned 0 entries with bozo=True for source_id=%s; "
-            "body may be undecodable or corrupt (e.g. missing Content-Encoding decoder). "
-            "bozo_exception=%r",
-            source_id,
-            getattr(parsed, "bozo_exception", None),
-        )
+    if body and not parsed.entries:
+        bozo = getattr(parsed, "bozo", False)
+        version = getattr(parsed, "version", "")
+        # Warn when the body is not empty but produced no entries AND either feedparser
+        # flagged it as malformed (bozo=True) OR it couldn't identify any feed format
+        # (version='').  A valid but empty feed always has a non-empty version string.
+        if bozo or not version:
+            logger.warning(
+                "feedparser returned 0 entries for source_id=%s (bozo=%s, version=%r); "
+                "body may be undecodable or corrupt "
+                "(e.g. missing Content-Encoding decoder). bozo_exception=%r",
+                source_id,
+                bozo,
+                version,
+                getattr(parsed, "bozo_exception", None),
+            )
 
     entries: list[NormalizedEntry] = []
 
