@@ -175,8 +175,7 @@ def export_opml(
     """Export all feed sources as an OPML file."""
     with get_session() as session:
         sources = session.query(Source).all()
-
-    opml_text = build_opml(sources)
+        opml_text = build_opml(sources)
 
     if file is None:
         typer.echo(opml_text)
