@@ -20,5 +20,8 @@ fi
 
 for d in "${dirs[@]}"; do
   echo "===== pytest ${d} ====="
-  uv run pytest "${d}"
+  # --all-packages installs every workspace member + its deps (e.g. alembic from
+  # aggregator-common). Required because the root [project] (CI version source)
+  # makes a plain `uv run`/`uv sync` install only the root, not the members.
+  uv run --all-packages pytest "${d}"
 done
