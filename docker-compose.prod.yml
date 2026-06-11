@@ -58,5 +58,23 @@ services:
         condition: service_completed_successfully
     restart: unless-stopped
 
+  web:
+    image: ${IMAGE_PREFIX:-personal-aggregator}/aggregator-web:${APP_VERSION:-dev}
+    env_file: .env
+    ports:
+      - "127.0.0.1:${WEB_PORT:-8000}:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/healthz || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+
 volumes:
   pgdata:
