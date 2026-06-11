@@ -48,6 +48,13 @@ templates = Jinja2Templates(directory=_BASE_DIR / "templates")
 
 
 def _paragraphs_filter(text: str) -> Markup:
+    """Convert plain text to HTML paragraphs.
+
+    Splits on newlines, discards blank lines, HTML-escapes each line via
+    markupsafe.escape, then wraps in <p> tags.  Returns a Markup object so
+    Jinja does not double-escape the output.  Used as the ``paragraphs``
+    template filter on article.summary and article.clean_text.
+    """
     lines = [escape(line) for line in text.splitlines() if line.strip()]
     return Markup("".join(f"<p>{line}</p>" for line in lines))
 
@@ -95,7 +102,13 @@ def _render_interaction_response(
     article: Article,
     hx_target: Optional[str],
 ) -> Response:
-    """Return _article_detail.html when the HTMX target is the detail pane, else _article_card.html."""
+    """Return _article_detail.html when the HTMX target is the detail pane, else _article_card.html.
+
+    Every response also sets ``HX-Trigger: refreshSidebar``.  The sidebar nav
+    in shell.html listens for this event (``hx-trigger="refreshSidebar from:body"``)
+    and re-fetches /sidebar, keeping unread counts in sync after any read/save
+    action.  The three ``/read-all`` endpoints return the same header directly.
+    """
     if hx_target == "article-detail":
         response: Response = templates.TemplateResponse(
             request,
