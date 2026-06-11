@@ -160,6 +160,40 @@ class TestFetch200:
                 fetch(source, s)
 
 
+class TestBrotliDecoding:
+    def test_brotli_package_importable(self):
+        """brotli decoder must be installed for httpx to decompress Content-Encoding: br responses."""
+        import brotli  # noqa: F401
+
+        assert brotli.decompress(brotli.compress(b"test")) == b"test"
+
+    def test_fetch_decompresses_brotli_response(self, settings):
+        """fetch() must return decompressed plaintext when server responds with Content-Encoding: br."""
+        import brotli
+
+        plaintext = b"<?xml version='1.0'?><rss version='2.0'><channel><title>T</title></channel></rss>"
+        compressed = brotli.compress(plaintext)
+
+        class _BrotliTransport(httpx.BaseTransport):
+            def handle_request(self, request):
+                return httpx.Response(
+                    200,
+                    content=compressed,
+                    headers={"Content-Encoding": "br"},
+                )
+
+        source = _make_source()
+        _real_client = httpx.Client
+
+        def _client_with_brotli_transport(**kwargs):
+            return _real_client(transport=_BrotliTransport(), **kwargs)
+
+        with patch("httpx.Client", _client_with_brotli_transport):
+            result = fetch(source, settings)
+
+        assert result.body == plaintext
+
+
 class TestFetchErrors:
     def test_404_raises_fetch_error(self, settings):
         source = _make_source()

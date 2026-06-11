@@ -40,6 +40,16 @@ def _parse_published_at(entry) -> Optional[datetime.datetime]:
 
 def parse_feed(body: bytes, source_id: int) -> list[NormalizedEntry]:
     parsed = feedparser.parse(body)
+
+    if body and getattr(parsed, "bozo", False) and not parsed.entries:
+        logger.warning(
+            "feedparser returned 0 entries with bozo=True for source_id=%s; "
+            "body may be undecodable or corrupt (e.g. missing Content-Encoding decoder). "
+            "bozo_exception=%r",
+            source_id,
+            getattr(parsed, "bozo_exception", None),
+        )
+
     entries: list[NormalizedEntry] = []
 
     for entry in parsed.entries:

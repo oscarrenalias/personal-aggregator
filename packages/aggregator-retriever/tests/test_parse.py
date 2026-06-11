@@ -207,6 +207,21 @@ class TestParseFeedEdgeCases:
         entries = parse_feed(feed, source_id=9)
         assert any(e.dedup_key == "mixed-good-1" for e in entries)
 
+    def test_bozo_garbage_body_logs_warning(self, caplog):
+        """parse_feed logs a WARNING when feedparser returns bozo=True with 0 entries on non-empty input."""
+        import brotli
+        import logging
+
+        # brotli-compressed bytes look like binary garbage to feedparser — exactly the
+        # pre-fix failure mode when the brotli decoder was missing from the container.
+        garbage = brotli.compress(b"<?xml version='1.0'?><rss version='2.0'><channel/></rss>")
+
+        with caplog.at_level(logging.WARNING, logger="aggregator_retriever.parse"):
+            entries = parse_feed(garbage, source_id=42)
+
+        assert entries == []
+        assert any("bozo" in r.message.lower() for r in caplog.records)
+
     def test_empty_feed_returns_empty_list(self):
         feed = b"""<?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0">
