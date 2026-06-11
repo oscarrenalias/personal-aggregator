@@ -282,3 +282,109 @@ def source_read_all(
 ) -> Response:
     mark_all_read(db, FeedSpec(type="source", value=source_id), settings.web_important_threshold)
     return Response(status_code=200)
+
+
+@app.get("/article/{article_id}")
+def article_detail(
+    request: Request,
+    article_id: int,
+    db: Session = Depends(get_db),
+) -> Response:
+    article = db.get(Article, article_id)
+    if article is None:
+        raise HTTPException(status_code=404, detail="Article not found")
+    _enrich_article(article, db)
+    return templates.TemplateResponse(
+        request,
+        "_article_detail.html",
+        {"article": article},
+    )
+
+
+@app.post("/article/{article_id}/read")
+def article_read(
+    request: Request,
+    article_id: int,
+    hx_target: Optional[str] = Header(None, alias="HX-Target"),
+    db: Session = Depends(get_db),
+) -> Response:
+    try:
+        article = mark_read(db, article_id)
+    except ArticleNotFoundError:
+        raise HTTPException(status_code=404, detail="Article not found")
+    _enrich_article(article, db)
+    return _render_interaction_response(request, article, hx_target)
+
+
+@app.post("/article/{article_id}/unread")
+def article_unread(
+    request: Request,
+    article_id: int,
+    hx_target: Optional[str] = Header(None, alias="HX-Target"),
+    db: Session = Depends(get_db),
+) -> Response:
+    try:
+        article = mark_unread(db, article_id)
+    except ArticleNotFoundError:
+        raise HTTPException(status_code=404, detail="Article not found")
+    _enrich_article(article, db)
+    return _render_interaction_response(request, article, hx_target)
+
+
+@app.post("/article/{article_id}/save")
+def article_save(
+    request: Request,
+    article_id: int,
+    hx_target: Optional[str] = Header(None, alias="HX-Target"),
+    db: Session = Depends(get_db),
+) -> Response:
+    try:
+        article = save(db, article_id)
+    except ArticleNotFoundError:
+        raise HTTPException(status_code=404, detail="Article not found")
+    _enrich_article(article, db)
+    return _render_interaction_response(request, article, hx_target)
+
+
+@app.post("/article/{article_id}/unsave")
+def article_unsave(
+    request: Request,
+    article_id: int,
+    hx_target: Optional[str] = Header(None, alias="HX-Target"),
+    db: Session = Depends(get_db),
+) -> Response:
+    try:
+        article = unsave(db, article_id)
+    except ArticleNotFoundError:
+        raise HTTPException(status_code=404, detail="Article not found")
+    _enrich_article(article, db)
+    return _render_interaction_response(request, article, hx_target)
+
+
+@app.get("/search")
+def search(
+    request: Request,
+    q: str = "",
+    db: Session = Depends(get_db),
+) -> Response:
+    articles: List[Article] = []
+    if q.strip():
+        rows = db.execute(
+            select(Article)
+            .where(Article.status == "ready")
+            .where(Article.search_vector.op("@@")(func.websearch_to_tsquery("english", q)))
+            .order_by(
+                Article.importance_score.desc().nulls_last(),
+                Article.feed_published_at.desc().nulls_last(),
+                Article.id.desc(),
+            )
+            .limit(settings.web_page_size)
+        ).scalars().all()
+        articles = list(rows)
+        _enrich_articles(articles, db)
+
+    return templates.TemplateResponse(
+        request,
+        "_search.html",
+        {"query": q, "articles": articles, "next_url": None},
+    )
