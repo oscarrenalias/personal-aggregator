@@ -175,7 +175,7 @@ Versioning and image publishing run entirely in CI — do not bump the version m
 
 - Every push to `main` that touches `packages/**`, `pyproject.toml`, Dockerfiles, `docker-compose.prod.yml`, or `scripts/**` triggers a `patch` bump automatically.
 - A `minor` or `major` bump is triggered via **`workflow_dispatch`** with the `bump` input set to `minor` or `major`.
-- CI runs `uv version --bump <type>`, commits the updated `pyproject.toml` back to `main` with the message `chore: bump version to vX.Y.Z [skip ci]`, then reads the new version with `uv version --output-format value`.
+- CI runs `uv version --bump <type>`, commits the updated `pyproject.toml` back to `main` with the message `chore: bump version to vX.Y.Z [skip ci]`, then reads the new version with `uv version --short`.
 - The root `pyproject.toml` `[project].version` field is therefore CI-managed. Do not edit it by hand.
 
 **GHCR image paths:**
