@@ -10,6 +10,8 @@ on:
       - 'packages/**/Dockerfile'
       - 'docker-compose.prod.yml'
       - 'scripts/**'
+      - 'deploy/**'
+      - '.github/workflows/ci.yml'
   workflow_dispatch:
     inputs:
       bump:
@@ -119,10 +121,13 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           VERSION="${{ needs.build.outputs.version }}"
+          # GitHub release assets cannot start with a dot, so publish the env
+          # template as env.example (install.sh accepts this name).
+          cp .env.example env.example
           gh release create "${VERSION}" \
             --title "Release ${VERSION}" \
             --generate-notes \
             docker-compose.prod.yml \
             deploy/aggregator.service \
             deploy/install.sh \
-            .env.example
+            env.example

@@ -56,29 +56,39 @@ parse_args() {
 # Checks SCRIPT_DIR first (flat release download layout), then SCRIPT_DIR/..
 # (for running install.sh from deploy/ inside the repo).
 find_asset() {
-    local name="$1"
-    if [[ -f "${SCRIPT_DIR}/${name}" ]]; then
-        echo "${SCRIPT_DIR}/${name}"
-        return 0
-    fi
-    local parent
+    # Accepts one or more candidate names; returns the first that exists.
+    local name parent
     parent="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
-    if [[ -f "${parent}/${name}" ]]; then
-        echo "${parent}/${name}"
-        return 0
-    fi
+    for name in "$@"; do
+        if [[ -f "${SCRIPT_DIR}/${name}" ]]; then
+            echo "${SCRIPT_DIR}/${name}"
+            return 0
+        fi
+        if [[ -f "${parent}/${name}" ]]; then
+            echo "${parent}/${name}"
+            return 0
+        fi
+    done
     return 1
 }
+
+# The env template ships in-repo as .env.example, but GitHub release assets
+# can't start with a dot, so it's published as env.example. Accept all variants.
+ENV_EXAMPLE_NAMES=(env.example .env.example default.env.example)
 
 check_assets() {
     local errors=0
     local asset
-    for asset in docker-compose.prod.yml .env.example aggregator.service; do
+    for asset in docker-compose.prod.yml aggregator.service; do
         if ! find_asset "${asset}" > /dev/null 2>&1; then
             err "Required asset not found: ${asset}"
             errors=$((errors + 1))
         fi
     done
+    if ! find_asset "${ENV_EXAMPLE_NAMES[@]}" > /dev/null 2>&1; then
+        err "Required asset not found: env.example (or .env.example)"
+        errors=$((errors + 1))
+    fi
     return "${errors}"
 }
 
@@ -140,7 +150,7 @@ do_install() {
 
     local compose_src env_src service_src
     compose_src="$(find_asset docker-compose.prod.yml)"
-    env_src="$(find_asset .env.example)"
+    env_src="$(find_asset "${ENV_EXAMPLE_NAMES[@]}")"
     service_src="$(find_asset aggregator.service)"
 
     if [[ "${DRY_RUN}" == "true" ]]; then
