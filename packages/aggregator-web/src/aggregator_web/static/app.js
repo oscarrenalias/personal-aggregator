@@ -144,11 +144,15 @@ function articleList() {
 
     /* Load the given article into the reader pane via HTMX. */
     _loadReader(id) {
+      const pane = document.getElementById('reader-pane');
       htmx.ajax('GET', `/article/${id}`, {
         target: '#reader-pane',
         swap: 'innerHTML',
       });
       document.body.classList.add('reader-open');
+      if (pane) {
+        pane.addEventListener('htmx:afterSwap', () => { pane.scrollTop = 0; }, { once: true });
+      }
     },
   };
 }
