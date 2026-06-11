@@ -5,7 +5,7 @@ description: "aggregator-admin: add `sources import-opml <file>` and `sources ex
 dependencies: null
 priority: medium
 complexity: low
-status: draft
+status: planned
 tags:
 - admin
 - opml
@@ -14,7 +14,7 @@ tags:
 scope:
   in: "aggregator-admin only: new import-opml / export-opml commands under the existing `sources` Typer app, plus a small OPML parse/serialize helper module and tests. Reuses aggregator_common Source model + get_session()."
   out: "No schema change (folders are flattened, not stored), no changes to other services, no GUI/web import (admin CLI only in this spec), no feed validation/fetching at import time (URLs are trusted as provided)."
-feature_root_id: null
+feature_root_id: B-994a0131
 ---
 # OPML import and export
 
