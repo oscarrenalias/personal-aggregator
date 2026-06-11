@@ -1,5 +1,9 @@
 from dataclasses import dataclass
 from xml.etree import ElementTree
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from aggregator_common.models import Source
 
 
 @dataclass
@@ -40,3 +44,28 @@ def parse_opml(text: str) -> list[ParsedFeed]:
     walk(top_level)
 
     return results
+
+
+def build_opml(sources: "list[Source]") -> str:
+    root = ElementTree.Element("opml", {"version": "2.0"})
+
+    head = ElementTree.SubElement(root, "head")
+    title = ElementTree.SubElement(head, "title")
+    title.text = "Personal Aggregator subscriptions"
+
+    body = ElementTree.SubElement(root, "body")
+
+    for source in sorted(sources, key=lambda s: (s.name.lower(), s.id)):
+        ElementTree.SubElement(
+            body,
+            "outline",
+            {
+                "type": "rss",
+                "text": source.name,
+                "title": source.name,
+                "xmlUrl": source.feed_url,
+            },
+        )
+
+    ElementTree.indent(root)
+    return ElementTree.tostring(root, encoding="unicode", xml_declaration=True)
