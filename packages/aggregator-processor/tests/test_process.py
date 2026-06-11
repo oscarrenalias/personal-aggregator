@@ -26,7 +26,7 @@ from aggregator_common.models import Article
 from aggregator_common.state import ArticleStatus
 from aggregator_processor.extract import ExtractionResult
 from aggregator_processor.fetch import FetchError
-from aggregator_processor.loop import run_once
+from aggregator_processor.loop import run, run_once
 from aggregator_processor.process import process_article
 
 from .conftest import make_article, make_source
@@ -432,4 +432,78 @@ class TestPerArticleIsolation:
         )
         assert ArticleStatus.failed_processing in statuses, (
             f"Expected 1 failed_processing, got {statuses}"
+        )
+
+
+# ─── Daemon loop (run) ───────────────────────────────────────────────────────
+
+import signal as _signal  # noqa: E402
+
+
+class TestDaemonLoop:
+    def test_run_submits_integer_ids_no_detached_instance_error(
+        self, db_session, src, monkeypatch
+    ):
+        """run() must capture article IDs inside the session (before close) and submit integers.
+
+        Regression: before the fix, article.id was accessed after session.close(), causing
+        DetachedInstanceError ('Instance <Article> is not bound to a Session') because ORM
+        attributes expire on commit and the instance is detached on close. The daemon would
+        crash on every cycle, leaving articles stuck in pending_processing forever.
+        """
+        monkeypatch.setenv("PROCESSOR_POLL_INTERVAL_SECONDS", "30")
+        monkeypatch.setenv("PROCESSOR_BATCH_SIZE", "10")
+        from aggregator_processor.config import ProcessorSettings
+
+        settings = ProcessorSettings()
+
+        feed_text = "word " * 400
+        raw_payload = {"content": [{"value": feed_text}]}
+        article = make_article(
+            db_session, source_id=src.id, dedup_key="daemon-detach", raw_payload=raw_payload
+        )
+        expected_id = article.id
+
+        submitted_ids: list = []
+        batch_submitted = threading.Event()
+        captured_handler: list = [None]
+
+        def capture_signal(signum, handler):
+            if signum == _signal.SIGINT:
+                captured_handler[0] = handler
+
+        def fake_process_article(article_id, s):
+            submitted_ids.append(article_id)
+            batch_submitted.set()
+
+        errors: list = []
+
+        def run_daemon() -> None:
+            try:
+                with (
+                    patch("signal.signal", side_effect=capture_signal),
+                    patch("aggregator_processor.loop.process_article", side_effect=fake_process_article),
+                ):
+                    run(settings)
+            except Exception as exc:
+                errors.append(exc)
+
+        t = threading.Thread(target=run_daemon, daemon=True)
+        t.start()
+
+        assert batch_submitted.wait(timeout=10), "Daemon never called process_article"
+
+        handler = captured_handler[0]
+        assert handler is not None, "Signal handler was not installed"
+        handler(_signal.SIGINT, None)
+
+        t.join(timeout=10)
+
+        assert not errors, f"Daemon thread raised: {errors}"
+        assert len(submitted_ids) >= 1, "process_article was never called"
+        assert all(isinstance(aid, int) for aid in submitted_ids), (
+            f"Expected integer IDs; got types: {[type(x).__name__ for x in submitted_ids]}"
+        )
+        assert expected_id in submitted_ids, (
+            f"Expected article ID {expected_id} in submitted_ids {submitted_ids}"
         )

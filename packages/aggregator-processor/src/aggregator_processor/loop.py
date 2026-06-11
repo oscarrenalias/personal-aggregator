@@ -39,6 +39,7 @@ def run(settings: ProcessorSettings) -> None:
             pending_futures = [f for f in pending_futures if not f.done()]
 
             articles: list[Article] = []
+            article_ids: list[int] = []
             session = SessionFactory()
             try:
                 now = datetime.now(timezone.utc)
@@ -52,6 +53,7 @@ def run(settings: ProcessorSettings) -> None:
                     settings.processor_batch_size,
                     now,
                 )
+                article_ids = [a.id for a in articles]
                 session.commit()
             except Exception:
                 session.rollback()
@@ -59,14 +61,14 @@ def run(settings: ProcessorSettings) -> None:
             finally:
                 session.close()
 
-            if not articles:
+            if not article_ids:
                 stop_event.wait(timeout=settings.processor_poll_interval_seconds)
                 continue
 
-            for article in articles:
+            for aid in article_ids:
                 if stop_event.is_set():
                     break
-                pending_futures.append(executor.submit(process_article, article.id, settings))
+                pending_futures.append(executor.submit(process_article, aid, settings))
 
         logger.info("Draining %d in-flight future(s)...", len(pending_futures))
         for f in pending_futures:
