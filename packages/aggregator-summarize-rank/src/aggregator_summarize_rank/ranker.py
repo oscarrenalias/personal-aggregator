@@ -32,6 +32,20 @@ def _parse_rank_result(response: Any) -> RankResult:
     return RankResult.model_validate_json(content)
 
 
+def _filter_categories(raw: list[str], enabled: Sequence[_CategoryEntry]) -> list[str]:
+    """Canonicalize LLM-returned category names against the enabled set
+    (case-insensitive), drop unknowns, dedupe preserving order."""
+    canonical = {c.name.lower(): c.name for c in enabled}
+    seen: set[str] = set()
+    out: list[str] = []
+    for name in raw or []:
+        canon = canonical.get(name.strip().lower())
+        if canon and canon not in seen:
+            seen.add(canon)
+            out.append(canon)
+    return out
+
+
 def rank(
     article_input: dict[str, Any],
     interest_profile_text: str,
@@ -59,6 +73,8 @@ def rank(
                 logger.warning("Malformed LLM response (attempt 1), retrying: %s", exc)
                 continue
             raise RankError(f"Invalid LLM response after retry: {exc}") from exc
+
+        result.categories = _filter_categories(result.categories, enabled_categories or [])
 
         usage = response.usage if response.usage else None
         prompt_tokens = getattr(usage, "prompt_tokens", 0) or 0

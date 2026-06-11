@@ -29,15 +29,19 @@ def _make_litellm_response(
     topics: list[str] | None = None,
     score: int = 75,
     reason: str = "Test reason.",
+    categories: list[str] | None = None,
 ) -> SimpleNamespace:
     if topics is None:
         topics = ["ai", "python"]
-    content = json.dumps({
+    payload = {
         "summary": summary,
         "topics": topics,
         "importance_score": score,
         "importance_reason": reason,
-    })
+    }
+    if categories is not None:
+        payload["categories"] = categories
+    content = json.dumps(payload)
     message = SimpleNamespace(content=content, parsed=None)
     choice = SimpleNamespace(message=message)
     usage = SimpleNamespace(prompt_tokens=100, completion_tokens=50)
@@ -340,3 +344,31 @@ class TestSourceLookup:
         assert captured, "litellm.completion was not called"
         user_msg = captured[0][1]["content"]
         assert "MyBlog" in user_msg
+
+
+def test_categories_persisted_and_filtered_to_enabled_set(
+    db_session, src, settings, session_factory
+):
+    """LLM categories are canonicalized to the enabled set, unknowns dropped,
+    and persisted on the article. Regression: persistence was missing."""
+    from types import SimpleNamespace
+
+    article = make_article(
+        db_session, source_id=src.id, dedup_key="cat-persist", clean_text=_ENOUGH_TEXT
+    )
+    enabled = [
+        SimpleNamespace(name="AI", description="LLMs, ML"),
+        SimpleNamespace(name="Gaming", description="video games"),
+    ]
+    resp = _make_litellm_response(categories=["ai", "Gaming", "Bogus"])
+    with (
+        patch("litellm.completion", return_value=resp),
+        patch("litellm.completion_cost", return_value=0.001),
+    ):
+        from aggregator_summarize_rank.rank import process_article
+
+        process_article(article.id, "", enabled, settings, session_factory)
+
+    db_session.expire(article)
+    db_session.refresh(article)
+    assert article.categories == ["AI", "Gaming"]

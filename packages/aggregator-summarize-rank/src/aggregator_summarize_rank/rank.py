@@ -69,6 +69,7 @@ def process_article(
         article.topics = result.topics
         article.importance_score = result.importance_score
         article.importance_reason = result.importance_reason
+        article.categories = result.categories
         article.llm_meta = usage_dict
         article.summarized_at = datetime.now(UTC)
         complete(session, article, ArticleStatus.ready)
