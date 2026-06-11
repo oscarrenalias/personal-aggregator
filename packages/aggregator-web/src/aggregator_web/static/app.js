@@ -1,7 +1,8 @@
 /* app.js — Alpine.js component definitions for Personal Aggregator */
 
 /* ── Root app component (bound to <body> in shell.html) ────────────────────
-   Manages: sidebar drawer state, / shortcut to focus search.
+   Manages: sidebar drawer state, keyboard shortcuts help overlay (? key),
+   and search focus — triggered by the sidebar search button or the / key.
    The j/k/v/m shortcuts are handled by the nested articleList() component.
    ────────────────────────────────────────────────────────────────────────── */
 function aggregatorApp() {
