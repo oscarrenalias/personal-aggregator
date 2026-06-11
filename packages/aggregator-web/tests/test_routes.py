@@ -647,3 +647,87 @@ def test_article_detail_has_article_section_heading(db_session, client):
     response = client.get(f"/article/{article.id}")
     assert response.status_code == 200
     assert ">Article<" in response.text
+
+
+# ---------------------------------------------------------------------------
+# Header layout regression — toolbar/title gap + relevance score placement
+# ---------------------------------------------------------------------------
+
+
+def test_article_detail_importance_badge_in_toolbar(db_session, client):
+    """Regression: importance badge must appear inside .detail-reader-toolbar,
+    not as a standalone element between the title and the category chips."""
+    src = make_source(db_session)
+    article = make_article(db_session, source_id=src.id, importance_score=75)
+    response = client.get(f"/article/{article.id}")
+    assert response.status_code == 200
+    html = response.text
+
+    # Old standalone wrapper must be gone.
+    assert 'class="detail-importance"' not in html
+
+    # Badge must be rendered somewhere in the page.
+    assert "importance-badge" in html
+
+    # Badge must appear inside .detail-reader-toolbar (before first toolbar-btn).
+    toolbar_idx = html.find('class="detail-reader-toolbar"')
+    badge_idx = html.find("importance-badge")
+    btn_idx = html.find('class="toolbar-btn')
+    assert toolbar_idx != -1
+    assert badge_idx != -1
+    assert btn_idx != -1
+    assert toolbar_idx < badge_idx < btn_idx, (
+        "importance-badge must be the first item inside .detail-reader-toolbar"
+    )
+
+
+def test_article_detail_importance_badge_tier_class(db_session, client):
+    """Regression: badge tier class (importance-high/medium/low) must be preserved
+    when badge moves into the toolbar."""
+    src = make_source(db_session)
+    high = make_article(db_session, source_id=src.id, dedup_key="k-high", importance_score=85)
+    medium = make_article(db_session, source_id=src.id, dedup_key="k-med", importance_score=65)
+    low = make_article(db_session, source_id=src.id, dedup_key="k-low", importance_score=30)
+
+    r = client.get(f"/article/{high.id}")
+    assert "importance-high" in r.text
+
+    r = client.get(f"/article/{medium.id}")
+    assert "importance-medium" in r.text
+
+    r = client.get(f"/article/{low.id}")
+    assert "importance-low" in r.text
+
+
+def test_article_detail_importance_badge_tooltip(db_session, client):
+    """Regression: importance badge title tooltip must contain the score."""
+    src = make_source(db_session)
+    article = make_article(db_session, source_id=src.id, importance_score=60)
+    response = client.get(f"/article/{article.id}")
+    assert response.status_code == 200
+    assert 'title="60/100' in response.text
+
+
+def test_article_detail_no_importance_badge_when_no_score(db_session, client):
+    """Regression: no badge must be rendered when importance_score is None."""
+    src = make_source(db_session)
+    article = make_article(db_session, source_id=src.id, importance_score=None)
+    response = client.get(f"/article/{article.id}")
+    assert response.status_code == 200
+    assert "importance-badge" not in response.text
+    assert "detail-importance" not in response.text
+
+
+def test_detail_header_css_reserves_toolbar_space(client):
+    """Regression: .detail-header CSS rule must include padding-right to prevent
+    title text from overlapping the absolutely-positioned toolbar."""
+    response = client.get("/static/styles.css")
+    assert response.status_code == 200
+    css = response.text
+    rule_start = css.find(".detail-header {")
+    assert rule_start != -1, ".detail-header CSS rule not found"
+    rule_end = css.find("}", rule_start)
+    rule_block = css[rule_start:rule_end]
+    assert "padding-right" in rule_block, (
+        ".detail-header must have padding-right to reserve space for the toolbar"
+    )

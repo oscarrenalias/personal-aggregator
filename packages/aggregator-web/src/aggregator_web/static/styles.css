@@ -748,6 +748,7 @@ button {
 /* ── Article detail — header, toolbar, chips, body divider ─── */
 .detail-header {
   position: relative;
+  padding-right: 160px;
 }
 
 .detail-reader-toolbar {

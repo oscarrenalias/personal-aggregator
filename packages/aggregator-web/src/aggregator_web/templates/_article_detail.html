@@ -30,6 +30,13 @@
 
     <header class="detail-header">
       <div class="detail-reader-toolbar">
+        {% if article.importance_score is not none %}
+          {% if article.importance_score >= 80 %}{% set score_tier = "high" %}
+          {% elif article.importance_score >= 50 %}{% set score_tier = "medium" %}
+          {% else %}{% set score_tier = "low" %}{% endif %}
+          <span class="importance-badge importance-{{ score_tier }}"
+                title="{{ article.importance_score }}/100{% if article.importance_reason %} — {{ article.importance_reason }}{% endif %}">{{ article.importance_score }}</span>
+        {% endif %}
         <button class="toolbar-btn btn-read"
                 hx-post="/article/{{ article.id }}/{{ 'unread' if article.is_read else 'read' }}"
                 hx-target="#article-detail"
@@ -73,16 +80,6 @@
       </div>
 
       <h1 class="detail-title">{{ title | e }}</h1>
-
-      {% if article.importance_score is not none %}
-        {% if article.importance_score >= 80 %}{% set score_tier = "high" %}
-        {% elif article.importance_score >= 50 %}{% set score_tier = "medium" %}
-        {% else %}{% set score_tier = "low" %}{% endif %}
-      <div class="detail-importance">
-        <span class="importance-badge importance-{{ score_tier }}"
-              title="{{ article.importance_score }}/100{% if article.importance_reason %} — {{ article.importance_reason }}{% endif %}">{{ article.importance_score }}</span>
-      </div>
-      {% endif %}
 
       {% if article.categories or article.topics %}
       <div class="detail-chips">
