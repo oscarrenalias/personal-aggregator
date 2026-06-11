@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 from typing import Any, Optional
 
 import typer
-from sqlalchemy import func
+from sqlalchemy import func, inspect as sa_inspect
 
 from sqlalchemy.orm import Session
 
@@ -12,47 +13,61 @@ from aggregator_common.db import get_session
 from aggregator_common.models import Article
 from aggregator_common.state import ArticleStatus, can_transition
 
-from .output import confirm, json_or_table
+from .output import confirm, json_default, json_or_table, render_kv_table
 
 articles_app = typer.Typer(help="Inspect and operate on articles.")
 
-_LIST_COLUMNS = ["id", "source_id", "status", "feed_title", "feed_published_at", "retrieved_at"]
-
-_SHOW_COLUMNS = [
+_LIST_COLUMNS = [
     "id",
     "source_id",
     "status",
-    "claimed_by",
-    "claimed_at",
-    "retry_count",
-    "next_retry_at",
-    "last_error",
     "feed_title",
-    "feed_url",
     "feed_published_at",
     "retrieved_at",
-    "clean_title",
-    "excerpt",
-    "author",
-    "published_at",
-    "word_count",
-    "language",
-    "processed_at",
-    "summary",
-    "topics",
+    "header_image_url",
     "importance_score",
     "importance_reason",
+    "summary",
+    "topics",
+    "entities",
+    "llm_meta",
     "summarized_at",
     "is_read",
     "is_saved",
     "is_hidden",
-    "created_at",
-    "updated_at",
 ]
+
+# search_vector is a PostgreSQL TSVECTOR used internally for FTS; excluded from output.
+_SHOW_EXCLUDED: frozenset[str] = frozenset({"search_vector"})
+# Long fields truncated in human display; appear in full in --json output.
+_SHOW_TRUNCATE_LIMITS: dict[str, int] = {"clean_text": 300, "raw_payload": 300}
+
+
+def _article_show_columns() -> list[str]:
+    """All Article ORM column names except search_vector."""
+    return [
+        prop.key
+        for prop in sa_inspect(Article).column_attrs
+        if prop.key not in _SHOW_EXCLUDED
+    ]
 
 
 def _to_row(article: Article, columns: list[str]) -> dict[str, Any]:
     return {col: getattr(article, col) for col in columns}
+
+
+def _to_display_row(article: Article, columns: list[str]) -> dict[str, Any]:
+    """Build a display row for human output; truncates long fields with an indicator."""
+    row: dict[str, Any] = {}
+    for col in columns:
+        val = getattr(article, col)
+        if col in _SHOW_TRUNCATE_LIMITS and val is not None:
+            limit = _SHOW_TRUNCATE_LIMITS[col]
+            s = json.dumps(val) if isinstance(val, (dict, list)) else str(val)
+            if len(s) > limit:
+                val = f"{s[:limit]}… [truncated]"
+        row[col] = val
+    return row
 
 
 @articles_app.command("list")
@@ -85,13 +100,20 @@ def show_article(
     as_json: bool = typer.Option(False, "--json", help="Output as JSON."),
 ) -> None:
     """Show full details for a single article."""
+    columns = _article_show_columns()
     with get_session() as session:
         article = session.get(Article, article_id)
-        row = _to_row(article, _SHOW_COLUMNS) if article is not None else None
-    if row is None:
-        typer.echo(f"Error: article {article_id} not found.", err=True)
-        raise typer.Exit(code=1)
-    json_or_table([row], _SHOW_COLUMNS, as_json=as_json)
+        if article is None:
+            typer.echo(f"Error: article {article_id} not found.", err=True)
+            raise typer.Exit(code=1)
+        if as_json:
+            row = _to_row(article, columns)
+        else:
+            row = _to_display_row(article, columns)
+    if as_json:
+        typer.echo(json.dumps(row, default=json_default))
+    else:
+        render_kv_table(row)
 
 
 @articles_app.command("search")

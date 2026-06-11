@@ -82,8 +82,8 @@ def test_articles_show_success(runner, db_session):
     result = runner.invoke(app, ["articles", "show", str(art.id), "--json"])
     assert result.exit_code == 0
     data = json.loads(result.output)
-    assert data[0]["feed_title"] == "Detail Article"
-    assert data[0]["id"] == art.id
+    assert data["feed_title"] == "Detail Article"
+    assert data["id"] == art.id
 
 
 def test_articles_show_not_found(runner, db_session):
@@ -98,7 +98,54 @@ def test_articles_show_json(runner, db_session):
     result = runner.invoke(app, ["articles", "show", str(art.id), "--json"])
     assert result.exit_code == 0
     data = json.loads(result.output)
-    assert data[0]["feed_title"] == "JSON Show"
+    assert data["feed_title"] == "JSON Show"
+
+
+def test_articles_show_json_all_columns(runner, db_session):
+    """show --json must include every Article column except search_vector."""
+    from sqlalchemy import inspect as sa_inspect
+    from aggregator_common.models import Article as ArticleModel
+
+    src = make_source(db_session)
+    art = make_article(db_session, source_id=src.id)
+    result = runner.invoke(app, ["articles", "show", str(art.id), "--json"])
+    assert result.exit_code == 0
+    data = json.loads(result.output)
+    expected = {
+        prop.key
+        for prop in sa_inspect(ArticleModel).column_attrs
+        if prop.key != "search_vector"
+    }
+    for col in expected:
+        assert col in data, f"Column {col!r} missing from articles show --json"
+
+
+def test_articles_show_json_header_image_url_roundtrip(runner, db_session):
+    src = make_source(db_session)
+    art = make_article(db_session, source_id=src.id, header_image_url="https://example.com/img.jpg")
+    result = runner.invoke(app, ["articles", "show", str(art.id), "--json"])
+    assert result.exit_code == 0
+    data = json.loads(result.output)
+    assert data["header_image_url"] == "https://example.com/img.jpg"
+
+
+def test_articles_show_human_includes_header_image_url(runner, db_session):
+    src = make_source(db_session)
+    art = make_article(db_session, source_id=src.id, header_image_url="https://example.com/img.jpg")
+    result = runner.invoke(app, ["articles", "show", str(art.id)])
+    assert result.exit_code == 0
+    assert "https://example.com/img.jpg" in result.output
+
+
+def test_articles_list_json_includes_header_image_url(runner, db_session):
+    src = make_source(db_session)
+    make_article(db_session, source_id=src.id, header_image_url="https://example.com/thumb.jpg")
+    result = runner.invoke(app, ["articles", "list", "--json"])
+    assert result.exit_code == 0
+    data = json.loads(result.output)
+    assert len(data) == 1
+    assert "header_image_url" in data[0]
+    assert data[0]["header_image_url"] == "https://example.com/thumb.jpg"
 
 
 # ---------------------------------------------------------------------------

@@ -141,6 +141,7 @@ def make_article(
     claimed_at: datetime | None = None,
     last_error: str | None = None,
     retry_count: int = 0,
+    header_image_url: str | None = None,
 ) -> Article:
     article = Article(
         source_id=source_id,
@@ -153,6 +154,7 @@ def make_article(
         claimed_at=claimed_at,
         last_error=last_error,
         retry_count=retry_count,
+        header_image_url=header_image_url,
     )
     session.add(article)
     session.flush()

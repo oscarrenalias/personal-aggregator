@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import sys
+from datetime import datetime
 from typing import Any
 
 import typer
@@ -11,6 +12,13 @@ from rich.console import Console
 from rich.table import Table
 
 console = Console()
+
+
+def json_default(obj: Any) -> Any:
+    """JSON serializer for types not handled by the standard json module."""
+    if isinstance(obj, datetime):
+        return obj.isoformat()
+    return str(obj)
 
 
 def render_table(rows: list[dict[str, Any]], columns: list[str]) -> None:
@@ -23,6 +31,16 @@ def render_table(rows: list[dict[str, Any]], columns: list[str]) -> None:
     console.print(table)
 
 
+def render_kv_table(row: dict[str, Any]) -> None:
+    """Render a single dict as a two-column field/value Rich table."""
+    table = Table(show_header=True, header_style="bold")
+    table.add_column("Field")
+    table.add_column("Value")
+    for key, val in row.items():
+        table.add_row(key, "" if val is None else str(val))
+    console.print(table)
+
+
 def json_or_table(
     rows: list[dict[str, Any]],
     columns: list[str],
@@ -31,7 +49,7 @@ def json_or_table(
 ) -> None:
     """Print rows as JSON when as_json is True, otherwise render as a Rich table."""
     if as_json:
-        typer.echo(json.dumps(rows, default=str))
+        typer.echo(json.dumps(rows, default=json_default))
     else:
         render_table(rows, columns)
 
