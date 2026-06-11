@@ -11,7 +11,7 @@ from sqlalchemy.exc import IntegrityError
 from aggregator_common.db import get_session
 from aggregator_common.models import Article, Source
 
-from .opml import parse_opml
+from .opml import build_opml, parse_opml
 from .output import confirm, json_or_table
 
 sources_app = typer.Typer(help="Manage feed sources.")
@@ -166,6 +166,26 @@ def remove_source(
             session.query(Article).filter(Article.source_id == source_id).delete()
         session.delete(source)
     typer.echo(f"Source {source_id} deleted.")
+
+
+@sources_app.command("export-opml")
+def export_opml(
+    file: Optional[Path] = typer.Argument(None, help="Output file path (defaults to stdout)."),
+) -> None:
+    """Export all feed sources as an OPML file."""
+    with get_session() as session:
+        sources = session.query(Source).all()
+
+    opml_text = build_opml(sources)
+
+    if file is None:
+        typer.echo(opml_text)
+    else:
+        try:
+            file.write_text(opml_text, encoding="utf-8")
+        except OSError as exc:
+            typer.echo(f"Error: cannot write to '{file}': {exc}", err=True)
+            raise typer.Exit(code=1)
 
 
 @sources_app.command("import-opml")
