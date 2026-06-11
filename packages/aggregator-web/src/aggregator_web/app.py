@@ -1,7 +1,10 @@
+import mimetypes
 from pathlib import Path
 from typing import Generator, List, Optional
 from types import SimpleNamespace
 from urllib.parse import quote, urlencode
+
+mimetypes.add_type("application/manifest+json", ".webmanifest")
 
 from fastapi import Depends, FastAPI, Header, Request, Response
 from fastapi.responses import HTMLResponse, JSONResponse
