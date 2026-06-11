@@ -78,7 +78,7 @@ def db_engine():
         engine.dispose()
 
 
-@pytest.fixture(autouse=True)
+@pytest.fixture
 def clean_db(db_engine):
     """Truncate all data tables before each test for full isolation."""
     with db_engine.connect() as conn:
@@ -91,7 +91,7 @@ def clean_db(db_engine):
 
 
 @pytest.fixture
-def db_session(db_engine) -> Generator[Session, None, None]:
+def db_session(db_engine, clean_db) -> Generator[Session, None, None]:
     """Per-test session for DB setup and direct inspection."""
     factory = sessionmaker(bind=db_engine, autocommit=False, autoflush=False)
     s = factory()
@@ -106,7 +106,7 @@ def db_session(db_engine) -> Generator[Session, None, None]:
 
 
 @pytest.fixture
-def client(db_engine):
+def client(db_engine, clean_db):
     """FastAPI TestClient with get_db overridden to use the test DB."""
     from aggregator_web.app import app, get_db
 
