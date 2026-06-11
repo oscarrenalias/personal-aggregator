@@ -5,7 +5,7 @@ description: "Release pipeline + Pi deployment (Spec B). CI mirrors oscarrenalia
 dependencies: null
 priority: high
 complexity: null
-status: planned
+status: done
 tags:
 - release
 - ci
