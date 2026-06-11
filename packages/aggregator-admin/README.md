@@ -61,7 +61,7 @@ uv run aggregator-admin articles <subcommand>
 | Subcommand | Arguments | Options | Description |
 |---|---|---|---|
 | `list` | | `--status`, `--source SOURCE_ID`, `--limit` (default 50), `--json` | List articles newest-first. Filter by status string and/or source ID. |
-| `show` | `ARTICLE_ID` | `--json` | Show full article details including claim fields, LLM outputs, and reader flags. |
+| `show` | `ARTICLE_ID` | `--json` | Show full details for a single article. Human display renders all columns (except `search_vector`) as a field/value table; long fields (`clean_text`, `raw_payload`) are truncated at 300 characters with a `… [truncated]` indicator. `--json` emits every DB column (including `header_image_url`) at full length with no truncation. |
 | `search` | `QUERY` | `--limit` (default 50), `--json` | Full-text search over processed articles using Postgres `tsvector`. Only articles that have been through the processor and have a `search_vector` are matched. |
 | `retry` | `[ARTICLE_ID]` | `--status` | Retry a single failed article, or all articles with a given failed status. Provide either an article ID or `--status failed_processing` / `--status failed_ranking`, not both. Resets `claimed_by`, `claimed_at`, `last_error`, and `retry_count`. |
 | `rerank` | `[ARTICLE_ID]` | `--all`, `--yes/-y` | Queue a `ready` article for re-ranking by moving it back to `pending_ranking`. Pass `--all` instead of an article ID to requeue every `ready` article at once. `ARTICLE_ID` and `--all` are mutually exclusive; providing both is an error. `--all` requires confirmation. |
@@ -72,6 +72,8 @@ uv run aggregator-admin articles <subcommand>
 | `hide` | `ARTICLE_ID` | | Set `is_hidden = true`. |
 | `unhide` | `ARTICLE_ID` | | Clear `is_hidden`. |
 | `purge` | | `--status`, `--source SOURCE_ID`, `--before ISO_DATE`, `--yes` | Permanently delete articles matching any combination of status, source, and retrieval date. At least one filter is required. `--before` accepts an ISO date string (e.g. `2024-01-01`). Requires confirmation. |
+
+> **Column sets:** `list` and `search` return a fixed subset of columns (no `raw_payload`, `clean_text`, or internal metadata). `show` returns every DB column except `search_vector`, so it is the canonical way to inspect any field — including `header_image_url`, `raw_payload`, and `clean_text` — on a single article.
 
 ### `ops` — pipeline diagnostics and maintenance
 
