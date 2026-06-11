@@ -4,6 +4,8 @@ from typing import Generator, List, Optional
 from types import SimpleNamespace
 from urllib.parse import quote, urlencode
 
+from markupsafe import Markup, escape
+
 mimetypes.add_type("application/manifest+json", ".webmanifest")
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response
@@ -43,6 +45,14 @@ app = FastAPI(title="personal-aggregator web")
 
 app.mount("/static", StaticFiles(directory=_BASE_DIR / "static"), name="static")
 templates = Jinja2Templates(directory=_BASE_DIR / "templates")
+
+
+def _paragraphs_filter(text: str) -> Markup:
+    lines = [escape(line) for line in text.splitlines() if line.strip()]
+    return Markup("".join(f"<p>{line}</p>" for line in lines))
+
+
+templates.env.filters["paragraphs"] = _paragraphs_filter
 
 
 def get_db() -> Generator[Session, None, None]:
