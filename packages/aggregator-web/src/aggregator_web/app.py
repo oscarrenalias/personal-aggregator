@@ -6,11 +6,11 @@ from urllib.parse import quote, urlencode
 
 mimetypes.add_type("application/manifest+json", ".webmanifest")
 
-from fastapi import Depends, FastAPI, Header, Request, Response
+from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from sqlalchemy import select, text
+from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
 from aggregator_common.db import SessionFactory, get_session
@@ -25,7 +25,15 @@ from aggregator_web.feeds import (
     smart_feed,
     source_feed,
 )
-from aggregator_web.reader import FeedSpec, mark_all_read
+from aggregator_web.reader import (
+    ArticleNotFoundError,
+    FeedSpec,
+    mark_all_read,
+    mark_read,
+    mark_unread,
+    save,
+    unsave,
+)
 
 _BASE_DIR = Path(__file__).parent
 
@@ -61,6 +69,36 @@ def _enrich_articles(articles: List[Article], session: Session) -> None:
         name_map = {}
     for a in articles:
         a.source_name = name_map.get(a.source_id, "")  # type: ignore[attr-defined]
+
+
+def _enrich_article(article: Article, session: Session) -> None:
+    """Attach source_name attribute to a single article for template rendering."""
+    if article.source_id is not None:
+        source = session.get(Source, article.source_id)
+        article.source_name = source.name if source else ""  # type: ignore[attr-defined]
+    else:
+        article.source_name = ""  # type: ignore[attr-defined]
+
+
+def _render_interaction_response(
+    request: Request,
+    article: Article,
+    hx_target: Optional[str],
+) -> Response:
+    """Return _article_detail.html when the HTMX target is the detail pane, else _article_card.html."""
+    if hx_target == "article-detail":
+        return templates.TemplateResponse(
+            request,
+            "_article_detail.html",
+            {"article": article},
+        )
+    return HTMLResponse(
+        templates.get_template("_article_card.html").render(
+            article=article,
+            is_last=False,
+            next_url=None,
+        )
+    )
 
 
 def _build_next_url(base: str, next_cursor: Optional[str], unread_only: bool) -> Optional[str]:
