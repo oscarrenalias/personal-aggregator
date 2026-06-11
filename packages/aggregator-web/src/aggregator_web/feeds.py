@@ -74,9 +74,15 @@ def _smart_extra_filter(view: SmartViewName, important_threshold: int):
     elif view == "important":
         return Article.importance_score >= important_threshold
     elif view == "uncategorized":
+        # jsonb_array_length raises on scalar JSONB (including JSONB null, which psycopg3
+        # stores when Python None is passed to a JSONB column). Guard with jsonb_typeof.
         return or_(
             Article.categories.is_(None),
-            func.jsonb_array_length(Article.categories) == 0,
+            func.jsonb_typeof(Article.categories) == "null",
+            and_(
+                func.jsonb_typeof(Article.categories) == "array",
+                func.jsonb_array_length(Article.categories) == 0,
+            ),
         )
     else:
         raise ValueError(f"Unknown smart view: {view!r}")
@@ -195,7 +201,14 @@ def get_sidebar_counts(
         "saved": _count(Article.is_saved == True),
         "important": _count(Article.importance_score >= important_threshold),
         "uncategorized": _count(
-            or_(Article.categories.is_(None), func.jsonb_array_length(Article.categories) == 0)
+            or_(
+                Article.categories.is_(None),
+                func.jsonb_typeof(Article.categories) == "null",
+                and_(
+                    func.jsonb_typeof(Article.categories) == "array",
+                    func.jsonb_array_length(Article.categories) == 0,
+                ),
+            )
         ),
     }
 

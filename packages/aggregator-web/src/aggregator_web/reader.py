@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Literal, Union, cast as typing_cast
 
-from sqlalchemy import func, or_, update
+from sqlalchemy import and_, func, or_, update
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.orm import Session
@@ -75,9 +75,15 @@ def _feed_membership_filter(feed_spec: FeedSpec, important_threshold: int):
         elif view == "important":
             return base & (Article.importance_score >= important_threshold)
         elif view == "uncategorized":
+            # jsonb_array_length raises on scalar JSONB (including JSONB null stored by psycopg3
+            # when Python None is passed). Guard with jsonb_typeof.
             return base & or_(
                 Article.categories.is_(None),
-                func.jsonb_array_length(Article.categories.cast(JSONB)) == 0,
+                func.jsonb_typeof(Article.categories) == "null",
+                and_(
+                    func.jsonb_typeof(Article.categories) == "array",
+                    func.jsonb_array_length(Article.categories.cast(JSONB)) == 0,
+                ),
             )
         else:
             raise ValueError(f"Unknown smart view: {view!r}")
