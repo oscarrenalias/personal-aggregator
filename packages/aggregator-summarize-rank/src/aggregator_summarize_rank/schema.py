@@ -8,6 +8,7 @@ class RankResult(BaseModel):
     topics: list[str]
     importance_score: int
     importance_reason: str
+    categories: list[str] = []
 
     @field_validator("importance_score", mode="before")
     @classmethod
