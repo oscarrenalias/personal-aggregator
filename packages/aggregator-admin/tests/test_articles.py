@@ -33,10 +33,12 @@ def test_articles_list_status_filter(runner, db_session):
     src = make_source(db_session)
     make_article(db_session, source_id=src.id, feed_title="Failed Art", status=ArticleStatus.failed_processing, dedup_key="k1")
     make_article(db_session, source_id=src.id, feed_title="Ready Art", status=ArticleStatus.ready, dedup_key="k2")
-    result = runner.invoke(app, ["articles", "list", "--status", "failed_processing"])
+    result = runner.invoke(app, ["articles", "list", "--status", "failed_processing", "--json"])
     assert result.exit_code == 0
-    assert "Failed Art" in result.output
-    assert "Ready Art" not in result.output
+    data = json.loads(result.output)
+    titles = [a["feed_title"] for a in data]
+    assert "Failed Art" in titles
+    assert "Ready Art" not in titles
 
 
 def test_articles_list_source_filter(runner, db_session):
