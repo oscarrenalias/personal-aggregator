@@ -40,7 +40,7 @@ packages/
   aggregator-retriever/
   aggregator-processor/
   aggregator-summarize-rank/
-  aggregator-web/
+  aggregator-admin/
 docker-compose.yml              # postgres only (app service definitions added per service spec)
 ```
 
@@ -79,7 +79,7 @@ The headless stack (`postgres → migrate → retriever → processor → summar
 | `make logs` | `docker compose -f docker-compose.prod.yml logs -f` |
 | `make version` | Print the current git-derived version |
 
-**Version scheme:** `APP_VERSION` is computed at build time from `git describe --tags --always --dirty`. This produces a SemVer tag (e.g. `v0.1.0`) when the repo is on a tag, or `v0.1.0-3-gabc123` / a short SHA when it is not. The value is passed as a Docker `--build-arg`, embedded as `ENV APP_VERSION` in the image, and exposed via `aggregator_common.version()` at runtime. The default when the env var is absent is `dev`.
+**Version scheme:** `APP_VERSION` is set by CI using `uv version --short` after bumping the workspace version with `uv version --bump <type>`. The resulting value (e.g. `v0.1.0`) is passed as a Docker `--build-arg`, embedded as `ENV APP_VERSION` in the image, and exposed via `aggregator_common.version()` at runtime. The default when the env var is absent is `dev`.
 
 ## takt orchestration
 

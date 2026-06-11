@@ -121,9 +121,10 @@ Dry-run preview:
 sudo ./install.sh --check update
 ```
 
-> **Note:** `install.sh update` must be run from the directory containing the release
-> assets so that the latest `docker-compose.prod.yml` can be picked up. If you have lost
-> the original assets, download a fresh release bundle first.
+> **Note:** `install.sh update` only pulls new images and restarts the stack using the
+> compose file already in `/opt/personal-aggregator/`. It does **not** replace the compose
+> file. To pick up a new `docker-compose.prod.yml` from a release, download the release
+> assets and re-run `install.sh install` — the `.env` will be preserved.
 
 ---
 
