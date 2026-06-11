@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Optional
 
 import typer
@@ -9,6 +11,7 @@ from sqlalchemy.exc import IntegrityError
 from aggregator_common.db import get_session
 from aggregator_common.models import Article, Source
 
+from .opml import parse_opml
 from .output import confirm, json_or_table
 
 sources_app = typer.Typer(help="Manage feed sources.")
@@ -163,6 +166,77 @@ def remove_source(
             session.query(Article).filter(Article.source_id == source_id).delete()
         session.delete(source)
     typer.echo(f"Source {source_id} deleted.")
+
+
+@sources_app.command("import-opml")
+def import_opml(
+    file: Path = typer.Argument(..., help="Path to the OPML file."),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Preview imports without making DB changes."),
+    interval: int = typer.Option(3600, "--interval", help="Refresh interval in seconds for new sources."),
+    disabled: bool = typer.Option(False, "--disabled", help="Import sources in a disabled state."),
+    as_json: bool = typer.Option(False, "--json", help="Output as JSON."),
+) -> None:
+    """Import feed sources from an OPML file."""
+    try:
+        text = file.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        typer.echo(f"Error: file '{file}' not found.", err=True)
+        raise typer.Exit(code=1)
+    except OSError as exc:
+        typer.echo(f"Error: cannot read '{file}': {exc}", err=True)
+        raise typer.Exit(code=1)
+
+    try:
+        feeds = parse_opml(text)
+    except ValueError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=1)
+
+    added: list[str] = []
+    skipped: list[str] = []
+
+    with get_session() as session:
+        existing_urls: set[str] = {row[0] for row in session.query(Source.feed_url).all()}
+        seen_in_batch: set[str] = set()
+
+        for feed in feeds:
+            url = feed.url
+            if url in existing_urls or url in seen_in_batch:
+                skipped.append(url)
+                continue
+            seen_in_batch.add(url)
+
+            if not dry_run:
+                sp = session.begin_nested()
+                try:
+                    session.add(Source(
+                        name=feed.name,
+                        feed_url=url,
+                        enabled=not disabled,
+                        refresh_interval_seconds=interval,
+                    ))
+                    session.flush()
+                    sp.commit()
+                    added.append(url)
+                except IntegrityError:
+                    sp.rollback()
+                    skipped.append(url)
+            else:
+                added.append(url)
+
+    total = len(added) + len(skipped)
+
+    if as_json:
+        typer.echo(json.dumps({"added": added, "skipped": skipped, "total": total}))
+    else:
+        prefix = "[dry-run] " if dry_run else ""
+        for url in added:
+            typer.echo(f"  {prefix}added: {url}")
+        for url in skipped:
+            typer.echo(f"  skipped: {url}")
+        typer.echo(
+            f"{prefix}Summary: {len(added)} added, {len(skipped)} skipped, {total} total"
+        )
 
 
 @sources_app.command("refresh-now")
