@@ -92,6 +92,9 @@ class Article(Base):
     llm_meta: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
     summarized_at: Mapped[Optional[datetime]] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
 
+    # Categorization
+    categories: Mapped[Optional[list]] = mapped_column(JSONB, nullable=True)
+
     # Interaction (web)
     is_read: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
     read_at: Mapped[Optional[datetime]] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
@@ -99,6 +102,23 @@ class Article(Base):
     is_hidden: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
 
     # Timestamps
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class Category(Base):
+    __tablename__ = "categories"
+    __table_args__ = (UniqueConstraint("name", name="uq_categories_name"),)
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(always=True), primary_key=True)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
     )
