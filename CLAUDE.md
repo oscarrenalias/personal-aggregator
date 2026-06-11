@@ -40,7 +40,7 @@ packages/
   aggregator-retriever/
   aggregator-processor/
   aggregator-summarize-rank/
-  aggregator-web/
+  aggregator-admin/
 docker-compose.yml              # postgres only (app service definitions added per service spec)
 ```
 
@@ -79,7 +79,7 @@ The headless stack (`postgres → migrate → retriever → processor → summar
 | `make logs` | `docker compose -f docker-compose.prod.yml logs -f` |
 | `make version` | Print the current git-derived version |
 
-**Version scheme:** `APP_VERSION` is computed at build time from `git describe --tags --always --dirty`. This produces a SemVer tag (e.g. `v0.1.0`) when the repo is on a tag, or `v0.1.0-3-gabc123` / a short SHA when it is not. The value is passed as a Docker `--build-arg`, embedded as `ENV APP_VERSION` in the image, and exposed via `aggregator_common.version()` at runtime. The default when the env var is absent is `dev`.
+**Version scheme:** `APP_VERSION` is set by CI using `uv version --short` after bumping the workspace version with `uv version --bump <type>`. The resulting value (e.g. `v0.1.0`) is passed as a Docker `--build-arg`, embedded as `ENV APP_VERSION` in the image, and exposed via `aggregator_common.version()` at runtime. The default when the env var is absent is `dev`.
 
 ## takt orchestration
 
@@ -166,3 +166,56 @@ Build in dependency order, one spec per component:
 3. **processor**
 4. **summarize-rank**
 5. **web / API**
+
+## Release pipeline
+
+Versioning and image publishing run entirely in CI — do not bump the version manually.
+
+**Versioning flow:**
+
+- Every push to `main` that touches `packages/**`, `pyproject.toml`, Dockerfiles, `docker-compose.prod.yml`, or `scripts/**` triggers a `patch` bump automatically.
+- A `minor` or `major` bump is triggered via **`workflow_dispatch`** with the `bump` input set to `minor` or `major`.
+- CI runs `uv version --bump <type>`, commits the updated `pyproject.toml` back to `main` with the message `chore: bump version to vX.Y.Z [skip ci]`, then reads the new version with `uv version --short`.
+- The root `pyproject.toml` `[project].version` field is therefore CI-managed. Do not edit it by hand.
+
+**GHCR image paths:**
+
+Images are pushed to `ghcr.io/oscarrenalias/personal-aggregator/aggregator-<service>` for each service (`retriever`, `processor`, `summarize-rank`, `admin`). Three tags are applied on every successful build:
+
+| Tag | When to use |
+|---|---|
+| `:vX.Y.Z` | Pin to a specific release |
+| `:latest` | Track the most recent release |
+| `:main-<short-sha>` | Pin to a specific commit without a version tag |
+
+**GitHub Release:**
+
+After images are pushed, the `publish` job creates a GitHub Release named `vX.Y.Z` and attaches `docker-compose.prod.yml`, `deploy/aggregator.service`, `deploy/install.sh`, and `.env.example` as release assets — these are the files needed for a Pi install.
+
+## Pi deployment
+
+Full instructions live in [`deploy/README.md`](deploy/README.md). Summary:
+
+**Install (first time):**
+
+1. Download the release assets from the latest GitHub Release: `install.sh`, `docker-compose.prod.yml`, `aggregator.service`, `.env.example`.
+2. Run `sudo ./install.sh install` — this creates `/opt/personal-aggregator/`, copies the compose file and `.env`, installs the `aggregator` systemd unit, and starts the service.
+3. Edit `/opt/personal-aggregator/.env` to set `OPENAI_API_KEY` (or `ANTHROPIC_API_KEY`) and `DATABASE_URL`, then `sudo systemctl restart aggregator`.
+
+Use `--check` for a dry-run preview: `sudo ./install.sh --check install`.
+
+**Update:**
+
+```bash
+sudo ./install.sh update
+```
+
+Pulls the latest images and restarts the stack. Run from the directory containing the release assets so the latest `docker-compose.prod.yml` is picked up.
+
+**Rollback:**
+
+Pin `APP_VERSION` in `/opt/personal-aggregator/.env` to the desired tag (e.g. `APP_VERSION=v0.1.3`), then run `sudo ./install.sh update`. Set `APP_VERSION=latest` to return to tracking the most recent release.
+
+**Service management:**
+
+The systemd unit (`aggregator.service`) manages the whole Compose stack. Standard `systemctl` commands apply: `enable`, `start`, `stop`, `status`, `restart`. Logs: `docker compose -f docker-compose.prod.yml logs -f` for container output, or `journalctl -u aggregator -f` for service lifecycle events.

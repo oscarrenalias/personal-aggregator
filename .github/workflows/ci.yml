@@ -1,0 +1,128 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'packages/**'
+      - 'pyproject.toml'
+      - 'packages/**/Dockerfile'
+      - 'docker-compose.prod.yml'
+      - 'scripts/**'
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: 'Version bump type'
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+        default: patch
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Sync dependencies
+        run: uv sync
+
+      - name: Run tests
+        run: bash scripts/run-tests.sh
+
+  build:
+    needs: [test]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+    outputs:
+      version: ${{ steps.read_version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Sync dependencies
+        run: uv sync
+
+      - name: Configure git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Bump version
+        run: uv version --bump ${{ inputs.bump || 'patch' }}
+
+      - name: Read version
+        id: read_version
+        run: |
+          VERSION="v$(uv version --short)"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Commit and push version bump
+        run: |
+          git add pyproject.toml
+          git commit -m "chore: bump version to ${{ steps.read_version.outputs.version }} [skip ci]"
+          git pull --rebase origin main
+          git push origin main
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push images
+        env:
+          VERSION: ${{ steps.read_version.outputs.version }}
+        run: |
+          SHORT_SHA="${GITHUB_SHA:0:7}"
+          for SERVICE in retriever processor summarize-rank admin; do
+            docker buildx build \
+              --platform linux/arm64 \
+              --build-arg APP_VERSION="${VERSION}" \
+              --push \
+              -t "ghcr.io/oscarrenalias/personal-aggregator/aggregator-${SERVICE}:${VERSION}" \
+              -t "ghcr.io/oscarrenalias/personal-aggregator/aggregator-${SERVICE}:latest" \
+              -t "ghcr.io/oscarrenalias/personal-aggregator/aggregator-${SERVICE}:main-${SHORT_SHA}" \
+              -f "packages/aggregator-${SERVICE}/Dockerfile" \
+              .
+          done
+
+  publish:
+    needs: [build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create GitHub release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${{ needs.build.outputs.version }}"
+          gh release create "${VERSION}" \
+            --title "Release ${VERSION}" \
+            --generate-notes \
+            docker-compose.prod.yml \
+            deploy/aggregator.service \
+            deploy/install.sh \
+            .env.example
