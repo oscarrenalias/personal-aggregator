@@ -3,12 +3,13 @@ from __future__ import annotations
 from typing import Optional
 
 import typer
-from sqlalchemy.exc import IntegrityError
 
+from aggregator_common import management
 from aggregator_common.db import get_session
+from aggregator_common.errors import ConflictError, NotFoundError
 from aggregator_common.models import Category
 
-from .output import confirm, json_or_table
+from .output import confirm, error_panel, json_or_table
 
 categories_app = typer.Typer(help="Manage article categories.")
 
@@ -75,21 +76,19 @@ def add_category(
     disabled: bool = typer.Option(False, "--disabled", help="Create the category in a disabled state."),
 ) -> None:
     """Add a new category."""
-    category = Category(
-        name=name,
-        description=description,
-        sort_order=sort_order,
-        enabled=not disabled,
-    )
     try:
         with get_session() as session:
-            session.add(category)
-            session.flush()
-            new_id = category.id
-    except IntegrityError:
-        typer.echo(f"Error: a category named '{name}' already exists.", err=True)
+            result = management.add_category(
+                session,
+                name,
+                description=description,
+                sort_order=sort_order,
+                enabled=not disabled,
+            )
+    except ConflictError as exc:
+        error_panel(str(exc))
         raise typer.Exit(code=1)
-    typer.echo(new_id)
+    typer.echo(result["id"])
 
 
 @categories_app.command("rename")
@@ -98,17 +97,16 @@ def rename_category(
     new_name: str = typer.Argument(..., help="New category name."),
 ) -> None:
     """Rename a category."""
-    old_name = None
     try:
         with get_session() as session:
-            category = _resolve_category(session, id_or_name)
-            old_name = category.name
-            category.name = new_name
-            session.flush()
-    except IntegrityError:
-        typer.echo(f"Error: a category named '{new_name}' already exists.", err=True)
+            management.rename_category(session, id_or_name, new_name)
+    except NotFoundError as exc:
+        error_panel(str(exc))
         raise typer.Exit(code=1)
-    typer.echo(f"Category '{old_name}' renamed to '{new_name}'.")
+    except ConflictError as exc:
+        error_panel(str(exc))
+        raise typer.Exit(code=1)
+    typer.echo(f"Category '{id_or_name}' renamed to '{new_name}'.")
     typer.echo("Hint: run 'articles rerank --all' to refresh existing article tags.")
 
 
@@ -118,9 +116,12 @@ def set_description(
     text: str = typer.Argument(..., help="New description text."),
 ) -> None:
     """Update the description of a category."""
-    with get_session() as session:
-        category = _resolve_category(session, id_or_name)
-        category.description = text
+    try:
+        with get_session() as session:
+            management.set_category_description(session, id_or_name, text)
+    except NotFoundError as exc:
+        error_panel(str(exc))
+        raise typer.Exit(code=1)
     typer.echo(f"Category '{id_or_name}' description updated.")
 
 
@@ -130,9 +131,12 @@ def set_order(
     n: int = typer.Argument(..., help="New sort order value."),
 ) -> None:
     """Update the sort order of a category."""
-    with get_session() as session:
-        category = _resolve_category(session, id_or_name)
-        category.sort_order = n
+    try:
+        with get_session() as session:
+            management.set_category_order(session, id_or_name, n)
+    except NotFoundError as exc:
+        error_panel(str(exc))
+        raise typer.Exit(code=1)
     typer.echo(f"Category '{id_or_name}' sort order set to {n}.")
 
 
@@ -141,9 +145,12 @@ def enable_category(
     id_or_name: str = typer.Argument(..., help="Category ID or exact name."),
 ) -> None:
     """Enable a category."""
-    with get_session() as session:
-        category = _resolve_category(session, id_or_name)
-        category.enabled = True
+    try:
+        with get_session() as session:
+            management.enable_category(session, id_or_name)
+    except NotFoundError as exc:
+        error_panel(str(exc))
+        raise typer.Exit(code=1)
     typer.echo(f"Category '{id_or_name}' enabled.")
 
 
@@ -152,9 +159,12 @@ def disable_category(
     id_or_name: str = typer.Argument(..., help="Category ID or exact name."),
 ) -> None:
     """Disable a category."""
-    with get_session() as session:
-        category = _resolve_category(session, id_or_name)
-        category.enabled = False
+    try:
+        with get_session() as session:
+            management.disable_category(session, id_or_name)
+    except NotFoundError as exc:
+        error_panel(str(exc))
+        raise typer.Exit(code=1)
     typer.echo(f"Category '{id_or_name}' disabled.")
 
 
@@ -164,8 +174,17 @@ def remove_category(
     yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation prompt."),
 ) -> None:
     """Delete a category."""
-    with get_session() as session:
-        category = _resolve_category(session, id_or_name)
-        confirm(yes=yes, prompt=f"Delete category '{category.name}'?")
-        session.delete(category)
+    try:
+        with get_session() as session:
+            if id_or_name.isdigit():
+                category = session.get(Category, int(id_or_name))
+            else:
+                category = session.query(Category).filter(Category.name == id_or_name).first()
+            if category is None:
+                raise NotFoundError(f"Category '{id_or_name}' not found.")
+            confirm(yes=yes, prompt=f"Delete category '{category.name}'?")
+            management.remove_category(session, id_or_name)
+    except NotFoundError as exc:
+        error_panel(str(exc))
+        raise typer.Exit(code=1)
     typer.echo(f"Category '{id_or_name}' deleted.")
