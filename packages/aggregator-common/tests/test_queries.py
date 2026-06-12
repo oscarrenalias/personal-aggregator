@@ -8,7 +8,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 import aggregator_common.queries as queries
-from aggregator_common.models import Article, Category, InterestProfile, Source
+from aggregator_common.models import Article, Brief, BriefTopic, Category, InterestProfile, Source
 from aggregator_common.state import ArticleStatus
 
 _NOW = datetime.now(tz=timezone.utc)
@@ -406,3 +406,133 @@ class TestMutationHelpers:
     def test_unsave_article_unknown_id_raises(self, session: Session):
         with pytest.raises(ValueError, match="not found"):
             queries.unsave_article(session, 999_999_005)
+
+
+_BRIEF_PERIOD_START = _TODAY_START
+_BRIEF_PERIOD_END = _TODAY_START + timedelta(days=1)
+
+
+def _make_brief(
+    session: Session,
+    *,
+    status: str = "ready",
+    headline: str = "Brief Headline",
+    intro: str = "Brief intro.",
+    model: str = "gpt-4.1",
+    generated_at: datetime | None = None,
+) -> Brief:
+    brief = Brief(
+        status=status,
+        origin="manual",
+        period_start=_BRIEF_PERIOD_START,
+        period_end=_BRIEF_PERIOD_END,
+        headline=headline,
+        intro=intro,
+        model=model,
+        generated_at=generated_at or _NOW,
+    )
+    session.add(brief)
+    session.flush()
+    return brief
+
+
+def _make_brief_topic(
+    session: Session,
+    brief_id: int,
+    position: int,
+    *,
+    headline: str = "Topic Headline",
+    what_happened: str = "Something happened.",
+    why_it_matters: str = "It matters because.",
+    historical_context: str | None = None,
+    refs: list | None = None,
+) -> BriefTopic:
+    topic = BriefTopic(
+        brief_id=brief_id,
+        position=position,
+        headline=headline,
+        what_happened=what_happened,
+        why_it_matters=why_it_matters,
+        historical_context=historical_context,
+        topic_refs=refs or [],
+    )
+    session.add(topic)
+    session.flush()
+    return topic
+
+
+class TestBriefQueries:
+    def test_get_latest_brief_returns_none_when_no_ready_brief(self, session: Session):
+        result = queries.get_latest_brief(session)
+        assert result is None
+
+    def test_get_latest_brief_returns_ready_brief_with_topics(self, session: Session):
+        brief = _make_brief(session, headline="Today's Brief", intro="An intro.")
+        _make_brief_topic(
+            session,
+            brief.id,
+            1,
+            headline="Topic A",
+            what_happened="A happened.",
+            why_it_matters="A matters.",
+            refs=[{"article_id": 1, "title": "Ref Article"}],
+        )
+        _make_brief_topic(
+            session,
+            brief.id,
+            2,
+            headline="Topic B",
+            what_happened="B happened.",
+            why_it_matters="B matters.",
+            historical_context="B background.",
+        )
+
+        result = queries.get_latest_brief(session)
+
+        assert result is not None
+        assert result.id == brief.id
+        assert result.headline == "Today's Brief"
+        assert result.intro == "An intro."
+        assert result.model == "gpt-4.1"
+        assert result.generated_at is not None
+        assert len(result.topics) == 2
+        assert result.topics[0].position == 1
+        assert result.topics[0].headline == "Topic A"
+        assert result.topics[0].refs == [{"article_id": 1, "title": "Ref Article"}]
+        assert result.topics[1].position == 2
+        assert result.topics[1].historical_context == "B background."
+
+    def test_get_latest_brief_topics_ordered_by_position(self, session: Session):
+        brief = _make_brief(session)
+        _make_brief_topic(session, brief.id, 3, headline="Third")
+        _make_brief_topic(session, brief.id, 1, headline="First")
+        _make_brief_topic(session, brief.id, 2, headline="Second")
+
+        result = queries.get_latest_brief(session)
+
+        assert result is not None
+        positions = [t.position for t in result.topics]
+        assert positions == [1, 2, 3]
+
+    def test_get_latest_brief_ignores_non_ready_briefs(self, session: Session):
+        _make_brief(session, status="pending", headline="Pending Brief")
+        _make_brief(session, status="failed", headline="Failed Brief")
+
+        result = queries.get_latest_brief(session)
+        assert result is None
+
+    def test_enqueue_brief_inserts_when_none_pending(self, session: Session):
+        result = queries.enqueue_brief(session)
+        assert result == {"status": "queued"}
+
+    def test_enqueue_brief_returns_already_pending_when_pending_exists(self, session: Session):
+        _make_brief(session, status="pending", headline="In-flight Brief")
+
+        result = queries.enqueue_brief(session)
+        assert result == {"status": "already_pending"}
+
+    def test_enqueue_brief_returns_already_pending_when_generating_exists(self, session: Session):
+        _make_brief(session, status="generating", headline="Generating Brief")
+
+        result = queries.enqueue_brief(session)
+        assert result == {"status": "already_pending"}

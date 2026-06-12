@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Literal, Optional
 
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
-from aggregator_common.models import Article, Category, InterestProfile, Source
+from aggregator_common.models import Article, Brief, BriefTopic, Category, InterestProfile, Source
 from aggregator_common.state import ArticleStatus
 
 ViewName = Literal["all", "unread", "important", "saved", "uncategorized", "today"]
@@ -51,6 +51,28 @@ class CategoryResult:
     name: str
     description: Optional[str]
     sort_order: int
+
+
+@dataclass
+class BriefTopicResult:
+    position: int
+    headline: str
+    what_happened: str
+    why_it_matters: str
+    historical_context: Optional[str]
+    refs: list
+
+
+@dataclass
+class BriefResult:
+    id: int
+    headline: Optional[str]
+    intro: Optional[str]
+    generated_at: Optional[str]
+    period_start: str
+    period_end: str
+    model: Optional[str]
+    topics: List[BriefTopicResult]
 
 
 def _ready_base():
@@ -271,3 +293,59 @@ def list_sources(session: Session) -> List[SourceResult]:
         )
         for s in rows
     ]
+
+
+def get_latest_brief(session: Session) -> Optional[BriefResult]:
+    """Return the newest ready brief with topics ordered by position, or None."""
+    brief = session.execute(
+        select(Brief)
+        .where(Brief.status == "ready")
+        .order_by(Brief.created_at.desc())
+        .limit(1)
+    ).scalar_one_or_none()
+    if brief is None:
+        return None
+    topics = session.execute(
+        select(BriefTopic)
+        .where(BriefTopic.brief_id == brief.id)
+        .order_by(BriefTopic.position)
+    ).scalars().all()
+    return BriefResult(
+        id=brief.id,
+        headline=brief.headline,
+        intro=brief.intro,
+        generated_at=brief.generated_at.isoformat() if brief.generated_at else None,
+        period_start=brief.period_start.isoformat(),
+        period_end=brief.period_end.isoformat(),
+        model=brief.model,
+        topics=[
+            BriefTopicResult(
+                position=t.position,
+                headline=t.headline,
+                what_happened=t.what_happened,
+                why_it_matters=t.why_it_matters,
+                historical_context=t.historical_context,
+                refs=t.topic_refs,
+            )
+            for t in topics
+        ],
+    )
+
+
+def enqueue_brief(session: Session) -> dict:
+    """Enqueue a manual brief. Returns {"status": "queued"} or {"status": "already_pending"}."""
+    existing = session.execute(
+        select(Brief).where(Brief.status.in_(["pending", "generating"])).limit(1)
+    ).scalar_one_or_none()
+    if existing is not None:
+        return {"status": "already_pending"}
+    today_start = datetime.now(tz=timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    new_brief = Brief(
+        status="pending",
+        origin="manual",
+        period_start=today_start,
+        period_end=today_start + timedelta(days=1),
+    )
+    session.add(new_brief)
+    session.commit()
+    return {"status": "queued"}

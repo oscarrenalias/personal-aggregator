@@ -13,11 +13,13 @@ EXPECTED_TOOLS = {
     "mark_unread",
     "save_article",
     "unsave_article",
+    "get_daily_brief",
+    "refresh_brief",
 }
 
 EXPECTED_RESOURCE_TEMPLATES = {"article://{id}", "feed://{view}"}
-EXPECTED_STATIC_RESOURCES = {"profile://interests"}
-EXPECTED_PROMPTS = {"whats_latest"}
+EXPECTED_STATIC_RESOURCES = {"profile://interests", "brief://today"}
+EXPECTED_PROMPTS = {"whats_latest", "daily_brief"}
 
 
 def test_exact_tool_names_registered(mcp_server):

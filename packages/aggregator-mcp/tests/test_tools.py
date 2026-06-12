@@ -9,7 +9,7 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from aggregator_common.models import Article, Source
+from aggregator_common.models import Article, Brief, BriefTopic, Source
 from aggregator_common.state import ArticleStatus
 
 _NOW = datetime.now(tz=timezone.utc)
@@ -287,3 +287,103 @@ class TestUnsaveArticleTool:
 
         with pytest.raises(ValueError, match="not found"):
             srv.unsave_article(article_id=999_999_905)
+
+
+def _make_brief(
+    session: Session,
+    *,
+    status: str = "ready",
+    headline: str = "Tool Test Brief",
+    intro: str = "Tool intro.",
+    model: str = "gpt-4.1",
+) -> Brief:
+    now = _NOW
+    period_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    brief = Brief(
+        status=status,
+        origin="manual",
+        period_start=period_start,
+        period_end=period_start.replace(hour=23, minute=59, second=59),
+        headline=headline,
+        intro=intro,
+        model=model,
+        generated_at=now,
+    )
+    session.add(brief)
+    session.flush()
+    return brief
+
+
+def _make_brief_topic(
+    session: Session,
+    brief_id: int,
+    position: int,
+    *,
+    headline: str = "Tool Topic",
+    what_happened: str = "It happened.",
+    why_it_matters: str = "It matters.",
+) -> BriefTopic:
+    topic = BriefTopic(
+        brief_id=brief_id,
+        position=position,
+        headline=headline,
+        what_happened=what_happened,
+        why_it_matters=why_it_matters,
+        topic_refs=[],
+    )
+    session.add(topic)
+    session.flush()
+    return topic
+
+
+class TestGetDailyBriefTool:
+    def test_returns_no_brief_when_none_ready(self, session: Session):
+        import aggregator_mcp.server as srv
+
+        result = srv.get_daily_brief()
+
+        assert isinstance(result, dict)
+        assert result == {"status": "no_brief"}
+
+    def test_returns_brief_dict_with_topics(self, session: Session):
+        import aggregator_mcp.server as srv
+
+        brief = _make_brief(session, headline="Today's Headlines")
+        _make_brief_topic(session, brief.id, 1, headline="Topic One")
+
+        result = srv.get_daily_brief()
+
+        assert isinstance(result, dict)
+        assert result["headline"] == "Today's Headlines"
+        assert result["id"] == brief.id
+        assert isinstance(result["topics"], list)
+        assert len(result["topics"]) == 1
+        assert result["topics"][0]["headline"] == "Topic One"
+
+    def test_returns_no_brief_for_pending_brief(self, session: Session):
+        import aggregator_mcp.server as srv
+
+        _make_brief(session, status="pending")
+
+        result = srv.get_daily_brief()
+
+        assert result == {"status": "no_brief"}
+
+
+class TestRefreshBriefTool:
+    def test_returns_queued_when_no_pending_brief(self, session: Session):
+        import aggregator_mcp.server as srv
+
+        result = srv.refresh_brief()
+
+        assert isinstance(result, dict)
+        assert result == {"status": "queued"}
+
+    def test_returns_already_pending_when_brief_in_flight(self, session: Session):
+        import aggregator_mcp.server as srv
+
+        _make_brief(session, status="pending")
+
+        result = srv.refresh_brief()
+
+        assert result == {"status": "already_pending"}
