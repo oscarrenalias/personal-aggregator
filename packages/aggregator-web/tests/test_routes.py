@@ -1494,3 +1494,134 @@ def test_feed_hide_read_show_all_button_preserves_sort_newest(db_session, client
     btn_url = group[btn_start: group.find('"', btn_start + 8) + 1]
     assert "sort=newest" in btn_url
     assert "unread=1" not in btn_url
+
+
+# ---------------------------------------------------------------------------
+# Mobile reader fixes — regression suite
+# ---------------------------------------------------------------------------
+
+
+def test_article_card_title_link_has_no_broken_htmx_target(db_session, client):
+    """Regression (Issue 1): article card title link must NOT carry hx-target='#article-reader'.
+
+    The old target was a dead ID that never existed. The @click=select handler on the
+    card element drives reader loading; the title anchor is now a plain href for
+    accessibility and middle-click only.
+    """
+    src = make_source(db_session)
+    make_article(db_session, source_id=src.id)
+    response = client.get(f"/feed/source/{src.id}")
+    assert response.status_code == 200
+    assert "#article-reader" not in response.text, (
+        "hx-target='#article-reader' must be removed — that element does not exist"
+    )
+
+
+def test_article_card_title_has_href_for_accessibility(db_session, client):
+    """Article card title must keep href so middle-click and copy-link still work."""
+    src = make_source(db_session)
+    article = make_article(
+        db_session,
+        source_id=src.id,
+        feed_url="https://example.com/article/1",
+    )
+    response = client.get(f"/feed/source/{src.id}")
+    assert response.status_code == 200
+    assert f'href="/article/{article.id}"' in response.text
+
+
+def test_article_detail_has_prev_next_nav_buttons(db_session, client):
+    """Regression (Issue 5): article detail must include Prev and Next nav buttons.
+
+    These dispatch reader:prev / reader:next CustomEvents caught by articleList.
+    """
+    src = make_source(db_session)
+    article = make_article(db_session, source_id=src.id)
+    response = client.get(f"/article/{article.id}")
+    assert response.status_code == 200
+    html = response.text
+    assert "reader:prev" in html, "reader:prev event dispatch must be in article detail"
+    assert "reader:next" in html, "reader:next event dispatch must be in article detail"
+    assert "reader-nav-btn" in html, ".reader-nav-btn class must be present on nav buttons"
+
+
+def test_article_detail_prev_next_dispatch_events(db_session, client):
+    """Prev/Next buttons must dispatch CustomEvent via window.dispatchEvent."""
+    src = make_source(db_session)
+    article = make_article(db_session, source_id=src.id)
+    response = client.get(f"/article/{article.id}")
+    assert response.status_code == 200
+    html = response.text
+    assert "window.dispatchEvent(new CustomEvent('reader:prev'))" in html
+    assert "window.dispatchEvent(new CustomEvent('reader:next'))" in html
+
+
+def test_shell_reader_pane_has_close_button(client):
+    """Regression (Issue 2/3): shell must render a .reader-close-btn inside #reader-pane.
+
+    The close button persists through HTMX swaps (which target #reader-content)
+    and provides mobile back/close affordance for both article and brief details.
+    """
+    response = client.get("/")
+    assert response.status_code == 200
+    html = response.text
+    assert "reader-close-btn" in html, ".reader-close-btn must be in the shell HTML"
+    reader_pane_idx = html.find('id="reader-pane"')
+    close_btn_idx = html.find("reader-close-btn")
+    assert reader_pane_idx != -1
+    assert close_btn_idx != -1
+    assert close_btn_idx > reader_pane_idx, "reader-close-btn must be inside #reader-pane"
+
+
+def test_shell_reader_pane_has_reader_content_wrapper(client):
+    """Regression: shell must render #reader-content inside #reader-pane.
+
+    HTMX swap targets #reader-content so that the .reader-close-btn chrome
+    is preserved through article/brief loads.
+    """
+    response = client.get("/")
+    assert response.status_code == 200
+    html = response.text
+    assert 'id="reader-content"' in html, "#reader-content must be present in shell"
+    pane_idx = html.find('id="reader-pane"')
+    content_idx = html.find('id="reader-content"')
+    assert content_idx > pane_idx, "#reader-content must be nested inside #reader-pane"
+
+
+def test_shell_hamburger_calls_toggle_drawer(client):
+    """Regression (Issue 2/3): hamburger @click must call toggleDrawer() to close the
+    reader before opening the sidebar drawer (prevents drawer hidden behind reader overlay).
+    """
+    response = client.get("/")
+    assert response.status_code == 200
+    html = response.text
+    assert "toggleDrawer()" in html, (
+        "hamburger @click must use toggleDrawer() not drawerOpen = !drawerOpen"
+    )
+
+
+def test_detail_header_mobile_override_removes_padding_right(client):
+    """Regression (Issue 4): the ≤1023px media block must override .detail-header
+    to remove the 160px padding-right that squeezes the title on narrow screens.
+    """
+    response = client.get("/static/styles.css")
+    assert response.status_code == 200
+    css = response.text
+
+    # Find the @media (max-width: 1023px) block
+    media_start = css.find("@media (max-width: 1023px)")
+    assert media_start != -1, "@media (max-width: 1023px) block not found"
+    media_end = css.find("\n@media", media_start + 1)
+    if media_end == -1:
+        media_end = len(css)
+    media_block = css[media_start:media_end]
+
+    assert ".detail-header" in media_block, (
+        ".detail-header override must be in the ≤1023px media block"
+    )
+    detail_rule_start = media_block.find(".detail-header")
+    detail_rule_end = media_block.find("}", detail_rule_start)
+    detail_rule = media_block[detail_rule_start:detail_rule_end]
+    assert "padding-right: 0" in detail_rule, (
+        ".detail-header in ≤1023px block must set padding-right: 0"
+    )

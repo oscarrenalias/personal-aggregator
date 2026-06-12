@@ -235,11 +235,15 @@ def test_index_shortcuts_overlay_lists_all_shortcut_keys(client):
 
 
 def test_app_js_reader_pane_scroll_reset_present(client):
-    """app.js must contain scroll-reset logic (scrollTop = 0) wired to reader-pane."""
+    """app.js must contain scroll-reset logic (scrollTop = 0) wired to reader-content.
+
+    HTMX now targets #reader-content (not #reader-pane) so the .reader-close-btn
+    chrome persists through swaps; scroll reset follows the same target.
+    """
     response = client.get("/static/app.js")
     assert response.status_code == 200
     assert "scrollTop" in response.text
-    assert "reader-pane" in response.text
+    assert "reader-content" in response.text
 
 
 def test_app_js_scroll_reset_uses_after_swap_event(client):

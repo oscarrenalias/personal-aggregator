@@ -226,8 +226,9 @@ def test_get_brief_detail_404_for_missing_id(client):
 
 
 def test_get_brief_detail_internal_refs_target_reader_pane(db_session, client):
-    """Regression: internal article refs in the detail must use hx-target=\"#reader-pane\",
-    not #article-detail (which was the old target from the list-pane era)."""
+    """Regression: internal article refs in the detail must use hx-target=\"#reader-content\",
+    not #article-detail (old list-pane target) and not #reader-pane (replaced by
+    #reader-content so the .reader-close-btn chrome persists through HTMX swaps)."""
     brief = make_brief(db_session)
     make_brief_topic(
         db_session,
@@ -239,8 +240,9 @@ def test_get_brief_detail_internal_refs_target_reader_pane(db_session, client):
     assert response.status_code == 200
     html = response.text
 
-    assert 'hx-target="#reader-pane"' in html
+    assert 'hx-target="#reader-content"' in html
     assert 'hx-target="#article-detail"' not in html
+    assert 'hx-target="#reader-pane"' not in html
     assert "Ref Article" in html
 
 

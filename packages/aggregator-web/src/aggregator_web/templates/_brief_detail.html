@@ -52,7 +52,7 @@
           <li>
             {% if ref.internal and ref.article_id %}
             <a hx-get="/article/{{ ref.article_id }}"
-               hx-target="#reader-pane"
+               hx-target="#reader-content"
                hx-swap="innerHTML">{{ ref.title }}</a>
             {% elif ref.url %}
             <a href="{{ ref.url }}" target="_blank" rel="noopener">{{ ref.title }}</a>
