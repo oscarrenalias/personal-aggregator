@@ -2,19 +2,25 @@
 
   <!-- Search affordance -->
   <div class="sidebar-search-wrap">
-    <button class="sidebar-search-btn"
-            type="button"
-            aria-label="Search articles"
-            @click="focusSearch()">
-      <svg class="sidebar-search-icon" aria-hidden="true" focusable="false"
-           viewBox="0 0 20 20" fill="none" stroke="currentColor"
-           stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <circle cx="8.5" cy="8.5" r="5.5"/>
-        <line x1="13" y1="13" x2="18" y2="18"/>
-      </svg>
-      <span class="sidebar-search-label">Search</span>
-      <kbd class="sidebar-search-hint">/</kbd>
-    </button>
+    <svg class="sidebar-search-icon" aria-hidden="true" focusable="false"
+         viewBox="0 0 20 20" fill="none" stroke="currentColor"
+         stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="8.5" cy="8.5" r="5.5"/>
+      <line x1="13" y1="13" x2="18" y2="18"/>
+    </svg>
+    <input type="search"
+           id="sidebar-search-input"
+           name="q"
+           class="sidebar-search-input"
+           placeholder="Search…"
+           autocomplete="off"
+           hx-get="/search"
+           hx-target="#article-list"
+           hx-swap="innerHTML"
+           hx-push-url="true"
+           hx-trigger="input changed delay:400ms, search"
+           hx-preserve="true">
+    <kbd class="sidebar-search-hint">/</kbd>
   </div>
 
   <!-- Smart views -->
