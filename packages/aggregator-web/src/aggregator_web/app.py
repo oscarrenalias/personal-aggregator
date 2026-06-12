@@ -23,9 +23,12 @@ from aggregator_web.feeds import (
     FeedPage,
     SmartViewName,
     category_feed,
+    category_feed_count,
     get_sidebar_counts,
     smart_feed,
+    smart_feed_count,
     source_feed,
+    source_feed_count,
 )
 from aggregator_web.reader import (
     ArticleNotFoundError,
@@ -311,6 +314,73 @@ def source_read_all(
 ) -> Response:
     mark_all_read(db, FeedSpec(type="source", value=source_id), settings.web_important_threshold)
     return Response(status_code=200, headers={"HX-Trigger": "refreshSidebar"})
+
+
+@app.get("/feed/smart/{view}/updates")
+def smart_feed_updates(
+    request: Request,
+    view: SmartViewName,
+    since: int,
+    unread: int = 0,
+    db: Session = Depends(get_db),
+) -> Response:
+    unread_only = bool(unread)
+    count = smart_feed_count(
+        view=view,
+        session=db,
+        since=since,
+        important_threshold=settings.web_important_threshold,
+        unread_only=unread_only,
+    )
+    return templates.TemplateResponse(
+        request,
+        "_new_articles_pill.html",
+        {"count": count, "base_url": f"/feed/smart/{view}", "unread_only": unread_only},
+    )
+
+
+@app.get("/feed/category/{name}/updates")
+def category_feed_updates(
+    request: Request,
+    name: str,
+    since: int,
+    unread: int = 0,
+    db: Session = Depends(get_db),
+) -> Response:
+    unread_only = bool(unread)
+    count = category_feed_count(
+        name=name,
+        session=db,
+        since=since,
+        unread_only=unread_only,
+    )
+    return templates.TemplateResponse(
+        request,
+        "_new_articles_pill.html",
+        {"count": count, "base_url": f"/feed/category/{name}", "unread_only": unread_only},
+    )
+
+
+@app.get("/feed/source/{source_id}/updates")
+def source_feed_updates(
+    request: Request,
+    source_id: int,
+    since: int,
+    unread: int = 0,
+    db: Session = Depends(get_db),
+) -> Response:
+    unread_only = bool(unread)
+    count = source_feed_count(
+        source_id=source_id,
+        session=db,
+        since=since,
+        unread_only=unread_only,
+    )
+    return templates.TemplateResponse(
+        request,
+        "_new_articles_pill.html",
+        {"count": count, "base_url": f"/feed/source/{source_id}", "unread_only": unread_only},
+    )
 
 
 @app.get("/article/{article_id}")
