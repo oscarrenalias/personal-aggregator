@@ -321,6 +321,39 @@ def test_get_article_detail_not_found(client):
     assert response.status_code == 404
 
 
+def test_get_article_detail_without_hx_request_returns_full_shell(db_session, client):
+    """Regression: GET /article/{id} without HX-Request header must return the full HTML
+    document (shell with CSS/JS) so a direct browser navigation / open-in-new-tab / refresh
+    shows a styled page, not a bare fragment.
+    """
+    src = make_source(db_session)
+    article = make_article(db_session, source_id=src.id, clean_title="Deep Link Article")
+    response = client.get(f"/article/{article.id}")
+    assert response.status_code == 200
+    html = response.text
+    assert "<html" in html, "Direct nav must return a full HTML document"
+    assert "styles.css" in html, "Full shell must include the stylesheet link"
+    assert "Deep Link Article" in html, "Article content must be pre-loaded in the shell"
+
+
+def test_get_article_detail_with_hx_request_returns_fragment_only(db_session, client):
+    """Regression: GET /article/{id} WITH the HX-Request header must return only the
+    _article_detail.html fragment (no shell / no <html> wrapper) so HTMX in-app loads
+    still swap just the reader pane content.
+    """
+    src = make_source(db_session)
+    article = make_article(db_session, source_id=src.id, clean_title="HTMX Fragment Article")
+    response = client.get(
+        f"/article/{article.id}",
+        headers={"HX-Request": "true"},
+    )
+    assert response.status_code == 200
+    html = response.text
+    assert "<html" not in html, "HTMX fragment must NOT contain the shell <html> wrapper"
+    assert 'id="article-detail"' in html, "Fragment must contain the article-detail element"
+    assert "HTMX Fragment Article" in html
+
+
 # ---------------------------------------------------------------------------
 # Interaction routes: read / unread / save / unsave
 # ---------------------------------------------------------------------------
@@ -840,14 +873,19 @@ def test_article_detail_multi_line_body_renders_multiple_paragraphs(db_session, 
 
 
 def test_article_detail_clean_text_html_is_escaped(db_session, client):
-    """HTML tags in clean_text must be escaped, not injected as raw markup."""
+    """HTML tags in clean_text must be escaped, not injected as raw markup.
+
+    Uses HX-Request to get the article fragment (no shell chrome), so the
+    assertion 'no <script>' is about the article body and not the SW registration
+    script that the full shell legitimately includes.
+    """
     src = make_source(db_session)
     article = make_article(
         db_session,
         source_id=src.id,
         clean_text="Safe text <script>alert('xss')</script>",
     )
-    response = client.get(f"/article/{article.id}")
+    response = client.get(f"/article/{article.id}", headers={"HX-Request": "true"})
     assert response.status_code == 200
     assert "&lt;script&gt;" in response.text
     assert "<script>" not in response.text
@@ -1601,6 +1639,26 @@ def test_shell_hamburger_calls_toggle_drawer(client):
     html = response.text
     assert "toggleDrawer()" in html, (
         "hamburger @click must use toggleDrawer() not drawerOpen = !drawerOpen"
+    )
+
+
+def test_article_card_title_link_has_click_prevent(db_session, client):
+    """Regression: article card title anchor must carry @click.prevent so tapping the
+    title does NOT trigger a full-page browser navigation to /article/{id}.
+
+    The card element's bubbling @click="select()" drives the styled HTMX reader load;
+    @click.prevent on the <a> only stops the unwanted native navigation.
+    Pre-fix: tapping the title briefly showed the reader, then replaced the whole page
+    with an unstyled fragment.
+    """
+    src = make_source(db_session)
+    make_article(db_session, source_id=src.id)
+    response = client.get(f"/feed/source/{src.id}")
+    assert response.status_code == 200
+    html = response.text
+    # The rendered card must include @click.prevent on the card-title anchor.
+    assert "@click.prevent" in html, (
+        "card title <a> must have @click.prevent to stop native navigation"
     )
 
 

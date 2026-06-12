@@ -27,7 +27,7 @@
   <!-- HTMX -->
   <script src="https://unpkg.com/htmx.org@1.9.12" defer></script>
 </head>
-<body x-data="aggregatorApp" @keydown.window="handleKey($event)" @reader:close.window="closeReader()">
+<body x-data="aggregatorApp" @keydown.window="handleKey($event)" @reader:close.window="closeReader()"{% if initial_reader_open %} class="reader-open"{% endif %}>
 
   <!-- Mobile header (hidden on desktop via CSS) -->
   <header class="mobile-header" role="banner">
@@ -86,9 +86,13 @@
               aria-label="Back to article list">&#8592; Back</button>
       <!-- Scrollable content area; HTMX targets this div, not #reader-pane -->
       <div id="reader-content">
+        {% if initial_reader_content %}
+          {{ initial_reader_content }}
+        {% else %}
         <div class="reader-empty">
           <p>Select an article to read.</p>
         </div>
+        {% endif %}
       </div>
     </aside>
 

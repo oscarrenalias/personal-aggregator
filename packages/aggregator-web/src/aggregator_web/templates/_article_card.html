@@ -90,7 +90,7 @@
     </div>
 
     <h2 class="card-title">
-      <a href="/article/{{ article.id }}">{{ title | e }}</a>
+      <a href="/article/{{ article.id }}" @click.prevent>{{ title | e }}</a>
     </h2>
 
     {% if article.categories %}
