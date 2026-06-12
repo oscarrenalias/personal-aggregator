@@ -387,3 +387,486 @@ class TestRefreshBriefTool:
         result = srv.refresh_brief()
 
         assert result == {"status": "already_pending"}
+
+
+# ---------------------------------------------------------------------------
+# Profile management tools
+# ---------------------------------------------------------------------------
+
+
+class TestSetInterestProfileTool:
+    def test_success_returns_profile_fields(self, session: Session):
+        import aggregator_mcp.server as srv
+
+        result = srv.set_interest_profile("Python, ML, cloud")
+
+        assert isinstance(result, dict)
+        assert result["profile_text"] == "Python, ML, cloud"
+        assert "id" in result
+        assert "updated_at" in result
+        assert "error" not in result
+
+    def test_upsert_updates_on_second_call(self, session: Session):
+        import aggregator_mcp.server as srv
+
+        srv.set_interest_profile("first")
+        result = srv.set_interest_profile("second")
+
+        assert result["profile_text"] == "second"
+
+
+# ---------------------------------------------------------------------------
+# Source management tools
+# ---------------------------------------------------------------------------
+
+
+class TestAddSourceTool:
+    def test_success_returns_source_dict(self, session: Session):
+        import aggregator_mcp.server as srv
+
+        result = srv.add_source("New Feed", "https://mcp-addsrc.example.com/feed.xml")
+
+        assert isinstance(result, dict)
+        assert "id" in result
+        assert result["name"] == "New Feed"
+        assert "error" not in result
+
+    def test_duplicate_feed_url_returns_conflict_dict(self, session: Session):
+        import aggregator_mcp.server as srv
+
+        src = _make_source(session, "-mcpdup")
+        result = srv.add_source("Dup", src.feed_url)
+
+        assert isinstance(result, dict)
+        assert result.get("error") == "conflict"
+        assert "detail" in result
+
+
+class TestEnableSourceTool:
+    def test_success_returns_enabled_true(self, session: Session):
+        import aggregator_mcp.server as srv
+
+        src = _make_source(session, "-mcpen")
+        result = srv.enable_source(source_id=src.id)
+
+        assert isinstance(result, dict)
+        assert result.get("enabled") is True
+
+    def test_not_found_returns_error_dict(self, session: Session):
+        import aggregator_mcp.server as srv
+
+        result = srv.enable_source(source_id=999_999_801)
+
+        assert result.get("error") == "not_found"
+        assert "detail" in result
+
+
+class TestDisableSourceTool:
+    def test_success_returns_enabled_false(self, session: Session):
+        import aggregator_mcp.server as srv
+
+        src = _make_source(session, "-mcpdis")
+        result = srv.disable_source(source_id=src.id)
+
+        assert isinstance(result, dict)
+        assert result.get("enabled") is False
+
+    def test_not_found_returns_error_dict(self, session: Session):
+        import aggregator_mcp.server as srv
+
+        result = srv.disable_source(source_id=999_999_802)
+
+        assert result.get("error") == "not_found"
+
+
+class TestSetSourceIntervalTool:
+    def test_success_returns_updated_interval(self, session: Session):
+        import aggregator_mcp.server as srv
+
+        src = _make_source(session, "-mcpsi")
+        result = srv.set_source_interval(source_id=src.id, seconds=7200)
+
+        assert isinstance(result, dict)
+        assert result.get("refresh_interval_seconds") == 7200
+
+    def test_not_found_returns_error_dict(self, session: Session):
+        import aggregator_mcp.server as srv
+
+        result = srv.set_source_interval(source_id=999_999_803, seconds=3600)
+
+        assert result.get("error") == "not_found"
+
+
+class TestRefreshSourceNowTool:
+    def test_success_returns_next_check_at(self, session: Session):
+        import aggregator_mcp.server as srv
+
+        src = _make_source(session, "-mcprsn")
+        result = srv.refresh_source_now(source_id=src.id)
+
+        assert isinstance(result, dict)
+        assert "next_check_at" in result
+
+    def test_not_found_returns_error_dict(self, session: Session):
+        import aggregator_mcp.server as srv
+
+        result = srv.refresh_source_now(source_id=999_999_804)
+
+        assert result.get("error") == "not_found"
+
+
+class TestRemoveSourceTool:
+    def test_success_returns_deleted_counts(self, session: Session):
+        import aggregator_mcp.server as srv
+
+        src = _make_source(session, "-mcprmsrc")
+        result = srv.remove_source(source_id=src.id)
+
+        assert isinstance(result, dict)
+        assert result.get("sources_deleted") == 1
+        assert "articles_deleted" in result
+
+    def test_not_found_returns_error_dict(self, session: Session):
+        import aggregator_mcp.server as srv
+
+        result = srv.remove_source(source_id=999_999_805)
+
+        assert result.get("error") == "not_found"
+
+
+# ---------------------------------------------------------------------------
+# Category management tools
+# ---------------------------------------------------------------------------
+
+
+class TestAddCategoryTool:
+    def test_success_returns_category_dict(self, session: Session):
+        import aggregator_mcp.server as srv
+
+        result = srv.add_category("MCP Tech", description="Tech news")
+
+        assert isinstance(result, dict)
+        assert result.get("name") == "MCP Tech"
+        assert "id" in result
+        assert "error" not in result
+
+    def test_duplicate_name_returns_conflict_dict(self, session: Session):
+        import aggregator_mcp.server as srv
+        from aggregator_common.models import Category
+
+        cat = Category(name="MCP-DupCat")
+        session.add(cat)
+        session.flush()
+        result = srv.add_category("MCP-DupCat")
+
+        assert result.get("error") == "conflict"
+        assert "detail" in result
+
+
+class TestRenameCategoryTool:
+    def test_success_returns_updated_name(self, session: Session):
+        import aggregator_mcp.server as srv
+        from aggregator_common.models import Category
+
+        cat = Category(name="MCP-OldName")
+        session.add(cat)
+        session.flush()
+        result = srv.rename_category(category_id=cat.id, new_name="MCP-NewName")
+
+        assert isinstance(result, dict)
+        assert result.get("name") == "MCP-NewName"
+
+    def test_conflict_returns_error_dict(self, session: Session):
+        import aggregator_mcp.server as srv
+        from aggregator_common.models import Category
+
+        cat1 = Category(name="MCP-Existing")
+        cat2 = Category(name="MCP-Other")
+        session.add_all([cat1, cat2])
+        session.flush()
+        result = srv.rename_category(category_id=cat2.id, new_name="MCP-Existing")
+
+        assert result.get("error") == "conflict"
+
+    def test_not_found_returns_error_dict(self, session: Session):
+        import aggregator_mcp.server as srv
+
+        result = srv.rename_category(category_id=999_999_806, new_name="NewName")
+
+        assert result.get("error") == "not_found"
+
+
+class TestSetCategoryDescriptionTool:
+    def test_success_returns_updated_description(self, session: Session):
+        import aggregator_mcp.server as srv
+        from aggregator_common.models import Category
+
+        cat = Category(name="MCP-DescCat")
+        session.add(cat)
+        session.flush()
+        result = srv.set_category_description(category_id=cat.id, description="New desc")
+
+        assert isinstance(result, dict)
+        assert result.get("description") == "New desc"
+
+    def test_not_found_returns_error_dict(self, session: Session):
+        import aggregator_mcp.server as srv
+
+        result = srv.set_category_description(category_id=999_999_807, description="desc")
+
+        assert result.get("error") == "not_found"
+
+
+class TestSetCategoryOrderTool:
+    def test_success_returns_updated_sort_order(self, session: Session):
+        import aggregator_mcp.server as srv
+        from aggregator_common.models import Category
+
+        cat = Category(name="MCP-OrderCat")
+        session.add(cat)
+        session.flush()
+        result = srv.set_category_order(category_id=cat.id, sort_order=42)
+
+        assert isinstance(result, dict)
+        assert result.get("sort_order") == 42
+
+    def test_not_found_returns_error_dict(self, session: Session):
+        import aggregator_mcp.server as srv
+
+        result = srv.set_category_order(category_id=999_999_808, sort_order=1)
+
+        assert result.get("error") == "not_found"
+
+
+class TestEnableCategoryTool:
+    def test_success_sets_enabled_true(self, session: Session):
+        import aggregator_mcp.server as srv
+        from aggregator_common.models import Category
+
+        cat = Category(name="MCP-EnableCat", enabled=False)
+        session.add(cat)
+        session.flush()
+        result = srv.enable_category(category_id=cat.id)
+
+        assert isinstance(result, dict)
+        assert result.get("enabled") is True
+
+    def test_not_found_returns_error_dict(self, session: Session):
+        import aggregator_mcp.server as srv
+
+        result = srv.enable_category(category_id=999_999_809)
+
+        assert result.get("error") == "not_found"
+
+
+class TestDisableCategoryTool:
+    def test_success_sets_enabled_false(self, session: Session):
+        import aggregator_mcp.server as srv
+        from aggregator_common.models import Category
+
+        cat = Category(name="MCP-DisableCat")
+        session.add(cat)
+        session.flush()
+        result = srv.disable_category(category_id=cat.id)
+
+        assert isinstance(result, dict)
+        assert result.get("enabled") is False
+
+    def test_not_found_returns_error_dict(self, session: Session):
+        import aggregator_mcp.server as srv
+
+        result = srv.disable_category(category_id=999_999_810)
+
+        assert result.get("error") == "not_found"
+
+
+class TestRemoveCategoryTool:
+    def test_success_returns_deleted_count(self, session: Session):
+        import aggregator_mcp.server as srv
+        from aggregator_common.models import Category
+
+        cat = Category(name="MCP-DelCat")
+        session.add(cat)
+        session.flush()
+        result = srv.remove_category(category_id=cat.id)
+
+        assert isinstance(result, dict)
+        assert result.get("categories_deleted") == 1
+
+    def test_not_found_returns_error_dict(self, session: Session):
+        import aggregator_mcp.server as srv
+
+        result = srv.remove_category(category_id=999_999_811)
+
+        assert result.get("error") == "not_found"
+
+
+# ---------------------------------------------------------------------------
+# Ops diagnostic tools
+# ---------------------------------------------------------------------------
+
+
+class TestPipelineStatusTool:
+    def test_returns_expected_structure(self, session: Session):
+        import aggregator_mcp.server as srv
+
+        result = srv.pipeline_status()
+
+        assert isinstance(result, dict)
+        assert "article_counts" in result
+        assert "in_flight" in result
+        assert "sources" in result
+
+
+class TestListStuckTool:
+    def test_returns_list(self, session: Session):
+        import aggregator_mcp.server as srv
+
+        result = srv.list_stuck(lease_seconds=600)
+
+        assert isinstance(result, list)
+
+    def test_stale_claim_returned_with_iso_claimed_at(self, session: Session):
+        import aggregator_mcp.server as srv
+
+        src = _make_source(session, "-mcplstiso")
+        stale_time = _NOW - timedelta(hours=2)
+        art = Article(
+            source_id=src.id,
+            dedup_key="mcplstiso-1",
+            status=ArticleStatus.pending_processing,
+            claimed_by="old-worker",
+            claimed_at=stale_time,
+            raw_payload={},
+            retrieved_at=_NOW,
+        )
+        session.add(art)
+        session.flush()
+
+        result = srv.list_stuck(lease_seconds=600)
+
+        matching = [r for r in result if r.get("id") == art.id]
+        assert len(matching) == 1
+        assert isinstance(matching[0]["claimed_at"], str)
+
+
+class TestListFailuresTool:
+    def test_returns_list(self, session: Session):
+        import aggregator_mcp.server as srv
+
+        result = srv.list_failures()
+
+        assert isinstance(result, list)
+
+    def test_stage_processor_filter(self, session: Session):
+        import aggregator_mcp.server as srv
+
+        src = _make_source(session, "-mcplff")
+        art_proc = Article(
+            source_id=src.id, dedup_key="mcplff-proc",
+            status=ArticleStatus.failed_processing,
+            raw_payload={}, retrieved_at=_NOW,
+        )
+        art_rank = Article(
+            source_id=src.id, dedup_key="mcplff-rank",
+            status=ArticleStatus.failed_ranking,
+            raw_payload={}, retrieved_at=_NOW,
+        )
+        session.add_all([art_proc, art_rank])
+        session.flush()
+
+        result = srv.list_failures(stage="processor")
+
+        assert all(r["status"] == "failed_processing" for r in result)
+
+
+# ---------------------------------------------------------------------------
+# Ops remediation tools
+# ---------------------------------------------------------------------------
+
+
+class TestReapStaleClaimsTool:
+    def test_returns_per_kind_released_counts(self, session: Session):
+        import aggregator_mcp.server as srv
+
+        result = srv.reap_stale_claims(lease_seconds=600)
+
+        assert isinstance(result, dict)
+        assert "articles_released" in result
+        assert "briefs_released" in result
+
+    def test_releases_stale_article_claim(self, session: Session):
+        import aggregator_mcp.server as srv
+
+        src = _make_source(session, "-mcprsc")
+        stale_time = _NOW - timedelta(hours=2)
+        art = Article(
+            source_id=src.id, dedup_key="mcprsc-1",
+            status=ArticleStatus.pending_processing,
+            claimed_by="old-worker", claimed_at=stale_time,
+            raw_payload={}, retrieved_at=_NOW,
+        )
+        session.add(art)
+        session.flush()
+
+        result = srv.reap_stale_claims(lease_seconds=600)
+
+        assert result["articles_released"] >= 1
+
+
+class TestRetryFailedTool:
+    def test_success_returns_retried_count(self, session: Session):
+        import aggregator_mcp.server as srv
+
+        src = _make_source(session, "-mcprtf")
+        art = Article(
+            source_id=src.id, dedup_key="mcprtf-1",
+            status=ArticleStatus.failed_processing,
+            raw_payload={}, retrieved_at=_NOW,
+        )
+        session.add(art)
+        session.flush()
+
+        result = srv.retry_failed(stage="processor")
+
+        assert isinstance(result, dict)
+        assert result.get("retried", 0) >= 1
+
+    def test_invalid_stage_returns_error_dict(self, session: Session):
+        import aggregator_mcp.server as srv
+
+        result = srv.retry_failed(stage="invalid_stage")
+
+        assert isinstance(result, dict)
+        assert result.get("error") == "invalid_transition"
+        assert "detail" in result
+
+
+class TestRerankTool:
+    def test_all_ready_returns_reranked_count(self, session: Session):
+        import aggregator_mcp.server as srv
+
+        src = _make_source(session, "-mcprr")
+        art = _make_ready_article(session, src.id, "mcprr-1")
+        result = srv.rerank(all_ready=True)
+
+        assert isinstance(result, dict)
+        assert result.get("reranked", 0) >= 1
+
+    def test_disallowed_transition_returns_error_dict(self, session: Session):
+        """failed_processing → pending_ranking is not an allowed transition."""
+        import aggregator_mcp.server as srv
+
+        src = _make_source(session, "-mcprrbad")
+        art = Article(
+            source_id=src.id, dedup_key="mcprrbad-1",
+            status=ArticleStatus.failed_processing,
+            raw_payload={}, retrieved_at=_NOW,
+        )
+        session.add(art)
+        session.flush()
+
+        result = srv.rerank(article_id=art.id)
+
+        assert isinstance(result, dict)
+        assert result.get("error") == "invalid_transition"
