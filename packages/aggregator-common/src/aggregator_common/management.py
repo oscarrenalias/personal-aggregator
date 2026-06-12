@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from sqlalchemy import delete, func
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
@@ -80,3 +82,66 @@ def remove_source(session: Session, source_id: int) -> dict:
     session.flush()
 
     return {"sources_deleted": 1, "articles_deleted": articles_deleted}
+
+
+def enable_source(session: Session, source_id: int) -> dict:
+    """Enable a source and reset its failure state so it is picked up immediately.
+
+    Raises NotFoundError when source_id is absent.
+    """
+    source = session.get(Source, source_id)
+    if source is None:
+        raise NotFoundError(f"Source {source_id} not found.")
+
+    now = datetime.now(timezone.utc)
+    source.enabled = True
+    source.consecutive_failures = 0
+    source.next_check_at = now
+    session.flush()
+
+    return {"id": source.id, "enabled": source.enabled, "consecutive_failures": source.consecutive_failures, "next_check_at": source.next_check_at}
+
+
+def disable_source(session: Session, source_id: int) -> dict:
+    """Disable a source so the retriever skips it.
+
+    Raises NotFoundError when source_id is absent.
+    """
+    source = session.get(Source, source_id)
+    if source is None:
+        raise NotFoundError(f"Source {source_id} not found.")
+
+    source.enabled = False
+    session.flush()
+
+    return {"id": source.id, "enabled": source.enabled}
+
+
+def set_source_interval(session: Session, source_id: int, seconds: int) -> dict:
+    """Update the polling interval for a source.
+
+    Raises NotFoundError when source_id is absent.
+    """
+    source = session.get(Source, source_id)
+    if source is None:
+        raise NotFoundError(f"Source {source_id} not found.")
+
+    source.refresh_interval_seconds = seconds
+    session.flush()
+
+    return {"id": source.id, "refresh_interval_seconds": source.refresh_interval_seconds}
+
+
+def refresh_source_now(session: Session, source_id: int) -> dict:
+    """Force a source to be polled on the next retriever cycle by setting next_check_at=now().
+
+    Raises NotFoundError when source_id is absent.
+    """
+    source = session.get(Source, source_id)
+    if source is None:
+        raise NotFoundError(f"Source {source_id} not found.")
+
+    source.next_check_at = datetime.now(timezone.utc)
+    session.flush()
+
+    return {"id": source.id, "next_check_at": source.next_check_at}
