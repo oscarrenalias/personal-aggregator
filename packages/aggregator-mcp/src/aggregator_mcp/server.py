@@ -483,3 +483,92 @@ def list_failures(stage: Optional[str] = None, limit: int = 50) -> list:
     """
     with get_session() as session:
         return ops.list_failures(session, stage=stage, limit=limit)
+
+
+@mcp.tool()
+def reap_stale_claims(lease_seconds: int = 600) -> dict:
+    """Release stale article and brief claims older than lease_seconds seconds.
+
+    Returns per-kind released counts:
+    - articles_released: number of stale article claims cleared
+    - briefs_released: number of stale brief claims cleared
+
+    Cleared rows return to their pending status and become re-claimable on the
+    next worker poll. Safe to call at any time; has no effect when there are no
+    stale claims. Use list_stuck first to see what will be released.
+    """
+    with get_session() as session:
+        return ops.reap_stale_claims(session, lease_seconds)
+
+
+@mcp.tool()
+def retry_failed(
+    stage: Optional[str] = None,
+    article_id: Optional[int] = None,
+) -> dict:
+    """Reset failed articles to their pending state so workers retry them.
+
+    stage filters which failures to retry: pass 'processor' for failed_processing,
+    'summarize_rank' for failed_ranking, or omit (None) for both. article_id
+    further narrows the reset to a single article.
+
+    Returns {retried: N} on success, or an error dict with 'error' and 'detail'
+    keys when stage is invalid or the status transition is not allowed.
+    """
+    try:
+        with get_session() as session:
+            return ops.retry_failed(session, stage=stage, article_id=article_id)
+    except ValueError as exc:
+        return {"error": "invalid_transition", "detail": str(exc)}
+
+
+@mcp.tool()
+def rerank(
+    article_id: Optional[int] = None,
+    all_ready: bool = False,
+    failed_only: bool = False,
+) -> dict:
+    """Transition articles to pending_ranking so the summarize-rank service re-scores them.
+
+    Pass one targeting flag:
+    - article_id: re-rank a single article by id.
+    - all_ready=True: re-rank every article currently in 'ready' status.
+    - failed_only=True: re-rank only articles that failed ranking.
+
+    Returns {reranked: N} on success, or an error dict with 'error' and 'detail'
+    keys when the status transition is not allowed.
+    """
+    try:
+        with get_session() as session:
+            return ops.rerank(session, article_id=article_id, all_ready=all_ready, failed_only=failed_only)
+    except ValueError as exc:
+        return {"error": "invalid_transition", "detail": str(exc)}
+
+
+@mcp.resource("status://pipeline")
+def pipeline_status_resource() -> dict:
+    """Quick pipeline health snapshot: article counts by status, in-flight claims, source counts."""
+    with get_session() as session:
+        return ops.pipeline_status(session)
+
+
+@mcp.prompt()
+def troubleshoot() -> str:
+    return (
+        "Follow these steps to diagnose and fix a stalled aggregator pipeline:\n\n"
+        "1. Call pipeline_status (or read the status://pipeline resource) to get a "
+        "high-level view: article counts by status, in-flight claims, and source counts.\n\n"
+        "2. If in_flight is non-zero and the pipeline looks frozen, call list_stuck "
+        "(default lease_seconds=600) to identify articles whose worker claim has expired. "
+        "Then call reap_stale_claims with the same lease_seconds to release them so "
+        "workers can re-claim and retry.\n\n"
+        "3. If article_counts shows failed_processing or failed_ranking entries, call "
+        "list_failures (optionally filtered by stage='processor' or 'summarize_rank') "
+        "to inspect the errors. Then call retry_failed (with the matching stage or "
+        "article_id) to reset those articles to pending so workers retry them.\n\n"
+        "4. If you want to force the summarize-rank service to re-score ready articles "
+        "(e.g. after updating the interest profile), call rerank with all_ready=True. "
+        "To re-score only previously failed articles, use rerank with failed_only=True.\n\n"
+        "5. After any remediation step, re-check pipeline_status to confirm article "
+        "counts are moving in the expected direction."
+    )
