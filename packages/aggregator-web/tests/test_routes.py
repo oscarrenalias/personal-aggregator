@@ -1098,18 +1098,22 @@ def test_smart_updates_unread_filter_excludes_read_articles(db_session, client):
     assert 'hx-get="/feed/smart/all?unread=1"' in response.text
 
 
-def test_detail_header_css_reserves_toolbar_space(client):
-    """Regression: .detail-header CSS rule must include padding-right to prevent
-    title text from overlapping the absolutely-positioned toolbar."""
+def test_detail_header_toolbar_floats_to_free_title_width(client):
+    """Regression (Issue 4): the toolbar floats right so the title text uses the
+    full width (wrapping around/below it) instead of being squeezed by a reserved
+    fixed gap; the header must contain the float."""
+    import re
+
     response = client.get("/static/styles.css")
     assert response.status_code == 200
     css = response.text
-    rule_start = css.find(".detail-header {")
-    assert rule_start != -1, ".detail-header CSS rule not found"
-    rule_end = css.find("}", rule_start)
-    rule_block = css[rule_start:rule_end]
-    assert "padding-right" in rule_block, (
-        ".detail-header must have padding-right to reserve space for the toolbar"
+    toolbar_blocks = re.findall(r"\.detail-reader-toolbar\s*\{[^}]*\}", css)
+    assert any("float: right" in b for b in toolbar_blocks), (
+        ".detail-reader-toolbar must float right so the title can use full width"
+    )
+    header = re.search(r"\.detail-header\s*\{[^}]*\}", css)
+    assert header and "overflow" in header.group(0), (
+        ".detail-header must contain the floated toolbar (overflow)"
     )
 
 
@@ -1600,28 +1604,18 @@ def test_shell_hamburger_calls_toggle_drawer(client):
     )
 
 
-def test_detail_header_mobile_override_removes_padding_right(client):
-    """Regression (Issue 4): the ≤1023px media block must override .detail-header
-    to remove the 160px padding-right that squeezes the title on narrow screens.
-    """
+def test_detail_header_toolbar_flows_static_on_mobile(client):
+    """Regression (Issue 4): on ≤1023px the toolbar must stop floating
+    (float: none) so it flows as a static row above the title on narrow screens
+    instead of squeezing the title into a partial-width column."""
+    import re
+
     response = client.get("/static/styles.css")
     assert response.status_code == 200
     css = response.text
 
-    # Find the @media (max-width: 1023px) block
-    media_start = css.find("@media (max-width: 1023px)")
-    assert media_start != -1, "@media (max-width: 1023px) block not found"
-    media_end = css.find("\n@media", media_start + 1)
-    if media_end == -1:
-        media_end = len(css)
-    media_block = css[media_start:media_end]
-
-    assert ".detail-header" in media_block, (
-        ".detail-header override must be in the ≤1023px media block"
-    )
-    detail_rule_start = media_block.find(".detail-header")
-    detail_rule_end = media_block.find("}", detail_rule_start)
-    detail_rule = media_block[detail_rule_start:detail_rule_end]
-    assert "padding-right: 0" in detail_rule, (
-        ".detail-header in ≤1023px block must set padding-right: 0"
+    assert "@media (max-width: 1023px)" in css, "≤1023px media block not found"
+    toolbar_blocks = re.findall(r"\.detail-reader-toolbar\s*\{[^}]*\}", css)
+    assert any("float: none" in b for b in toolbar_blocks), (
+        "a .detail-reader-toolbar rule must set float: none for the ≤1023px layout"
     )
