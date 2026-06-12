@@ -1,0 +1,21 @@
+{#
+  _brief_card.html — Single brief card for the Today list pane.
+  Context:
+    brief : Brief ORM object
+#}
+<article class="brief-card"
+         data-brief-id="{{ brief.id }}"
+         :class="{ 'is-selected': selectedId === {{ brief.id }} }"
+         @click="selectBrief({{ brief.id }})"
+         tabindex="0"
+         @keydown.enter="selectBrief({{ brief.id }})">
+  <h2 class="brief-card-title">{{ brief.headline or "Daily Brief" }}</h2>
+  <div class="brief-card-meta">
+    {% if brief.generated_at %}
+    <time class="brief-card-date" datetime="{{ brief.generated_at.isoformat() }}">
+      {{ brief.generated_at.strftime('%-d %b %Y, %H:%M') }}
+    </time>
+    {% endif %}
+    <span class="brief-card-count">{{ brief.topics | length }} topic{{ 's' if brief.topics | length != 1 else '' }}</span>
+  </div>
+</article>

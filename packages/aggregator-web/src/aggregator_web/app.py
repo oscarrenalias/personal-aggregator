@@ -484,27 +484,26 @@ def today(
     request: Request,
     db: Session = Depends(get_db),
 ) -> Response:
-    brief = db.execute(
-        select(Brief)
-        .where(Brief.status == "ready")
-        .order_by(Brief.created_at.desc())
-        .limit(1)
-        .options(selectinload(Brief.topics))
-    ).scalar_one_or_none()
-
-    generating = False
-    if brief is None:
-        pending = db.execute(
+    briefs = list(
+        db.execute(
             select(Brief)
-            .where(Brief.status.in_(["pending", "generating"]))
-            .limit(1)
+            .where(Brief.status == "ready")
+            .order_by(Brief.created_at.desc())
+            .limit(30)
+            .options(selectinload(Brief.topics))
+        ).scalars().all()
+    )
+    generating = (
+        db.execute(
+            select(Brief).where(Brief.status.in_(["pending", "generating"])).limit(1)
         ).scalar_one_or_none()
-        generating = pending is not None
-
+        is not None
+    )
+    selected_id = briefs[0].id if briefs else None
     return templates.TemplateResponse(
         request,
         "_today.html",
-        {"brief": brief, "generating": generating},
+        {"briefs": briefs, "generating": generating, "selected_id": selected_id},
     )
 
 
@@ -532,10 +531,40 @@ def today_refresh(
         db.add(new_brief)
         db.flush()
 
+    briefs = list(
+        db.execute(
+            select(Brief)
+            .where(Brief.status == "ready")
+            .order_by(Brief.created_at.desc())
+            .limit(30)
+            .options(selectinload(Brief.topics))
+        ).scalars().all()
+    )
+    selected_id = briefs[0].id if briefs else None
     return templates.TemplateResponse(
         request,
         "_today.html",
-        {"brief": None, "generating": True},
+        {"briefs": briefs, "generating": True, "selected_id": selected_id},
+    )
+
+
+@app.get("/brief/{brief_id}")
+def brief_detail_view(
+    brief_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+) -> Response:
+    brief = db.execute(
+        select(Brief)
+        .where(Brief.id == brief_id)
+        .options(selectinload(Brief.topics))
+    ).scalar_one_or_none()
+    if brief is None:
+        raise HTTPException(status_code=404, detail="Brief not found")
+    return templates.TemplateResponse(
+        request,
+        "_brief_detail.html",
+        {"brief": brief},
     )
 
 
