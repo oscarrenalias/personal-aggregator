@@ -61,8 +61,15 @@ services:
   web:
     image: ${IMAGE_PREFIX:-personal-aggregator}/aggregator-web:${APP_VERSION:-dev}
     env_file: .env
+    environment:
+      # The container must listen on all interfaces so Docker's published port can
+      # reach uvicorn. The host-side exposure is controlled by WEB_BIND below, not here.
+      WEB_HOST: 0.0.0.0
     ports:
-      - "127.0.0.1:${WEB_PORT:-8000}:8000"
+      # WEB_BIND controls which host interface the UI is exposed on:
+      #   0.0.0.0   → reachable from any device on your LAN (default)
+      #   127.0.0.1 → Pi-local only (e.g. behind Tailscale)
+      - "${WEB_BIND:-0.0.0.0}:${WEB_PORT:-8000}:8000"
     depends_on:
       postgres:
         condition: service_healthy

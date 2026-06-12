@@ -83,9 +83,20 @@ sudo systemctl status aggregator   # check whether it is running
 
 ## Accessing the web UI
 
-The `web` service (aggregator-web) binds to `127.0.0.1` on port **8000** by default. This means it is only reachable from the Pi itself — it is **never exposed on `0.0.0.0`** and is not directly accessible from other machines.
+By default the `web` service is published on **`0.0.0.0:8000`**, so the UI is reachable from any device on your home LAN at `http://<pi-ip>:8000/` (e.g. `http://192.168.1.50:8000/`). Find the Pi's address with `hostname -I`.
 
-### Tailscale Serve (recommended — HTTPS over your tailnet)
+This is controlled by **`WEB_BIND`** in `/opt/personal-aggregator/.env`:
+
+| `WEB_BIND` | Exposure |
+|---|---|
+| `0.0.0.0` (default) | Any device on the LAN (and Tailscale) |
+| `127.0.0.1` | Pi-local only — use this if you front the UI exclusively with Tailscale Serve |
+
+Change it and `sudo ./install.sh update` (or `docker compose -f docker-compose.prod.yml up -d`) to apply. There is no app-level authentication, so on `0.0.0.0` anyone on your LAN can reach it — keep the Pi on a trusted network. (The in-container bind, `WEB_HOST`, is fixed to `0.0.0.0` by the compose file and is unrelated to this.)
+
+### Tailscale Serve (optional — HTTPS over your tailnet, reachable away from home)
+
+If you also want secure access from outside your home network, set `WEB_BIND=127.0.0.1` and put **Tailscale Serve** in front:
 
 Use **Tailscale Serve** to expose the web UI to all your Tailscale-connected devices with automatic HTTPS:
 
@@ -139,28 +150,29 @@ journalctl -u aggregator -f
 
 ## Updating
 
-Pull the latest images and restart the running stack:
+**You do not need to re-download the release files to upgrade.** A normal upgrade just
+pulls the newest images from GHCR and restarts — run, from anywhere:
 
-```bash
-sudo ./install.sh update
-```
-
-This is equivalent to:
 ```bash
 cd /opt/personal-aggregator
-docker compose -f docker-compose.prod.yml pull
-docker compose -f docker-compose.prod.yml up -d
+sudo docker compose -f docker-compose.prod.yml pull
+sudo docker compose -f docker-compose.prod.yml up -d
 ```
 
-Dry-run preview:
+(`sudo ./install.sh update` does exactly this if you still have `install.sh` handy, but it
+isn't required.) Images are tagged `latest` by default, so each pull gets the most recent
+release. Your `.env` and the Postgres volume are untouched.
+
+Dry-run preview (if using install.sh):
 ```bash
 sudo ./install.sh --check update
 ```
 
-> **Note:** `install.sh update` only pulls new images and restarts the stack using the
-> compose file already in `/opt/personal-aggregator/`. It does **not** replace the compose
-> file. To pick up a new `docker-compose.prod.yml` from a release, download the release
-> assets and re-run `install.sh install` — the `.env` will be preserved.
+> **When you *do* need the release files again:** only if a new release changes
+> `docker-compose.prod.yml` itself (new services, ports, env, etc.) — which is rare. In that
+> case download just the updated `docker-compose.prod.yml` into `/opt/personal-aggregator/`
+> (replacing the old one) and run the two `docker compose` commands above; your `.env` is
+> preserved. The release notes call out any compose changes.
 
 ---
 
