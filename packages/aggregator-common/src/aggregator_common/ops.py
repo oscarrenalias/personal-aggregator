@@ -6,8 +6,10 @@ from typing import Any, Optional
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from aggregator_common import brief_claim as _brief_claim
+from aggregator_common import claim as _claim
 from aggregator_common.models import Article, Source
-from aggregator_common.state import ArticleStatus
+from aggregator_common.state import ArticleStatus, can_transition
 
 
 def pipeline_status(session: Session) -> dict[str, Any]:
@@ -107,3 +109,102 @@ def list_failures(
         }
         for row in session.execute(stmt).all()
     ]
+
+
+_FAILED_TO_PENDING: dict[ArticleStatus, ArticleStatus] = {
+    ArticleStatus.failed_processing: ArticleStatus.pending_processing,
+    ArticleStatus.failed_ranking: ArticleStatus.pending_ranking,
+}
+
+
+def reap_stale_claims(session: Session, lease_seconds: int) -> dict[str, int]:
+    """Release stale claims for both articles and briefs; returns per-kind released counts."""
+    now = datetime.now(tz=timezone.utc)
+    articles_released = _claim.reap_stale_claims(session, lease_seconds, now)
+    briefs_released = _brief_claim.reap_stale_brief_claims(session, lease_seconds, now)
+    return {"articles_released": articles_released, "briefs_released": briefs_released}
+
+
+def retry_failed(
+    session: Session,
+    *,
+    stage: Optional[str] = None,
+    article_id: Optional[int] = None,
+) -> dict[str, int]:
+    """Reset failed articles to their pending target status.
+
+    stage must be None, 'processor', or 'summarize_rank'.
+    Raises ValueError for unknown stage or disallowed transitions.
+    """
+    if stage == "processor":
+        statuses = [ArticleStatus.failed_processing]
+    elif stage == "summarize_rank":
+        statuses = [ArticleStatus.failed_ranking]
+    elif stage is None:
+        statuses = [ArticleStatus.failed_processing, ArticleStatus.failed_ranking]
+    else:
+        raise ValueError(f"stage must be None, 'processor', or 'summarize_rank'; got {stage!r}")
+
+    stmt = select(Article).where(Article.status.in_([s.value for s in statuses]))
+    if article_id is not None:
+        stmt = stmt.where(Article.id == article_id)
+
+    articles = list(session.scalars(stmt).all())
+    retried = 0
+    for article in articles:
+        current = ArticleStatus(article.status)
+        target = _FAILED_TO_PENDING[current]
+        if not can_transition(current, target):
+            raise ValueError(f"Invalid transition: {current!r} → {target!r}")
+        article.status = target
+        article.claimed_by = None
+        article.claimed_at = None
+        article.last_error = None
+        article.retry_count = 0
+        article.next_retry_at = None
+        retried += 1
+
+    session.flush()
+    return {"retried": retried}
+
+
+def rerank(
+    session: Session,
+    *,
+    article_id: Optional[int] = None,
+    all_ready: bool = False,
+    failed_only: bool = False,
+) -> dict[str, int]:
+    """Transition target articles to pending_ranking.
+
+    Raises ValueError for disallowed transitions.
+    """
+    if article_id is not None:
+        article = session.get(Article, article_id)
+        articles: list[Article] = [article] if article is not None else []
+    elif all_ready:
+        articles = list(
+            session.scalars(select(Article).where(Article.status == ArticleStatus.ready.value)).all()
+        )
+    elif failed_only:
+        articles = list(
+            session.scalars(
+                select(Article).where(Article.status == ArticleStatus.failed_ranking.value)
+            ).all()
+        )
+    else:
+        return {"reranked": 0}
+
+    reranked = 0
+    for article in articles:
+        current = ArticleStatus(article.status)
+        target = ArticleStatus.pending_ranking
+        if not can_transition(current, target):
+            raise ValueError(f"Invalid transition: {current!r} → {target!r}")
+        article.status = target
+        article.claimed_by = None
+        article.claimed_at = None
+        reranked += 1
+
+    session.flush()
+    return {"reranked": reranked}
