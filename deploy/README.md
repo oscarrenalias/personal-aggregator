@@ -152,13 +152,59 @@ The service worker caches the app shell and static assets so the UI loads instan
 
 ## Accessing the MCP server
 
-The `mcp` service exposes a **Model Context Protocol (MCP) endpoint** (Streamable HTTP transport) so external agents (e.g. openclaw) can query and act on the aggregator. Tools include `search_articles`, `list_articles`, `get_article`, `get_interest_profile`, `list_categories`, `list_sources`, article write actions (`mark_read`, `mark_unread`, `save_article`, `unsave_article`), and brief tools (`get_daily_brief`, `refresh_brief`).
+The `mcp` service exposes a **Model Context Protocol (MCP) endpoint** (Streamable HTTP transport) so external agents can query and act on the aggregator.
+
+**Article tools:**
+- `search_articles` — full-text search with optional filters (since, category, source_id, limit).
+- `list_articles` — list articles by view (unread/saved/important/etc.) with optional filters.
+- `get_article` — fetch a single article by id.
+- `mark_read` / `mark_unread` — toggle read state.
+- `save_article` / `unsave_article` — toggle saved state.
+
+**Interest profile:**
+- `get_interest_profile` — return the current free-text interest profile.
+- `set_interest_profile` — replace the profile; takes effect on the next summarize-rank cycle.
+
+**Source management:**
+- `list_sources` — list all configured sources.
+- `add_source` — add a new RSS/Atom source by name and feed URL.
+- `enable_source` / `disable_source` — toggle whether the retriever polls a source.
+- `set_source_interval` — update the polling interval (seconds) for a source.
+- `refresh_source_now` — force a source to be polled on the next retriever cycle.
+- `remove_source` — **DESTRUCTIVE**: permanently deletes the source and cascade-deletes every article belonging to it. Irreversible.
+
+**Category management:**
+- `list_categories` — list all categories.
+- `add_category` — create a new category with optional description, sort order, and enabled flag.
+- `rename_category` — rename an existing category.
+- `set_category_description` — set or clear a category's description.
+- `set_category_order` — update a category's display sort order.
+- `enable_category` / `disable_category` — show or hide a category in listings.
+- `remove_category` — **DESTRUCTIVE**: permanently deletes the category record. Articles that were assigned to it lose their category association. Irreversible.
 
 **Brief tools:**
 - `get_daily_brief` — returns the latest ready daily brief (headline, intro, topics with what happened / why it matters / links). Returns `{"status": "no_brief"}` when no ready brief exists yet.
 - `refresh_brief` — enqueues a new brief generation run. Returns `{"status": "queued"}` when enqueued or `{"status": "already_pending"}` when one is already in progress.
-- `brief://today` resource — the latest ready brief as a readable MCP resource.
-- `daily_brief` prompt — instructs the agent to fetch and present the daily brief with topics and links.
+
+**Ops / diagnostics tools:**
+- `pipeline_status` — snapshot of article counts by status, in-flight claims, and enabled/disabled source counts. Use as the first health check.
+- `list_stuck` — list articles whose worker claim has expired (default: older than 600 s), indicating a crashed or stalled worker.
+- `list_failures` — list articles in `failed_processing` or `failed_ranking`, optionally filtered by stage.
+- `reap_stale_claims` — release stale article and brief claims so they become re-claimable.
+- `retry_failed` — reset failed articles to their pending state so workers retry them; optionally scoped to a single article or stage.
+- `rerank` — transition articles to `pending_ranking` so the summarize-rank service re-scores them (single article, all ready, or failed only).
+
+**Resources:**
+- `article://{id}` — a single article by id.
+- `feed://{view}` — article list for a named view.
+- `profile://interests` — the current interest profile text.
+- `brief://today` — the latest ready daily brief.
+- `status://pipeline` — quick pipeline health snapshot (article counts, in-flight, source counts).
+
+**Prompts:**
+- `whats_latest` — search for recent articles on a topic and summarize the results.
+- `daily_brief` — fetch and present the daily brief with topics and links.
+- `troubleshoot` — step-by-step guide for diagnosing and fixing a stalled pipeline using the ops tools above.
 
 ### Endpoint URL
 
