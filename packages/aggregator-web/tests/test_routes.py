@@ -278,6 +278,9 @@ def test_get_article_detail_shows_comments_icon_when_comments_url_set(db_session
     assert "btn-open-comments" in response.text
     assert "https://news.ycombinator.com/item?id=99999" in response.text
     assert "Open comments in new tab" in response.text
+    # Regression: comments icon must be the inline SVG, not the color emoji
+    assert "<svg" in response.text
+    assert "\U0001f4ac" not in response.text  # 💬 emoji must not appear
 
 
 def test_get_article_detail_hides_comments_icon_when_comments_url_absent(db_session, client):
