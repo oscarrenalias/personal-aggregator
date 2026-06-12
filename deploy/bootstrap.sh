@@ -15,7 +15,7 @@ set -eu
 
 REPO="oscarrenalias/personal-aggregator"
 BASE="https://github.com/${REPO}/releases/latest/download"
-ASSETS="install.sh docker-compose.prod.yml aggregator.service env.example"
+ASSETS="install.sh docker-compose.prod.yml aggregator.service env.example aggregator"
 INSTALL_DIR="/opt/personal-aggregator"
 TTY="/dev/tty"
 
@@ -106,4 +106,8 @@ else
     say "Open it on this machine:  http://127.0.0.1:8000/"
 fi
 [ -z "$LLM_KEY" ] && warn "No LLM key set — edit ${ENV_FILE} (OPENAI_API_KEY=…) and run: sudo systemctl restart aggregator"
-say "Add feeds:  uv run --all-packages aggregator-admin sources import-opml your-feedly.opml   (or 'sources add')"
+say "Manage it with the 'aggregator' CLI (installed to /usr/local/bin), e.g.:"
+say "  sudo aggregator sources add -n 'BBC News' -u 'http://feeds.bbci.co.uk/news/rss.xml'"
+say "  sudo aggregator sources import-opml your-feedly.opml     # import from Feedly"
+say "  sudo aggregator profile set 'My interests…'              # tune ranking"
+say "  sudo aggregator --help"

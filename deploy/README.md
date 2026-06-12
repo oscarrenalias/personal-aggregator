@@ -150,6 +150,28 @@ The service worker caches the app shell and static assets so the UI loads instan
 
 ---
 
+## Managing feeds, interests & categories (`aggregator` CLI)
+
+The installer puts an **`aggregator`** command on the Pi (`/usr/local/bin/aggregator`). It runs the admin CLI in a one-off container against the running stack, so you can operate the app without any source checkout. Docker needs root, so use `sudo` (or add your user to the `docker` group).
+
+```bash
+sudo aggregator --help
+sudo aggregator sources add -n "BBC News" -u "http://feeds.bbci.co.uk/news/rss.xml"
+sudo aggregator sources list
+sudo aggregator sources import-opml feedly.opml      # import subscriptions from Feedly
+sudo aggregator sources export-opml backup.opml      # export them
+sudo aggregator profile set "Software architecture, AI, gaming reviews…"   # tune ranking
+sudo aggregator categories list                       # the LLM classification set
+sudo aggregator categories set-description "Software Engineering" "…; EXCLUDES games"
+sudo aggregator articles rerank --all                 # re-score existing articles
+```
+
+> The current directory is mounted into the container, so file arguments (OPML import/export) work with normal relative paths — `cd` to where your `.opml` file is first.
+>
+> **Categories** are seeded with sensible defaults on first install (Technology & IT, Cloud & Architecture, Software Engineering, AI, Gaming) — these are ordinary editable rows, not hardcoded. Rename, re-describe, disable, add, or remove them freely with `aggregator categories …`.
+
+---
+
 ## Viewing logs
 
 **Container logs** (per-service, the most useful view):

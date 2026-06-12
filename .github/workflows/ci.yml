@@ -131,4 +131,5 @@ jobs:
             deploy/aggregator.service \
             deploy/install.sh \
             deploy/bootstrap.sh \
+            deploy/aggregator \
             env.example

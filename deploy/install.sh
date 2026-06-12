@@ -170,6 +170,7 @@ do_install() {
         fi
         plan "Set IMAGE_PREFIX=${IMAGE_PREFIX} in ${INSTALL_DIR}/.env"
         plan "Set APP_VERSION=${APP_VERSION} in ${INSTALL_DIR}/.env"
+        plan "Install aggregator CLI -> /usr/local/bin/aggregator (if asset present)"
         plan "Install ${service_src} -> ${SERVICE_FILE}"
         plan "systemctl daemon-reload"
         plan "systemctl enable ${SERVICE_NAME}"
@@ -198,6 +199,17 @@ do_install() {
     # Ensure IMAGE_PREFIX and APP_VERSION are set (add or update)
     set_env_var "IMAGE_PREFIX" "${IMAGE_PREFIX}" "${INSTALL_DIR}/.env"
     set_env_var "APP_VERSION"  "${APP_VERSION}"  "${INSTALL_DIR}/.env"
+
+    # Install the `aggregator` admin CLI wrapper to /usr/local/bin (optional asset)
+    local wrapper_src
+    wrapper_src="$(find_asset aggregator 2>/dev/null || true)"
+    if [[ -n "${wrapper_src}" ]]; then
+        log "Installing aggregator CLI -> /usr/local/bin/aggregator"
+        cp "${wrapper_src}" /usr/local/bin/aggregator
+        chmod +x /usr/local/bin/aggregator
+    else
+        log "aggregator CLI wrapper not in assets -- skipping (run admin via 'docker compose run --rm admin')"
+    fi
 
     # Install systemd service unit
     log "Installing ${service_src} -> ${SERVICE_FILE}"

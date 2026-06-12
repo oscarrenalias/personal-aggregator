@@ -1,0 +1,31 @@
+#!/usr/bin/env sh
+# aggregator — run the admin CLI against the running stack on this host.
+#
+# Thin wrapper around the aggregator-admin container. The current directory is
+# mounted at /work so file arguments (e.g. OPML import/export) work with normal
+# relative paths.
+#
+# Examples:
+#   aggregator sources list
+#   aggregator sources add -n "BBC News" -u "http://feeds.bbci.co.uk/news/rss.xml"
+#   aggregator profile set "My interests…"
+#   aggregator categories list
+#   aggregator sources import-opml feedly.opml
+#   aggregator --help
+#
+# Docker needs root, so run with sudo unless your user is in the docker group.
+set -eu
+
+COMPOSE_FILE="${AGGREGATOR_COMPOSE_FILE:-/opt/personal-aggregator/docker-compose.prod.yml}"
+
+[ -f "$COMPOSE_FILE" ] || {
+    echo "aggregator: compose file not found at $COMPOSE_FILE" >&2
+    echo "Set AGGREGATOR_COMPOSE_FILE if the stack is installed elsewhere." >&2
+    exit 1
+}
+
+# --no-deps: postgres is already running as part of the stack; don't recreate it.
+# -v "$PWD:/work" -w /work: make host files reachable for import/export commands.
+exec docker compose -f "$COMPOSE_FILE" run --rm --no-deps \
+    -v "$PWD:/work" -w /work \
+    admin "$@"

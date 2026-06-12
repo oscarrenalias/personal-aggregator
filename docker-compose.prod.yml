@@ -25,6 +25,16 @@ services:
         condition: service_healthy
     restart: "no"
 
+  # On-demand admin CLI. Not started by `up` (cli profile); invoked via the
+  # `aggregator` wrapper script: `docker compose run --rm admin <args>`.
+  admin:
+    image: ${IMAGE_PREFIX:-personal-aggregator}/aggregator-admin:${APP_VERSION:-dev}
+    profiles: ["cli"]
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://aggregator:aggregator@postgres:5432/aggregator
+    restart: "no"
+
   retriever:
     image: ${IMAGE_PREFIX:-personal-aggregator}/aggregator-retriever:${APP_VERSION:-dev}
     environment:
