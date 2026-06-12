@@ -17,7 +17,14 @@ from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session, selectinload
 
 from aggregator_common.db import SessionFactory, get_session
+from aggregator_common.management import enqueue_recluster
 from aggregator_common.models import Article, Brief, BriefTopic, Category, Source
+from aggregator_common.queries import (
+    count_suppressed_today,
+    get_thread,
+    get_thread_members,
+    list_threads,
+)
 from aggregator_common.version import version
 from aggregator_web.config import WebSettings
 from aggregator_web.feeds import (
@@ -609,6 +616,51 @@ def brief_detail_view(
         "_brief_detail.html",
         {"brief": brief},
     )
+
+
+@app.get("/threads")
+def threads_index(
+    request: Request,
+    tier: Optional[str] = None,
+    hx_request: Optional[str] = Header(None, alias="HX-Request"),
+    db: Session = Depends(get_db),
+) -> Response:
+    threads = list_threads(db, tier=tier)
+    suppressed_today = count_suppressed_today(db)
+    ctx = {"threads": threads, "suppressed_today": suppressed_today, "tier": tier}
+    if hx_request:
+        return templates.TemplateResponse(request, "_thread_list.html", ctx)
+    return templates.TemplateResponse(request, "threads/index.html", ctx)
+
+
+@app.get("/threads/{thread_id}")
+def thread_detail(
+    request: Request,
+    thread_id: int,
+    hx_request: Optional[str] = Header(None, alias="HX-Request"),
+    db: Session = Depends(get_db),
+) -> Response:
+    thread = get_thread(db, thread_id)
+    if thread is None:
+        raise HTTPException(status_code=404, detail="Thread not found")
+    members = get_thread_members(db, thread_id)
+    ctx = {"thread": thread, "members": members}
+    if hx_request:
+        return templates.TemplateResponse(request, "_thread_detail.html", ctx)
+    initial_content = Markup(
+        templates.get_template("_thread_detail.html").render(**ctx)
+    )
+    return templates.TemplateResponse(
+        request,
+        "shell.html",
+        {"initial_reader_content": initial_content, "initial_reader_open": True},
+    )
+
+
+@app.post("/threads/recluster", status_code=202)
+def threads_recluster(db: Session = Depends(get_db)) -> Response:
+    enqueue_recluster(db)
+    return Response(status_code=202, headers={"HX-Trigger": "reclustered"})
 
 
 @app.get("/search")
