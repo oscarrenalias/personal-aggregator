@@ -106,8 +106,8 @@ else
     say "Open it on this machine:  http://127.0.0.1:8000/"
 fi
 [ -z "$LLM_KEY" ] && warn "No LLM key set — edit ${ENV_FILE} (OPENAI_API_KEY=…) and run: sudo systemctl restart aggregator"
-say "Manage it with the 'aggregator' CLI (installed to /usr/local/bin), e.g.:"
-say "  sudo aggregator sources add -n 'BBC News' -u 'http://feeds.bbci.co.uk/news/rss.xml'"
-say "  sudo aggregator sources import-opml your-feedly.opml     # import from Feedly"
-say "  sudo aggregator profile set 'My interests…'              # tune ranking"
-say "  sudo aggregator --help"
+say "Manage it with the bundled CLI at ${INSTALL_DIR}/aggregator, e.g.:"
+say "  sudo ${INSTALL_DIR}/aggregator sources add -n 'BBC News' -u 'http://feeds.bbci.co.uk/news/rss.xml'"
+say "  sudo ${INSTALL_DIR}/aggregator sources import-opml your-feedly.opml   # import from Feedly"
+say "  sudo ${INSTALL_DIR}/aggregator profile set 'My interests…'            # tune ranking"
+say "  sudo ${INSTALL_DIR}/aggregator --help"
