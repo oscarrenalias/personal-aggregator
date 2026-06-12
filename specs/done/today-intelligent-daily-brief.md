@@ -5,7 +5,7 @@ description: "A 'Today' intelligent daily brief: a new tool-using (agentic) LLM 
 dependencies: null
 priority: high
 complexity: high
-status: planned
+status: done
 tags:
 - brief
 - today
