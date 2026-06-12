@@ -861,6 +861,132 @@ def test_article_detail_no_importance_badge_when_no_score(db_session, client):
     assert "detail-importance" not in response.text
 
 
+# ---------------------------------------------------------------------------
+# Live-refresh: sidebar hx-trigger
+# ---------------------------------------------------------------------------
+
+
+def test_get_index_sidebar_hx_trigger_has_every_60s(client):
+    """#sidebar hx-trigger must include 'every 60s', 'load', and 'refreshSidebar from:body'."""
+    response = client.get("/")
+    assert response.status_code == 200
+    assert "every 60s" in response.text
+    assert "load" in response.text
+    assert "refreshSidebar from:body" in response.text
+
+
+# ---------------------------------------------------------------------------
+# Live-refresh: #new-articles-banner in full-page render
+# ---------------------------------------------------------------------------
+
+
+def test_get_feed_smart_all_has_new_articles_banner(db_session, client):
+    src = make_source(db_session)
+    make_article(db_session, source_id=src.id)
+    response = client.get("/feed/smart/all")
+    assert response.status_code == 200
+    assert 'id="new-articles-banner"' in response.text
+    assert "/updates?since=" in response.text
+
+
+def test_get_feed_smart_all_banner_since_equals_max_article_id(db_session, client):
+    src = make_source(db_session)
+    a1 = make_article(db_session, source_id=src.id, dedup_key="k1")
+    a2 = make_article(db_session, source_id=src.id, dedup_key="k2")
+    max_id = max(a1.id, a2.id)
+    response = client.get("/feed/smart/all")
+    assert response.status_code == 200
+    assert f"since={max_id}" in response.text
+
+
+def test_get_feed_smart_all_empty_yields_since_0(client):
+    response = client.get("/feed/smart/all")
+    assert response.status_code == 200
+    assert "since=0" in response.text
+
+
+def test_feed_htmx_cursor_request_no_new_articles_banner(db_session, client):
+    """HTMX infinite-scroll fragment must NOT contain #new-articles-banner."""
+    src = make_source(db_session)
+    for i in range(3):
+        make_article(db_session, source_id=src.id, dedup_key=f"k{i}", importance_score=50 - i)
+    page1 = smart_feed("all", db_session, page_size=1, important_threshold=70)
+    assert page1.next_cursor is not None
+    response = client.get(
+        f"/feed/smart/all?cursor={page1.next_cursor}",
+        headers={"HX-Request": "true"},
+    )
+    assert response.status_code == 200
+    assert 'id="new-articles-banner"' not in response.text
+
+
+# ---------------------------------------------------------------------------
+# Live-refresh: /updates endpoints
+# ---------------------------------------------------------------------------
+
+
+def test_smart_updates_empty_when_since_equals_max_id(db_session, client):
+    src = make_source(db_session)
+    a = make_article(db_session, source_id=src.id)
+    response = client.get(f"/feed/smart/all/updates?since={a.id}")
+    assert response.status_code == 200
+    assert "new-articles-pill" not in response.text
+
+
+def test_smart_updates_non_empty_when_since_zero(db_session, client):
+    src = make_source(db_session)
+    make_article(db_session, source_id=src.id)
+    response = client.get("/feed/smart/all/updates?since=0")
+    assert response.status_code == 200
+    assert "new-articles-pill" in response.text
+
+
+def test_smart_updates_pill_text_singular(db_session, client):
+    src = make_source(db_session)
+    make_article(db_session, source_id=src.id)
+    response = client.get("/feed/smart/all/updates?since=0")
+    assert "1 new article" in response.text
+    assert "1 new articles" not in response.text
+
+
+def test_smart_updates_pill_text_plural(db_session, client):
+    src = make_source(db_session)
+    make_article(db_session, source_id=src.id, dedup_key="k1")
+    make_article(db_session, source_id=src.id, dedup_key="k2")
+    response = client.get("/feed/smart/all/updates?since=0")
+    assert "2 new articles" in response.text
+
+
+def test_category_updates_isolates_by_category(db_session, client):
+    src = make_source(db_session)
+    make_article(db_session, source_id=src.id, dedup_key="k1", categories=["tech"])
+    make_article(db_session, source_id=src.id, dedup_key="k2", categories=["sports"])
+    response = client.get("/feed/category/tech/updates?since=0")
+    assert response.status_code == 200
+    assert "1 new article" in response.text
+
+
+def test_source_updates_isolates_by_source(db_session, client):
+    src1 = make_source(db_session, name="S1", url="http://s1.example.com/feed")
+    src2 = make_source(db_session, name="S2", url="http://s2.example.com/feed")
+    make_article(db_session, source_id=src1.id, dedup_key="k1")
+    make_article(db_session, source_id=src2.id, dedup_key="k2")
+    response = client.get(f"/feed/source/{src1.id}/updates?since=0")
+    assert response.status_code == 200
+    assert "1 new article" in response.text
+
+
+def test_smart_updates_unread_filter_excludes_read_articles(db_session, client):
+    src = make_source(db_session)
+    make_article(db_session, source_id=src.id, dedup_key="k1", is_read=False)
+    make_article(db_session, source_id=src.id, dedup_key="k2", is_read=True)
+    response = client.get("/feed/smart/all/updates?since=0&unread=1")
+    assert response.status_code == 200
+    assert "1 new article" in response.text
+    assert "2 new articles" not in response.text
+    assert 'hx-get="/feed/smart/all?unread=1"' in response.text
+
+
 def test_detail_header_css_reserves_toolbar_space(client):
     """Regression: .detail-header CSS rule must include padding-right to prevent
     title text from overlapping the absolutely-positioned toolbar."""

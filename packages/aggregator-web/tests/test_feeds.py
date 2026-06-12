@@ -10,9 +10,12 @@ from aggregator_common.state import ArticleStatus
 from aggregator_web.feeds import (
     Cursor,
     category_feed,
+    category_feed_count,
     get_sidebar_counts,
     smart_feed,
+    smart_feed_count,
     source_feed,
+    source_feed_count,
 )
 from conftest import make_article, make_category, make_source
 
@@ -342,6 +345,54 @@ def test_get_sidebar_counts_categories(db_session):
 
     counts = get_sidebar_counts(db_session, important_threshold=70)
     assert counts.categories["tech"] == 1
+
+
+# ---------------------------------------------------------------------------
+# smart_feed_count / category_feed_count / source_feed_count
+# ---------------------------------------------------------------------------
+
+
+def test_smart_feed_count_zero_when_no_articles_newer_than_since(db_session):
+    src = make_source(db_session)
+    a = make_article(db_session, source_id=src.id)
+    count = smart_feed_count("all", db_session, since=a.id, important_threshold=70)
+    assert count == 0
+
+
+def test_smart_feed_count_articles_newer_than_since(db_session):
+    src = make_source(db_session)
+    older = make_article(db_session, source_id=src.id, dedup_key="k1")
+    make_article(db_session, source_id=src.id, dedup_key="k2")
+    count = smart_feed_count("all", db_session, since=older.id, important_threshold=70)
+    assert count == 1
+
+
+def test_smart_feed_count_unread_only(db_session):
+    src = make_source(db_session)
+    anchor = make_article(db_session, source_id=src.id, dedup_key="k0")
+    make_article(db_session, source_id=src.id, dedup_key="k1", is_read=False)
+    make_article(db_session, source_id=src.id, dedup_key="k2", is_read=True)
+    count = smart_feed_count("all", db_session, since=anchor.id, important_threshold=70, unread_only=True)
+    assert count == 1
+
+
+def test_category_feed_count_only_counts_matching_category(db_session):
+    src = make_source(db_session)
+    anchor = make_article(db_session, source_id=src.id, dedup_key="k0")
+    make_article(db_session, source_id=src.id, dedup_key="k1", categories=["tech"])
+    make_article(db_session, source_id=src.id, dedup_key="k2", categories=["sports"])
+    count = category_feed_count("tech", db_session, since=anchor.id)
+    assert count == 1
+
+
+def test_source_feed_count_only_counts_matching_source(db_session):
+    src1 = make_source(db_session, name="S1", url="http://s1.example.com/feed")
+    src2 = make_source(db_session, name="S2", url="http://s2.example.com/feed")
+    anchor = make_article(db_session, source_id=src1.id, dedup_key="k0")
+    make_article(db_session, source_id=src1.id, dedup_key="k1")
+    make_article(db_session, source_id=src2.id, dedup_key="k2")
+    count = source_feed_count(src1.id, db_session, since=anchor.id)
+    assert count == 1
 
 
 def test_get_sidebar_counts_disabled_source_excluded(db_session):
