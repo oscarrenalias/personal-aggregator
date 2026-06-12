@@ -274,3 +274,28 @@ class ThreadMembership(Base):
 
     thread: Mapped["Thread"] = relationship("Thread", back_populates="members")
     article: Mapped["Article"] = relationship("Article", back_populates="thread_membership")
+
+
+class ClusterState(Base):
+    """Singleton control row for the thread clustering worker.
+
+    Mechanism: the worker poll loop checks ``recluster_requested`` every cycle.
+    To trigger a full recluster pass, callers upsert this row with
+    ``recluster_requested=True``.  The worker atomically reads and clears the
+    flag in one statement::
+
+        UPDATE cluster_state
+           SET recluster_requested = false
+         WHERE recluster_requested = true
+         RETURNING *
+
+    Because the UPDATE is atomic, concurrent callers can safely enqueue without
+    losing a signal, and the worker never processes the same request twice.
+    """
+
+    __tablename__ = "cluster_state"
+    __table_args__ = (CheckConstraint("id", name="ck_cluster_state_singleton"),)
+
+    id: Mapped[bool] = mapped_column(Boolean, primary_key=True, server_default="true")
+    recluster_requested: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
+    requested_at: Mapped[Optional[datetime]] = mapped_column(TIMESTAMP(timezone=True), nullable=True)

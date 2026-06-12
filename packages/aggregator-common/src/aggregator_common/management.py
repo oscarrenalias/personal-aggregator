@@ -8,7 +8,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from aggregator_common.errors import ConflictError, NotFoundError
-from aggregator_common.models import Article, Category, InterestProfile, Source
+from aggregator_common.models import Article, Category, ClusterState, InterestProfile, Source, Thread, ThreadMembership
 
 
 def set_interest_profile(session: Session, text: str) -> dict:
@@ -270,3 +270,193 @@ def disable_category(session: Session, category_id: int | str) -> dict:
     category.enabled = False
     session.flush()
     return {"id": category.id, "enabled": category.enabled}
+
+
+# ---------------------------------------------------------------------------
+# Thread mutation helpers
+# ---------------------------------------------------------------------------
+
+_THREAD_MUTABLE_FIELDS = frozenset(
+    {
+        "representative_title",
+        "rolling_summary",
+        "known_facts",
+        "source_list",
+        "source_diversity",
+        "confidence",
+        "status",
+        "novelty_label",
+        "tier",
+        "tier_reason",
+        "relevance_score",
+        "novelty_score",
+        "importance_score",
+        "diversity_score",
+        "time_sensitivity_score",
+    }
+)
+
+
+def create_thread(
+    session: Session,
+    *,
+    representative_title: str,
+    rolling_summary: str | None = None,
+    known_facts: list | None = None,
+    source_list: list | None = None,
+    confidence: float | None = None,
+) -> Thread:
+    """Create and persist a new Thread row.  Returns the ORM object."""
+    now = datetime.now(timezone.utc)
+    thread = Thread(
+        representative_title=representative_title,
+        rolling_summary=rolling_summary,
+        known_facts=known_facts,
+        source_list=source_list,
+        confidence=confidence,
+        first_seen=now,
+        last_updated=now,
+    )
+    session.add(thread)
+    session.flush()
+    return thread
+
+
+def update_thread(session: Session, thread_id: int, **fields) -> Thread:
+    """Update mutable fields on an existing Thread.
+
+    Only fields in ``_THREAD_MUTABLE_FIELDS`` are accepted.
+    Raises NotFoundError for an unknown thread_id.
+    Raises ValueError for unrecognised field names.
+    """
+    thread = session.get(Thread, thread_id)
+    if thread is None:
+        raise NotFoundError(f"Thread {thread_id} not found.")
+
+    unknown = set(fields) - _THREAD_MUTABLE_FIELDS
+    if unknown:
+        raise ValueError(f"Non-updatable Thread field(s): {sorted(unknown)}")
+
+    for key, value in fields.items():
+        setattr(thread, key, value)
+
+    thread.last_updated = datetime.now(timezone.utc)
+    session.flush()
+    return thread
+
+
+def assign_article_to_thread(
+    session: Session,
+    *,
+    article_id: int,
+    thread_id: int,
+    classification_label: str | None = None,
+    new_facts: list | None = None,
+    reason: str | None = None,
+    confidence: float | None = None,
+    suppressed: bool = False,
+) -> ThreadMembership:
+    """Assign an article to a thread (idempotent).
+
+    If a ThreadMembership row already exists for *article_id* (enforced by
+    the unique constraint on that column), the existing row is returned
+    unchanged.  Otherwise a new row is created and flushed.
+
+    Raises NotFoundError when thread_id is absent.
+    """
+    existing = (
+        session.query(ThreadMembership)
+        .filter(ThreadMembership.article_id == article_id)
+        .first()
+    )
+    if existing is not None:
+        return existing
+
+    if session.get(Thread, thread_id) is None:
+        raise NotFoundError(f"Thread {thread_id} not found.")
+
+    membership = ThreadMembership(
+        thread_id=thread_id,
+        article_id=article_id,
+        classification_label=classification_label,
+        new_facts=new_facts,
+        reason=reason,
+        confidence=confidence,
+        suppressed=suppressed,
+        assigned_at=datetime.now(timezone.utc),
+    )
+    session.add(membership)
+    session.flush()
+    return membership
+
+
+def update_thread_scores(
+    session: Session,
+    thread_id: int,
+    *,
+    relevance_score: float | None = None,
+    novelty_score: float | None = None,
+    importance_score: float | None = None,
+    diversity_score: float | None = None,
+    time_sensitivity_score: float | None = None,
+    tier: str | None = None,
+    tier_reason: str | None = None,
+    confidence: float | None = None,
+) -> Thread:
+    """Update scoring fields on a Thread.  Only non-None arguments are written.
+
+    Raises NotFoundError for an unknown thread_id.
+    """
+    thread = session.get(Thread, thread_id)
+    if thread is None:
+        raise NotFoundError(f"Thread {thread_id} not found.")
+
+    if relevance_score is not None:
+        thread.relevance_score = relevance_score
+    if novelty_score is not None:
+        thread.novelty_score = novelty_score
+    if importance_score is not None:
+        thread.importance_score = importance_score
+    if diversity_score is not None:
+        thread.diversity_score = diversity_score
+    if time_sensitivity_score is not None:
+        thread.time_sensitivity_score = time_sensitivity_score
+    if tier is not None:
+        thread.tier = tier
+    if tier_reason is not None:
+        thread.tier_reason = tier_reason
+    if confidence is not None:
+        thread.confidence = confidence
+
+    thread.last_updated = datetime.now(timezone.utc)
+    session.flush()
+    return thread
+
+
+def enqueue_recluster(session: Session) -> None:
+    """Signal the clustering worker to perform a full recluster pass.
+
+    Mechanism: upserts a flag into the ``cluster_state`` singleton table
+    (boolean PK ``id=true``, same pattern as ``InterestProfile``).  The worker
+    poll loop checks ``recluster_requested`` each cycle and atomically reads
+    and clears it with::
+
+        UPDATE cluster_state
+           SET recluster_requested = false
+         WHERE recluster_requested = true
+         RETURNING *
+
+    This single-statement atomic clear means concurrent callers can safely
+    enqueue without losing a signal, and the worker never processes the same
+    recluster request twice.
+    """
+    stmt = (
+        pg_insert(ClusterState)
+        .values(id=True, recluster_requested=True, requested_at=func.now())
+        .on_conflict_do_update(
+            index_elements=["id"],
+            set_={"recluster_requested": True, "requested_at": func.now()},
+        )
+    )
+    session.execute(stmt)
+    session.flush()
