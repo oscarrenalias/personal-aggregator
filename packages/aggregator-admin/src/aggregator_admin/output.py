@@ -9,9 +9,11 @@ from typing import Any
 
 import typer
 from rich.console import Console
+from rich.panel import Panel
 from rich.table import Table
 
 console = Console()
+_error_console = Console(stderr=True)
 
 
 def json_default(obj: Any) -> Any:
@@ -52,6 +54,11 @@ def json_or_table(
         typer.echo(json.dumps(rows, default=json_default))
     else:
         render_table(rows, columns)
+
+
+def error_panel(message: str) -> None:
+    """Print a Rich error panel to stderr."""
+    _error_console.print(Panel(str(message), title="Error", border_style="red"))
 
 
 def confirm(*, yes: bool, prompt: str = "Continue?") -> None:

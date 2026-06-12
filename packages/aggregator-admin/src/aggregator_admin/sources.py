@@ -1,18 +1,19 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
 import typer
 from sqlalchemy.exc import IntegrityError
 
+from aggregator_common import management
 from aggregator_common.db import get_session
+from aggregator_common.errors import ConflictError, NotFoundError
 from aggregator_common.models import Article, Source
 
 from .opml import build_opml, parse_opml
-from .output import confirm, json_or_table
+from .output import confirm, error_panel, json_or_table
 
 sources_app = typer.Typer(help="Manage feed sources.")
 
@@ -74,30 +75,20 @@ def add_source(
     disabled: bool = typer.Option(False, "--disabled", help="Create the source in a disabled state."),
 ) -> None:
     """Add a new feed source."""
-    source = Source(
-        name=name,
-        feed_url=url,
-        enabled=not disabled,
-        refresh_interval_seconds=interval,
-        priority=priority,
-    )
     try:
         with get_session() as session:
-            session.add(source)
-            session.flush()
-            new_id = source.id
-    except IntegrityError:
-        typer.echo(f"Error: a source with URL '{url}' already exists.", err=True)
+            result = management.add_source(
+                session,
+                name=name,
+                feed_url=url,
+                refresh_interval_seconds=interval,
+                priority=priority,
+                enabled=not disabled,
+            )
+    except ConflictError as exc:
+        error_panel(str(exc))
         raise typer.Exit(code=1)
-    typer.echo(new_id)
-
-
-def _get_source_or_exit(session, source_id: int) -> Source:
-    source = session.get(Source, source_id)
-    if source is None:
-        typer.echo(f"Error: source {source_id} not found.", err=True)
-        raise typer.Exit(code=1)
-    return source
+    typer.echo(result["id"])
 
 
 @sources_app.command("enable")
@@ -105,11 +96,12 @@ def enable_source(
     source_id: int = typer.Argument(..., help="Source ID."),
 ) -> None:
     """Enable a source, reset failure count, and schedule it for immediate check."""
-    with get_session() as session:
-        source = _get_source_or_exit(session, source_id)
-        source.enabled = True
-        source.consecutive_failures = 0
-        source.next_check_at = datetime.now(timezone.utc)
+    try:
+        with get_session() as session:
+            management.enable_source(session, source_id)
+    except NotFoundError as exc:
+        error_panel(str(exc))
+        raise typer.Exit(code=1)
     typer.echo(f"Source {source_id} enabled.")
 
 
@@ -118,9 +110,12 @@ def disable_source(
     source_id: int = typer.Argument(..., help="Source ID."),
 ) -> None:
     """Disable a source."""
-    with get_session() as session:
-        source = _get_source_or_exit(session, source_id)
-        source.enabled = False
+    try:
+        with get_session() as session:
+            management.disable_source(session, source_id)
+    except NotFoundError as exc:
+        error_panel(str(exc))
+        raise typer.Exit(code=1)
     typer.echo(f"Source {source_id} disabled.")
 
 
@@ -130,9 +125,12 @@ def set_interval(
     seconds: int = typer.Argument(..., help="Refresh interval in seconds."),
 ) -> None:
     """Update the refresh interval for a source."""
-    with get_session() as session:
-        source = _get_source_or_exit(session, source_id)
-        source.refresh_interval_seconds = seconds
+    try:
+        with get_session() as session:
+            management.set_source_interval(session, source_id, seconds)
+    except NotFoundError as exc:
+        error_panel(str(exc))
+        raise typer.Exit(code=1)
     typer.echo(f"Source {source_id} interval set to {seconds}s.")
 
 
@@ -147,25 +145,43 @@ def remove_source(
     Refused when the source has associated articles unless --force is given.
     With --force all articles belonging to the source are deleted first.
     """
-    with get_session() as session:
-        source = _get_source_or_exit(session, source_id)
-        article_count = session.query(Article).filter(Article.source_id == source_id).count()
-        if article_count > 0 and not force:
-            typer.echo(
-                f"Error: source {source_id} has {article_count} article(s). "
-                "Use --force to cascade the delete.",
-                err=True,
+    try:
+        with get_session() as session:
+            source = session.get(Source, source_id)
+            if source is None:
+                raise NotFoundError(f"Source {source_id} not found.")
+            article_count = session.query(Article).filter(Article.source_id == source_id).count()
+            if article_count > 0 and not force:
+                typer.echo(
+                    f"Error: source {source_id} has {article_count} article(s). "
+                    "Use --force to cascade the delete.",
+                    err=True,
+                )
+                raise typer.Exit(code=1)
+            confirm(
+                yes=yes,
+                prompt=f"Delete source {source_id} ('{source.name}')"
+                + (f" and {article_count} article(s)?" if article_count > 0 else "?"),
             )
-            raise typer.Exit(code=1)
-        confirm(
-            yes=yes,
-            prompt=f"Delete source {source_id} ('{source.name}')"
-            + (f" and {article_count} article(s)?" if article_count > 0 else "?"),
-        )
-        if article_count > 0:
-            session.query(Article).filter(Article.source_id == source_id).delete()
-        session.delete(source)
+            management.remove_source(session, source_id)
+    except NotFoundError as exc:
+        error_panel(str(exc))
+        raise typer.Exit(code=1)
     typer.echo(f"Source {source_id} deleted.")
+
+
+@sources_app.command("refresh-now")
+def refresh_now(
+    source_id: int = typer.Argument(..., help="Source ID."),
+) -> None:
+    """Schedule a source for immediate retrieval on the next poll cycle."""
+    try:
+        with get_session() as session:
+            management.refresh_source_now(session, source_id)
+    except NotFoundError as exc:
+        error_panel(str(exc))
+        raise typer.Exit(code=1)
+    typer.echo(f"Source {source_id} scheduled for immediate refresh.")
 
 
 @sources_app.command("export-opml")
@@ -256,14 +272,3 @@ def import_opml(
         typer.echo(
             f"{prefix}Summary: {len(added)} added, {len(skipped)} skipped, {total} total"
         )
-
-
-@sources_app.command("refresh-now")
-def refresh_now(
-    source_id: int = typer.Argument(..., help="Source ID."),
-) -> None:
-    """Schedule a source for immediate retrieval on the next poll cycle."""
-    with get_session() as session:
-        source = _get_source_or_exit(session, source_id)
-        source.next_check_at = datetime.now(timezone.utc)
-    typer.echo(f"Source {source_id} scheduled for immediate refresh.")

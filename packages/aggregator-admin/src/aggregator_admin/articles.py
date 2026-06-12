@@ -9,6 +9,7 @@ from sqlalchemy import func, inspect as sa_inspect
 
 from sqlalchemy.orm import Session
 
+import aggregator_common.ops as ops
 from aggregator_common.db import get_session
 from aggregator_common.models import Article
 from aggregator_common.state import ArticleStatus, can_transition
@@ -93,6 +94,11 @@ _RETRY_TARGET: dict[ArticleStatus, ArticleStatus] = {
     ArticleStatus.failed_ranking: ArticleStatus.pending_ranking,
 }
 
+_FAILED_STATUS_TO_STAGE: dict[ArticleStatus, str] = {
+    ArticleStatus.failed_processing: "processor",
+    ArticleStatus.failed_ranking: "summarize_rank",
+}
+
 
 @articles_app.command("show")
 def show_article(
@@ -169,18 +175,7 @@ def retry_article(
                     err=True,
                 )
                 raise typer.Exit(code=1)
-            if not can_transition(current, target):
-                typer.echo(
-                    f"Error: cannot transition article {article_id} from {article.status} to {target.value}.",
-                    err=True,
-                )
-                raise typer.Exit(code=1)
-            article.status = target
-            article.claimed_by = None
-            article.claimed_at = None
-            article.last_error = None
-            article.retry_count = 0
-            article.next_retry_at = None
+            ops.retry_failed(session, article_id=article_id)
         typer.echo(f"Article {article_id} queued for retry (→ {target.value}).")
     else:
         try:
@@ -194,24 +189,10 @@ def retry_article(
                 err=True,
             )
             raise typer.Exit(code=1)
-        target = _RETRY_TARGET[batch_status]
-        retried = 0
-        skipped = 0
+        stage = _FAILED_STATUS_TO_STAGE[batch_status]
         with get_session() as session:
-            articles = session.query(Article).filter(Article.status == batch_status).all()
-            for article in articles:
-                current = ArticleStatus(article.status)
-                if can_transition(current, target):
-                    article.status = target
-                    article.claimed_by = None
-                    article.claimed_at = None
-                    article.last_error = None
-                    article.retry_count = 0
-                    article.next_retry_at = None
-                    retried += 1
-                else:
-                    skipped += 1
-        typer.echo(f"Retried {retried} article(s), skipped {skipped}.")
+            result = ops.retry_failed(session, stage=stage)
+        typer.echo(f"Retried {result['retried']} article(s), skipped 0.")
 
 
 @articles_app.command("rerank")
@@ -239,37 +220,16 @@ def rerank_article(
         typer.echo("Error: provide exactly one of ARTICLE_ID, --all, or --failed.", err=True)
         raise typer.Exit(code=1)
 
-    target = ArticleStatus.pending_ranking
-
     if all_ready:
         confirm(yes=yes, prompt="This will requeue all ready articles for re-ranking.")
-        requeued = 0
         with get_session() as session:
-            articles = session.query(Article).filter(Article.status == ArticleStatus.ready).all()
-            for article in articles:
-                current = ArticleStatus(article.status)
-                if can_transition(current, target):
-                    article.status = target
-                    article.claimed_by = None
-                    article.claimed_at = None
-                    requeued += 1
-        typer.echo(f"Requeued {requeued} article(s) for re-ranking (→ pending_ranking).")
+            result = ops.rerank(session, all_ready=True)
+        typer.echo(f"Requeued {result['reranked']} article(s) for re-ranking (→ pending_ranking).")
     elif failed:
         confirm(yes=yes, prompt="This will requeue all failed_ranking articles for re-ranking.")
-        requeued = 0
         with get_session() as session:
-            articles = session.query(Article).filter(Article.status == ArticleStatus.failed_ranking).all()
-            for article in articles:
-                current = ArticleStatus(article.status)
-                if can_transition(current, target):
-                    article.status = target
-                    article.claimed_by = None
-                    article.claimed_at = None
-                    article.retry_count = 0
-                    article.next_retry_at = None
-                    article.last_error = None
-                    requeued += 1
-        typer.echo(f"Requeued {requeued} article(s) for re-ranking (→ pending_ranking).")
+            result = ops.rerank(session, failed_only=True)
+        typer.echo(f"Requeued {result['reranked']} article(s) for re-ranking (→ pending_ranking).")
     else:
         with get_session() as session:
             article = session.get(Article, article_id)
@@ -277,15 +237,13 @@ def rerank_article(
                 typer.echo(f"Error: article {article_id} not found.", err=True)
                 raise typer.Exit(code=1)
             current = ArticleStatus(article.status)
-            if not can_transition(current, target):
+            if not can_transition(current, ArticleStatus.pending_ranking):
                 typer.echo(
                     f"Error: article {article_id} cannot be reranked (current status: {article.status}; must be ready).",
                     err=True,
                 )
                 raise typer.Exit(code=1)
-            article.status = target
-            article.claimed_by = None
-            article.claimed_at = None
+            ops.rerank(session, article_id=article_id)
         typer.echo(f"Article {article_id} queued for re-ranking (→ pending_ranking).")
 
 

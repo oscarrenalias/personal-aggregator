@@ -17,7 +17,7 @@ sources → retriever → processor → summarize-rank → web UI
 - **summarize-rank** — LLM summary, topics, importance score + reason (the only service that calls the LLM).
 - **web** — FastAPI + HTMX + Alpine.js read/UI surface + reader operations (mark read, save, search). Served as a PWA; exposed privately over Tailscale (binds `127.0.0.1` by default).
 - **brief** — scheduled LLM service that reads ranked articles, generates a structured daily brief (headline + topics + summaries), and persists it to Postgres. Runs once per day at a configurable hour; the web service serves the brief on the Today view.
-- **aggregator-mcp** — FastMCP server exposing the aggregator over the MCP/Streamable HTTP interface for agent integration. Provides tools for searching, listing, and mutating articles, plus resources and prompts for LLM agents.
+- **aggregator-mcp** — FastMCP server exposing the aggregator over the MCP/Streamable HTTP interface for agent integration. Provides tools for searching, listing, and mutating articles; source and category management tools (add/enable/disable/remove — `remove_source` and `remove_category` are destructive); ops/diagnostic tools (`pipeline_status`, `list_stuck`, `list_failures`, `reap_stale_claims`, `retry_failed`, `rerank`); brief tools (`get_daily_brief`, `refresh_brief`); resources including `status://pipeline` for a quick health snapshot; and prompts including `troubleshoot` for step-by-step pipeline diagnosis.
 - **admin** — Rich CLI for feed management and operational tasks.
 
 The shared contract lives in `aggregator-common`: SQLAlchemy models, DB access, config, and the **article state machine**. Because services integrate only through the DB, the schema and allowed state transitions are the API — treat them as such.

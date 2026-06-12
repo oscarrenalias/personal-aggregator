@@ -3,23 +3,50 @@ import asyncio
 
 
 EXPECTED_TOOLS = {
+    # Original read tools
     "search_articles",
     "list_articles",
     "get_article",
     "get_interest_profile",
     "list_categories",
     "list_sources",
+    # Original write tools
     "mark_read",
     "mark_unread",
     "save_article",
     "unsave_article",
     "get_daily_brief",
     "refresh_brief",
+    # Profile management
+    "set_interest_profile",
+    # Source management
+    "add_source",
+    "enable_source",
+    "disable_source",
+    "set_source_interval",
+    "refresh_source_now",
+    "remove_source",
+    # Category management
+    "add_category",
+    "rename_category",
+    "set_category_description",
+    "set_category_order",
+    "enable_category",
+    "disable_category",
+    "remove_category",
+    # Ops diagnostic
+    "pipeline_status",
+    "list_stuck",
+    "list_failures",
+    # Ops remediation
+    "reap_stale_claims",
+    "retry_failed",
+    "rerank",
 }
 
 EXPECTED_RESOURCE_TEMPLATES = {"article://{id}", "feed://{view}"}
-EXPECTED_STATIC_RESOURCES = {"profile://interests", "brief://today"}
-EXPECTED_PROMPTS = {"whats_latest", "daily_brief"}
+EXPECTED_STATIC_RESOURCES = {"profile://interests", "brief://today", "status://pipeline"}
+EXPECTED_PROMPTS = {"whats_latest", "daily_brief", "troubleshoot"}
 
 
 def test_exact_tool_names_registered(mcp_server):
