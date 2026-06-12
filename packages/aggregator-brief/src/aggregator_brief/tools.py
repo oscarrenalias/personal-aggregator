@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-import json
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import cast, func, or_, select
+from sqlalchemy import func, literal, or_, select
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Session
 
@@ -47,7 +46,7 @@ def search_articles(
         stmt = stmt.where(
             or_(
                 *(
-                    Article.categories.op("@>")(cast(json.dumps([cat]), JSONB))
+                    Article.categories.op("@>")(literal([cat], JSONB))
                     for cat in categories
                 )
             )
