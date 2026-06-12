@@ -21,3 +21,4 @@ class ClustererSettings(BaseSettings):
     clusterer_tier_must_know_threshold: float = Field(0.75, description="Minimum importance score for must-know tier")
     clusterer_tier_worth_tracking_threshold: float = Field(0.5, description="Minimum importance score for worth-tracking tier")
     clusterer_tier_deep_read_threshold: float = Field(0.25, description="Minimum importance score for deep-read tier")
+    clusterer_title_jaccard_threshold: float = Field(0.7, description="Minimum token Jaccard similarity to treat two titles as near-duplicates")
