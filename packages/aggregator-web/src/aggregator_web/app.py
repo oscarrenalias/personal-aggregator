@@ -437,16 +437,28 @@ def source_feed_updates(
 def article_detail(
     request: Request,
     article_id: int,
+    hx_request: Optional[str] = Header(None, alias="HX-Request"),
     db: Session = Depends(get_db),
 ) -> Response:
     article = db.get(Article, article_id)
     if article is None:
         raise HTTPException(status_code=404, detail="Article not found")
     _enrich_article(article, db)
+    if hx_request:
+        return templates.TemplateResponse(
+            request,
+            "_article_detail.html",
+            {"article": article},
+        )
+    # Direct browser navigation (deep link / open-in-new-tab / refresh):
+    # return the full shell with the article pre-loaded into #reader-content.
+    initial_content = Markup(
+        templates.get_template("_article_detail.html").render(article=article)
+    )
     return templates.TemplateResponse(
         request,
-        "_article_detail.html",
-        {"article": article},
+        "shell.html",
+        {"initial_reader_content": initial_content, "initial_reader_open": True},
     )
 
 
