@@ -167,10 +167,17 @@ def _render_feed(
         )
         return HTMLResponse(rendered)
 
+    newest_id = max((a.id for a in page.articles), default=0)
     return templates.TemplateResponse(
         request,
         "_article_list.html",
-        {"articles": page.articles, "next_url": next_url},
+        {
+            "articles": page.articles,
+            "next_url": next_url,
+            "newest_id": newest_id,
+            "base_url": base_url,
+            "unread_only": unread_only,
+        },
     )
 
 

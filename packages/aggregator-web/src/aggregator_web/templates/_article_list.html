@@ -23,6 +23,13 @@
      role="feed"
      aria-label="Article list">
 
+  {% if newest_id is defined %}
+  <div id="new-articles-banner"
+       hx-get="{{ base_url }}/updates?since={{ newest_id }}{% if unread_only %}&amp;unread=1{% endif %}"
+       hx-trigger="every 60s"
+       hx-swap="innerHTML"></div>
+  {% endif %}
+
   {% for article in articles %}
     {% set is_last = loop.last %}
     {% include "_article_card.html" %}
