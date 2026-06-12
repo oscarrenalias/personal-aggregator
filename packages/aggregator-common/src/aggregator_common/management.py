@@ -210,3 +210,63 @@ def remove_category(session: Session, category_id: int | str) -> dict:
     session.delete(category)
     session.flush()
     return {"categories_deleted": 1}
+
+
+def rename_category(session: Session, category_id: int | str, new_name: str) -> dict:
+    """Rename a category.
+
+    Raises NotFoundError for unknown category.
+    Raises ConflictError when new_name is already taken by another category.
+    """
+    category = _resolve_category(session, category_id)
+    category.name = new_name
+    try:
+        session.flush()
+    except IntegrityError:
+        session.rollback()
+        raise ConflictError(f"A category named '{new_name}' already exists.")
+    return {"id": category.id, "name": category.name}
+
+
+def set_category_description(session: Session, category_id: int | str, description: str | None) -> dict:
+    """Set or clear the description of a category.
+
+    Raises NotFoundError for unknown category.
+    """
+    category = _resolve_category(session, category_id)
+    category.description = description
+    session.flush()
+    return {"id": category.id, "description": category.description}
+
+
+def set_category_order(session: Session, category_id: int | str, sort_order: int) -> dict:
+    """Update the sort_order of a category.
+
+    Raises NotFoundError for unknown category.
+    """
+    category = _resolve_category(session, category_id)
+    category.sort_order = sort_order
+    session.flush()
+    return {"id": category.id, "sort_order": category.sort_order}
+
+
+def enable_category(session: Session, category_id: int | str) -> dict:
+    """Enable a category so it appears in listings.
+
+    Raises NotFoundError for unknown category.
+    """
+    category = _resolve_category(session, category_id)
+    category.enabled = True
+    session.flush()
+    return {"id": category.id, "enabled": category.enabled}
+
+
+def disable_category(session: Session, category_id: int | str) -> dict:
+    """Disable a category so it is hidden from listings.
+
+    Raises NotFoundError for unknown category.
+    """
+    category = _resolve_category(session, category_id)
+    category.enabled = False
+    session.flush()
+    return {"id": category.id, "enabled": category.enabled}
