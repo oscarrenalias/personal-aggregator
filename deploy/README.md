@@ -194,10 +194,24 @@ journalctl -u aggregator -f
 
 ---
 
-## Updating
+There are two ways to upgrade, depending on whether you also want the latest deploy
+files (compose, the `aggregator` wrapper) or just newer container images.
 
-**You do not need to re-download the release files to upgrade.** A normal upgrade just
-pulls the newest images from GHCR and restarts — run, from anywhere:
+### Full upgrade (recommended) — re-run the bootstrap
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/oscarrenalias/personal-aggregator/main/deploy/bootstrap.sh | NONINTERACTIVE=1 sh
+```
+
+It's idempotent: refreshes `docker-compose.prod.yml`, `install.sh`, and the `aggregator`
+script from the latest release, **pulls the latest images**, and restarts — while
+**preserving your `.env`** and the Postgres volume. Use this when a release changes deploy
+files (new services/ports, or a new helper like the `aggregator` CLI). `NONINTERACTIVE=1`
+skips the key/LAN prompts since you've already configured `.env`.
+
+### Lightweight — images only
+
+If you only want newer images and your deploy files are already current:
 
 ```bash
 cd /opt/personal-aggregator
@@ -205,20 +219,9 @@ sudo docker compose -f docker-compose.prod.yml pull
 sudo docker compose -f docker-compose.prod.yml up -d
 ```
 
-(`sudo ./install.sh update` does exactly this if you still have `install.sh` handy, but it
-isn't required.) Images are tagged `latest` by default, so each pull gets the most recent
-release. Your `.env` and the Postgres volume are untouched.
-
-Dry-run preview (if using install.sh):
-```bash
-sudo ./install.sh --check update
-```
-
-> **When you *do* need the release files again:** only if a new release changes
-> `docker-compose.prod.yml` itself (new services, ports, env, etc.) — which is rare. In that
-> case download just the updated `docker-compose.prod.yml` into `/opt/personal-aggregator/`
-> (replacing the old one) and run the two `docker compose` commands above; your `.env` is
-> preserved. The release notes call out any compose changes.
+(`sudo ./install.sh update` does exactly this.) This pulls the latest `:latest` images and
+restarts, but does **not** refresh the compose file or the `aggregator` wrapper — so it
+won't pick up deploy-file changes. The release notes call out when a release changes those.
 
 ---
 

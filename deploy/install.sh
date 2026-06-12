@@ -171,6 +171,7 @@ do_install() {
         plan "Set IMAGE_PREFIX=${IMAGE_PREFIX} in ${INSTALL_DIR}/.env"
         plan "Set APP_VERSION=${APP_VERSION} in ${INSTALL_DIR}/.env"
         plan "Install aggregator CLI -> ${INSTALL_DIR}/aggregator (if asset present)"
+        plan "docker compose pull (refresh to latest images)"
         plan "Install ${service_src} -> ${SERVICE_FILE}"
         plan "systemctl daemon-reload"
         plan "systemctl enable ${SERVICE_NAME}"
@@ -210,6 +211,12 @@ do_install() {
     else
         log "aggregator CLI wrapper not in assets -- skipping (run admin via 'docker compose run --rm admin')"
     fi
+
+    # Pull the latest images so a re-run acts as a full upgrade. (On a first install
+    # this is effectively what `up -d` would do anyway; on a re-run it refreshes
+    # :latest images that `up -d` alone would not re-fetch.)
+    log "Pulling latest images..."
+    (cd "${INSTALL_DIR}" && docker compose -f docker-compose.prod.yml pull)
 
     # Install systemd service unit
     log "Installing ${service_src} -> ${SERVICE_FILE}"
