@@ -4,16 +4,18 @@ Personal RSS reader and news aggregator. Periodically retrieves articles from co
 
 ## Architecture
 
-Five services communicating **only through shared Postgres state** (no synchronous service-to-service calls). Articles move through a durable state machine; each service finds its pending work by claiming rows.
+Six services communicating **only through shared Postgres state** (no synchronous service-to-service calls). Articles move through a durable state machine; each service finds its pending work by claiming rows.
 
 ```
 sources → retriever → processor → summarize-rank → web UI
+                                                  → brief
 ```
 
 - **retriever** — polls feeds, persists raw articles, marks them pending processing.
 - **processor** — cleans/extracts article content, header image, search index; marks ready for ranking.
 - **summarize-rank** — LLM summary, topics, importance score + reason (the only service that calls the LLM).
 - **web** — FastAPI + HTMX + Alpine.js read/UI surface + reader operations (mark read, save, search). Served as a PWA; exposed privately over Tailscale (binds `127.0.0.1` by default). Also the future seam for an MCP/agent interface.
+- **brief** — scheduled LLM service that reads ranked articles, generates a structured daily brief (headline + topics + summaries), and persists it to Postgres. Runs once per day at a configurable hour; the web service serves the brief on the Today view.
 - **admin** — Rich CLI for feed management and operational tasks.
 
 The shared contract lives in `aggregator-common`: SQLAlchemy models, DB access, config, and the **article state machine**. Because services integrate only through the DB, the schema and allowed state transitions are the API — treat them as such.
@@ -42,6 +44,7 @@ packages/
   aggregator-processor/
   aggregator-summarize-rank/
   aggregator-web/               # FastAPI + HTMX + Alpine.js PWA web UI
+  aggregator-brief/             # scheduled daily brief generator
   aggregator-admin/
 docker-compose.yml              # postgres only (app service definitions added per service spec)
 ```
@@ -65,17 +68,17 @@ src/aggregator_common/
 ## Containers & tests
 
 - **Runtime:** OrbStack provides the Docker engine. Note it does **not** create `/var/run/docker.sock`; its socket is `~/.orbstack/run/docker.sock`. The `docker` CLI finds it via the active context, but headless test runs must resolve it explicitly (see below).
-- **Dev:** the root `docker-compose.yml` runs the **full stack built from source** (`docker compose up -d --build`): `postgres → migrate → retriever → processor → summarize-rank → web`. It keeps the `postgres_data` volume and the host `5432` port so data persists and host tooling (admin CLI, `uv run`) can reach it; the web container binds `127.0.0.1:8000` with `WEB_HOST=0.0.0.0`. This is the dev counterpart to `docker-compose.prod.yml` (which **pulls** released GHCR images instead of building). For fast iteration on a single service, run it on the **host** via `uv run` (e.g. `uv run --all-packages python -m aggregator_web`); takt workers always run on the host.
+- **Dev:** the root `docker-compose.yml` runs the **full stack built from source** (`docker compose up -d --build`): `postgres → migrate → retriever → processor → summarize-rank → web → brief`. It keeps the `postgres_data` volume and the host `5432` port so data persists and host tooling (admin CLI, `uv run`) can reach it; the web container binds `127.0.0.1:8000` with `WEB_HOST=0.0.0.0`. This is the dev counterpart to `docker-compose.prod.yml` (which **pulls** released GHCR images instead of building). For fast iteration on a single service, run it on the **host** via `uv run` (e.g. `uv run --all-packages python -m aggregator_web`); takt workers always run on the host.
 - **Tests:** `pytest` with **testcontainers** — each test session spins up an ephemeral Postgres on a random port. This isolates concurrent takt workers running in parallel worktrees; never assume a shared/fixed test database. The test harness resolves the Docker socket in this order: `DOCKER_HOST` env → `/var/run/docker.sock` → `~/.orbstack/run/docker.sock`, setting `DOCKER_HOST` for testcontainers when it falls through. This makes `pytest`/`takt merge` work for every worker without per-worker env setup.
 - **Deploy:** per-service Dockerfiles + compose. No devcontainers.
 
 ### Production compose (headless backend)
 
-The full production stack (`postgres → migrate → retriever → processor → summarize-rank → web`) is managed via `Makefile` targets that wrap `docker-compose.prod.yml`:
+The full production stack (`postgres → migrate → retriever → processor → summarize-rank → web → brief`) is managed via `Makefile` targets that wrap `docker-compose.prod.yml`:
 
 | Command | Effect |
 |---|---|
-| `make build` | Builds all five arm64 service images (calls `scripts/build-images.sh`) |
+| `make build` | Builds all six arm64 service images (calls `scripts/build-images.sh`) |
 | `make up` | `docker compose -f docker-compose.prod.yml up -d` |
 | `make down` | `docker compose -f docker-compose.prod.yml down` |
 | `make logs` | `docker compose -f docker-compose.prod.yml logs -f` |
@@ -148,6 +151,20 @@ At process startup, every service calls `aggregator_common.load_env()` (python-d
 | `WEB_PORT` | `8000` | Port to bind the web server |
 | `WEB_PAGE_SIZE` | `50` | Number of articles per page in feed lists |
 | `WEB_IMPORTANT_THRESHOLD` | `70` | Minimum `importance_score` for the Important smart view |
+| `BRIEF_LLM_MODEL` | `gpt-4.1` | LLM model used for brief generation |
+| `BRIEF_LLM_MAX_OUTPUT_TOKENS` | `4096` | Maximum output tokens for LLM calls |
+| `BRIEF_LLM_TEMPERATURE` | `0.3` | LLM sampling temperature |
+| `BRIEF_LLM_TIMEOUT_SECONDS` | `120` | LLM call timeout in seconds |
+| `BRIEF_PERIOD_HOURS` | `24` | Hours of article history to include in each brief |
+| `BRIEF_TIMEZONE` | `UTC` | Timezone for scheduling brief generation |
+| `BRIEF_GENERATION_HOUR` | `6` | Hour of day (in `BRIEF_TIMEZONE`) to generate the brief |
+| `BRIEF_MAX_CANDIDATE_ARTICLES` | `80` | Maximum articles fed to the LLM as candidates |
+| `BRIEF_MAX_TOPICS` | `6` | Maximum topic sections in the generated brief |
+| `BRIEF_CONTINUITY_COUNT` | `3` | Number of previous briefs included for continuity context |
+| `BRIEF_TOOL_MAX_CALLS` | `12` | Maximum LLM tool calls per brief generation run |
+| `BRIEF_POLL_INTERVAL_SECONDS` | `60` | Seconds between scheduler poll cycles |
+| `BRIEF_CLAIM_LEASE_SECONDS` | `600` | Work-claim lease duration for brief jobs in seconds |
+| `BRIEF_RETENTION_DAYS` | `30` | Days to retain completed briefs before pruning |
 
 **Per-service config convention:** Each service subclasses `aggregator_common.config.Settings` and adds its own fields using a `<SERVICE>_` prefix (e.g., `PROCESSOR_BATCH_SIZE`, `RETRIEVER_POLL_INTERVAL_SECONDS`). Shared fields live in the base class; service-specific fields never bleed into other services' namespaces.
 
@@ -186,7 +203,7 @@ Versioning and image publishing run entirely in CI — do not bump the version m
 
 **GHCR image paths:**
 
-Images are pushed to `ghcr.io/oscarrenalias/personal-aggregator/aggregator-<service>` for each service (`retriever`, `processor`, `summarize-rank`, `admin`, `web`). Three tags are applied on every successful build:
+Images are pushed to `ghcr.io/oscarrenalias/personal-aggregator/aggregator-<service>` for each service (`retriever`, `processor`, `summarize-rank`, `admin`, `web`, `brief`). Three tags are applied on every successful build:
 
 | Tag | When to use |
 |---|---|
