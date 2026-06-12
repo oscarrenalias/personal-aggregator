@@ -66,6 +66,7 @@ def upgrade() -> None:
         sa.Column("importance_score", sa.Float(), nullable=True),
         sa.Column("diversity_score", sa.Float(), nullable=True),
         sa.Column("time_sensitivity_score", sa.Float(), nullable=True),
+        sa.Column("deltas", JSONB(), nullable=True),
     )
 
     op.create_index("ix_threads_status", "threads", ["status"])

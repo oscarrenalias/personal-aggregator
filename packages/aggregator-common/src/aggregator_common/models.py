@@ -252,6 +252,7 @@ class Thread(Base):
     importance_score: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     diversity_score: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     time_sensitivity_score: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    deltas: Mapped[Optional[list]] = mapped_column(JSONB, nullable=True)
 
     members: Mapped[List["ThreadMembership"]] = relationship(
         "ThreadMembership", back_populates="thread", cascade="all, delete-orphan"
