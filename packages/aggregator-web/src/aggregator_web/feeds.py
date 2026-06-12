@@ -190,6 +190,7 @@ def smart_feed_count(
     important_threshold: int,
     unread_only: bool = False,
 ) -> int:
+    """Count ready articles matching the smart-view filter with id > since."""
     filters = [_ready_base(), Article.id > since]
     extra = _smart_extra_filter(view, important_threshold)
     if extra is not None:
@@ -205,6 +206,7 @@ def category_feed_count(
     since: int,
     unread_only: bool = False,
 ) -> int:
+    """Count ready articles in the given category with id > since."""
     filters = [_ready_base(), Article.categories.contains([name]), Article.id > since]
     if unread_only:
         filters.append(Article.is_read == False)
@@ -217,6 +219,7 @@ def source_feed_count(
     since: int,
     unread_only: bool = False,
 ) -> int:
+    """Count ready articles from the given source with id > since."""
     filters = [_ready_base(), Article.source_id == source_id, Article.id > since]
     if unread_only:
         filters.append(Article.is_read == False)

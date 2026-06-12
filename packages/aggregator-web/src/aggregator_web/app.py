@@ -167,6 +167,7 @@ def _render_feed(
         )
         return HTMLResponse(rendered)
 
+    # newest_id seeds the /updates poller; only set on the full render path, not pagination requests.
     newest_id = max((a.id for a in page.articles), default=0)
     return templates.TemplateResponse(
         request,
