@@ -98,5 +98,23 @@ services:
       start_period: 10s
     restart: unless-stopped
 
+  mcp:
+    build:
+      context: .
+      dockerfile: packages/aggregator-mcp/Dockerfile
+    image: personal-aggregator/aggregator-mcp:dev
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://aggregator:aggregator@postgres:5432/aggregator
+      MCP_HOST: 0.0.0.0
+    ports:
+      - "127.0.0.1:${MCP_PORT:-8765}:8765"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
 volumes:
   postgres_data:

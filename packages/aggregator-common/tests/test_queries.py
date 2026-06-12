@@ -1,0 +1,408 @@
+from __future__ import annotations
+
+from datetime import datetime, timedelta, timezone
+from typing import Generator
+
+import pytest
+from sqlalchemy import text
+from sqlalchemy.orm import Session
+
+import aggregator_common.queries as queries
+from aggregator_common.models import Article, Category, InterestProfile, Source
+from aggregator_common.state import ArticleStatus
+
+_NOW = datetime.now(tz=timezone.utc)
+_TODAY_START = _NOW.replace(hour=0, minute=0, second=0, microsecond=0)
+_YESTERDAY = _TODAY_START - timedelta(days=1)
+
+
+@pytest.fixture
+def session(db_session_factory) -> Generator[Session, None, None]:
+    s = db_session_factory()
+    try:
+        yield s
+    finally:
+        s.rollback()
+        s.close()
+
+
+def _make_source(session: Session, suffix: str = "") -> Source:
+    src = Source(
+        name=f"QTest Source{suffix}",
+        feed_url=f"https://qtest{suffix}.example.com/feed.xml",
+    )
+    session.add(src)
+    session.flush()
+    return src
+
+
+def _make_ready_article(
+    session: Session,
+    source_id: int,
+    dedup_key: str,
+    *,
+    title: str = "Test Article",
+    importance_score: int | None = None,
+    is_read: bool = False,
+    is_saved: bool = False,
+    is_hidden: bool = False,
+    categories: list | None = None,
+    feed_published_at: datetime | None = None,
+    raw_payload: dict | None = None,
+) -> Article:
+    article = Article(
+        source_id=source_id,
+        dedup_key=dedup_key,
+        status=ArticleStatus.ready,
+        clean_title=title,
+        importance_score=importance_score,
+        is_read=is_read,
+        is_saved=is_saved,
+        is_hidden=is_hidden,
+        categories=categories,
+        feed_published_at=feed_published_at or _NOW,
+        raw_payload=raw_payload or {"link": f"https://example.com/{dedup_key}"},
+        retrieved_at=_NOW,
+    )
+    session.add(article)
+    session.flush()
+    return article
+
+
+def _index_article(session: Session, article_id: int, text_content: str) -> None:
+    session.execute(
+        text(
+            "UPDATE articles SET search_vector = to_tsvector('english', :txt) WHERE id = :id"
+        ),
+        {"txt": text_content, "id": article_id},
+    )
+    session.flush()
+
+
+class TestListArticlesViews:
+    def test_all_returns_ready_articles(self, session: Session):
+        src = _make_source(session, "-all")
+        a1 = _make_ready_article(session, src.id, "all-1")
+        a2 = _make_ready_article(session, src.id, "all-2")
+
+        results = queries.list_articles(session, "all")
+        ids = {r.id for r in results}
+
+        assert a1.id in ids
+        assert a2.id in ids
+
+    def test_all_excludes_hidden_articles(self, session: Session):
+        src = _make_source(session, "-allhid")
+        hidden = _make_ready_article(session, src.id, "allhid-hidden", is_hidden=True)
+        visible = _make_ready_article(session, src.id, "allhid-visible")
+
+        results = queries.list_articles(session, "all")
+        ids = {r.id for r in results}
+
+        assert visible.id in ids
+        assert hidden.id not in ids
+
+    def test_unread_returns_only_unread(self, session: Session):
+        src = _make_source(session, "-unread")
+        unread = _make_ready_article(session, src.id, "unread-no", is_read=False)
+        read = _make_ready_article(session, src.id, "unread-yes", is_read=True)
+
+        results = queries.list_articles(session, "unread")
+        ids = {r.id for r in results}
+
+        assert unread.id in ids
+        assert read.id not in ids
+
+    def test_important_returns_high_score_only(self, session: Session):
+        src = _make_source(session, "-imp")
+        high = _make_ready_article(session, src.id, "imp-high", importance_score=85)
+        low = _make_ready_article(session, src.id, "imp-low", importance_score=30)
+        no_score = _make_ready_article(session, src.id, "imp-none")
+
+        results = queries.list_articles(session, "important", important_threshold=70)
+        ids = {r.id for r in results}
+
+        assert high.id in ids
+        assert low.id not in ids
+        assert no_score.id not in ids
+
+    def test_saved_returns_only_saved(self, session: Session):
+        src = _make_source(session, "-saved")
+        saved = _make_ready_article(session, src.id, "saved-yes", is_saved=True)
+        unsaved = _make_ready_article(session, src.id, "saved-no", is_saved=False)
+
+        results = queries.list_articles(session, "saved")
+        ids = {r.id for r in results}
+
+        assert saved.id in ids
+        assert unsaved.id not in ids
+
+    def test_uncategorized_returns_no_category_and_empty_array(self, session: Session):
+        src = _make_source(session, "-uncat")
+        no_cat = _make_ready_article(session, src.id, "uncat-none", categories=None)
+        empty_cat = _make_ready_article(session, src.id, "uncat-empty", categories=[])
+        has_cat = _make_ready_article(session, src.id, "uncat-has", categories=["tech"])
+
+        results = queries.list_articles(session, "uncategorized")
+        ids = {r.id for r in results}
+
+        assert no_cat.id in ids
+        assert empty_cat.id in ids
+        assert has_cat.id not in ids
+
+    def test_today_returns_only_today_articles(self, session: Session):
+        src = _make_source(session, "-today")
+        today_art = _make_ready_article(
+            session, src.id, "today-yes",
+            feed_published_at=_TODAY_START + timedelta(hours=6),
+        )
+        yesterday_art = _make_ready_article(
+            session, src.id, "today-no",
+            feed_published_at=_YESTERDAY,
+        )
+
+        results = queries.list_articles(session, "today")
+        ids = {r.id for r in results}
+
+        assert today_art.id in ids
+        assert yesterday_art.id not in ids
+
+    def test_unknown_view_raises_value_error(self, session: Session):
+        with pytest.raises(ValueError, match="Unknown view"):
+            queries.list_articles(session, "bogus_view")
+
+    def test_category_filter(self, session: Session):
+        src = _make_source(session, "-catf")
+        tech = _make_ready_article(session, src.id, "catf-tech", categories=["tech"])
+        news = _make_ready_article(session, src.id, "catf-news", categories=["news"])
+
+        results = queries.list_articles(session, "all", category="tech")
+        ids = {r.id for r in results}
+
+        assert tech.id in ids
+        assert news.id not in ids
+
+    def test_source_id_filter(self, session: Session):
+        src1 = _make_source(session, "-srcf1")
+        src2 = _make_source(session, "-srcf2")
+        a1 = _make_ready_article(session, src1.id, "srcf-a1")
+        a2 = _make_ready_article(session, src2.id, "srcf-a2")
+
+        results = queries.list_articles(session, "all", source_id=src1.id)
+        ids = {r.id for r in results}
+
+        assert a1.id in ids
+        assert a2.id not in ids
+
+    def test_unread_only_flag(self, session: Session):
+        src = _make_source(session, "-uo")
+        unread = _make_ready_article(session, src.id, "uo-unread", is_read=False)
+        read = _make_ready_article(session, src.id, "uo-read", is_read=True)
+
+        results = queries.list_articles(session, "all", unread_only=True)
+        ids = {r.id for r in results}
+
+        assert unread.id in ids
+        assert read.id not in ids
+
+    def test_empty_view_returns_list(self, session: Session):
+        results = queries.list_articles(session, "saved")
+        assert isinstance(results, list)
+
+
+class TestSearchArticles:
+    def test_matching_articles_returned(self, session: Session):
+        src = _make_source(session, "-srch")
+        article = _make_ready_article(session, src.id, "srch-match")
+        _index_article(session, article.id, "quantum computing breakthrough research")
+
+        results = queries.search_articles(session, "quantum computing")
+        ids = {r.id for r in results}
+
+        assert article.id in ids
+
+    def test_no_match_returns_empty(self, session: Session):
+        src = _make_source(session, "-srchempty")
+        article = _make_ready_article(session, src.id, "srch-nomatch")
+        _index_article(session, article.id, "cooking recipes food")
+
+        results = queries.search_articles(session, "zzxnomatchxyz")
+
+        assert results == []
+
+    def test_category_filter(self, session: Session):
+        src = _make_source(session, "-srchcat")
+        tech = _make_ready_article(session, src.id, "srchcat-t", categories=["tech"])
+        news = _make_ready_article(session, src.id, "srchcat-n", categories=["news"])
+        for art in [tech, news]:
+            _index_article(session, art.id, "python programming language")
+
+        results = queries.search_articles(session, "python programming", category="tech")
+        ids = {r.id for r in results}
+
+        assert tech.id in ids
+        assert news.id not in ids
+
+    def test_source_id_filter(self, session: Session):
+        src1 = _make_source(session, "-srchsrc1")
+        src2 = _make_source(session, "-srchsrc2")
+        a1 = _make_ready_article(session, src1.id, "srchsrc-a1")
+        a2 = _make_ready_article(session, src2.id, "srchsrc-a2")
+        for art in [a1, a2]:
+            _index_article(session, art.id, "machine learning artificial intelligence")
+
+        results = queries.search_articles(session, "machine learning", source_id=src1.id)
+        ids = {r.id for r in results}
+
+        assert a1.id in ids
+        assert a2.id not in ids
+
+    def test_since_filter(self, session: Session):
+        src = _make_source(session, "-srchsince")
+        recent = _make_ready_article(
+            session, src.id, "srchsince-new", feed_published_at=_NOW
+        )
+        old = _make_ready_article(
+            session, src.id, "srchsince-old",
+            feed_published_at=_NOW - timedelta(days=14),
+        )
+        for art in [recent, old]:
+            _index_article(session, art.id, "blockchain distributed ledger")
+
+        since = _NOW - timedelta(days=1)
+        results = queries.search_articles(session, "blockchain distributed", since=since)
+        ids = {r.id for r in results}
+
+        assert recent.id in ids
+        assert old.id not in ids
+
+
+class TestGetArticle:
+    def test_happy_path_resolves_source_name(self, session: Session):
+        src = _make_source(session, "-getart")
+        article = _make_ready_article(
+            session, src.id, "getart-1",
+            title="Get This One",
+            raw_payload={"link": "https://example.com/getart-1"},
+        )
+
+        result = queries.get_article(session, article.id)
+
+        assert result.id == article.id
+        assert result.title == "Get This One"
+        assert result.url == "https://example.com/getart-1"
+        assert result.source_name == src.name
+
+    def test_unknown_id_raises_value_error(self, session: Session):
+        with pytest.raises(ValueError, match="not found"):
+            queries.get_article(session, 999_999_001)
+
+
+class TestGetInterestProfile:
+    def test_returns_empty_string_when_no_row(self, session: Session):
+        existing = session.get(InterestProfile, True)
+        if existing:
+            session.delete(existing)
+            session.flush()
+
+        result = queries.get_interest_profile(session)
+
+        assert result == ""
+
+    def test_returns_profile_text_when_set(self, session: Session):
+        existing = session.get(InterestProfile, True)
+        if existing:
+            session.delete(existing)
+            session.flush()
+
+        profile = InterestProfile(profile_text="I enjoy technology and science news.")
+        session.add(profile)
+        session.flush()
+
+        result = queries.get_interest_profile(session)
+
+        assert result == "I enjoy technology and science news."
+
+
+class TestListCategoriesAndSources:
+    def test_list_categories_returns_only_enabled(self, session: Session):
+        enabled = Category(name="q-enabled-cat", enabled=True, sort_order=10)
+        disabled = Category(name="q-disabled-cat", enabled=False, sort_order=11)
+        session.add_all([enabled, disabled])
+        session.flush()
+
+        results = queries.list_categories(session)
+        names = {r.name for r in results}
+
+        assert "q-enabled-cat" in names
+        assert "q-disabled-cat" not in names
+
+    def test_list_sources_returns_only_enabled(self, session: Session):
+        enabled_src = Source(
+            name="q-enabled-src",
+            feed_url="https://q-enabled-src.example.com/feed.xml",
+            enabled=True,
+        )
+        disabled_src = Source(
+            name="q-disabled-src",
+            feed_url="https://q-disabled-src.example.com/feed.xml",
+            enabled=False,
+        )
+        session.add_all([enabled_src, disabled_src])
+        session.flush()
+
+        results = queries.list_sources(session)
+        names = {r.name for r in results}
+
+        assert "q-enabled-src" in names
+        assert "q-disabled-src" not in names
+
+
+class TestMutationHelpers:
+    def test_mark_read_sets_is_read_true(self, session: Session):
+        src = _make_source(session, "-mr")
+        article = _make_ready_article(session, src.id, "mr-art1", is_read=False)
+
+        result = queries.mark_read(session, article.id)
+
+        assert result["is_read"] is True
+
+    def test_mark_unread_sets_is_read_false(self, session: Session):
+        src = _make_source(session, "-mu")
+        article = _make_ready_article(session, src.id, "mu-art1", is_read=True)
+
+        result = queries.mark_unread(session, article.id)
+
+        assert result["is_read"] is False
+
+    def test_save_article_sets_is_saved_true(self, session: Session):
+        src = _make_source(session, "-sv")
+        article = _make_ready_article(session, src.id, "sv-art1", is_saved=False)
+
+        result = queries.save_article(session, article.id)
+
+        assert result["is_saved"] is True
+
+    def test_unsave_article_sets_is_saved_false(self, session: Session):
+        src = _make_source(session, "-us")
+        article = _make_ready_article(session, src.id, "us-art1", is_saved=True)
+
+        result = queries.unsave_article(session, article.id)
+
+        assert result["is_saved"] is False
+
+    def test_mark_read_unknown_id_raises(self, session: Session):
+        with pytest.raises(ValueError, match="not found"):
+            queries.mark_read(session, 999_999_002)
+
+    def test_mark_unread_unknown_id_raises(self, session: Session):
+        with pytest.raises(ValueError, match="not found"):
+            queries.mark_unread(session, 999_999_003)
+
+    def test_save_article_unknown_id_raises(self, session: Session):
+        with pytest.raises(ValueError, match="not found"):
+            queries.save_article(session, 999_999_004)
+
+    def test_unsave_article_unknown_id_raises(self, session: Session):
+        with pytest.raises(ValueError, match="not found"):
+            queries.unsave_article(session, 999_999_005)
