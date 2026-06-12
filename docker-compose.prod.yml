@@ -37,6 +37,7 @@ services:
 
   retriever:
     image: ${IMAGE_PREFIX:-personal-aggregator}/aggregator-retriever:${APP_VERSION:-dev}
+    env_file: .env
     environment:
       DATABASE_URL: postgresql://aggregator:aggregator@postgres:5432/aggregator
     depends_on:
@@ -48,6 +49,7 @@ services:
 
   processor:
     image: ${IMAGE_PREFIX:-personal-aggregator}/aggregator-processor:${APP_VERSION:-dev}
+    env_file: .env
     environment:
       DATABASE_URL: postgresql://aggregator:aggregator@postgres:5432/aggregator
     depends_on:
@@ -59,6 +61,7 @@ services:
 
   summarize-rank:
     image: ${IMAGE_PREFIX:-personal-aggregator}/aggregator-summarize-rank:${APP_VERSION:-dev}
+    env_file: .env
     environment:
       DATABASE_URL: postgresql://aggregator:aggregator@postgres:5432/aggregator
     depends_on:
