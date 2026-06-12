@@ -69,6 +69,7 @@ class Article(Base):
     feed_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     feed_summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     feed_published_at: Mapped[Optional[datetime]] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
+    comments_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     retrieved_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), nullable=False)
 
     # Processed (processor)

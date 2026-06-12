@@ -263,6 +263,38 @@ def test_get_article_detail_has_open_source_link(db_session, client):
     assert "https://example.com/article/open-source" in response.text
 
 
+def test_get_article_detail_shows_comments_icon_when_comments_url_set(db_session, client):
+    """Comments toolbar icon is rendered when article.comments_url is populated."""
+    src = make_source(db_session)
+    article = make_article(
+        db_session,
+        source_id=src.id,
+        dedup_key="comments-present",
+        feed_url="https://example.com/article/1",
+        comments_url="https://news.ycombinator.com/item?id=99999",
+    )
+    response = client.get(f"/article/{article.id}")
+    assert response.status_code == 200
+    assert "btn-open-comments" in response.text
+    assert "https://news.ycombinator.com/item?id=99999" in response.text
+    assert "Open comments in new tab" in response.text
+
+
+def test_get_article_detail_hides_comments_icon_when_comments_url_absent(db_session, client):
+    """Comments toolbar icon is not rendered when article.comments_url is None."""
+    src = make_source(db_session)
+    article = make_article(
+        db_session,
+        source_id=src.id,
+        dedup_key="comments-absent",
+        feed_url="https://example.com/article/2",
+        comments_url=None,
+    )
+    response = client.get(f"/article/{article.id}")
+    assert response.status_code == 200
+    assert "btn-open-comments" not in response.text
+
+
 def test_article_with_topics_list_renders(db_session, client):
     """Regression: topics is a JSONB list; templates must iterate it directly,
     not call .keys(). Detail + card 500'd on real data before the fix."""
