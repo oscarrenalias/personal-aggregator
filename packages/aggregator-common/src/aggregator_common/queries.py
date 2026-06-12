@@ -84,6 +84,8 @@ class ThreadResult:
     novelty_label: Optional[str]
     deltas: Optional[list]
     source_list: Optional[list]
+    source_count: int = 0
+    member_count: int = 0
 
 
 @dataclass
@@ -370,7 +372,7 @@ def get_latest_brief(session: Session) -> Optional[BriefResult]:
     )
 
 
-def _to_thread_result(thread: Thread) -> ThreadResult:
+def _to_thread_result(thread: Thread, member_count: int = 0) -> ThreadResult:
     return ThreadResult(
         id=thread.id,
         representative_title=thread.representative_title,
@@ -391,6 +393,8 @@ def _to_thread_result(thread: Thread) -> ThreadResult:
         novelty_label=thread.novelty_label,
         deltas=thread.deltas,
         source_list=thread.source_list,
+        source_count=len(thread.source_list) if thread.source_list else 0,
+        member_count=member_count,
     )
 
 
@@ -412,7 +416,22 @@ def list_threads(
     if filters:
         q = q.where(*filters)
     q = q.order_by(Thread.last_updated.desc()).limit(limit).offset(offset)
-    return [_to_thread_result(t) for t in session.execute(q).scalars().all()]
+    threads = list(session.execute(q).scalars().all())
+
+    member_counts: Dict[int, int] = {}
+    if threads:
+        thread_ids = [t.id for t in threads]
+        rows = session.execute(
+            select(ThreadMembership.thread_id, func.count().label("cnt"))
+            .where(
+                ThreadMembership.thread_id.in_(thread_ids),
+                ThreadMembership.suppressed == False,
+            )
+            .group_by(ThreadMembership.thread_id)
+        ).all()
+        member_counts = {row.thread_id: row.cnt for row in rows}
+
+    return [_to_thread_result(t, member_counts.get(t.id, 0)) for t in threads]
 
 
 def get_thread(session: Session, thread_id: int) -> Optional[ThreadResult]:
@@ -420,7 +439,13 @@ def get_thread(session: Session, thread_id: int) -> Optional[ThreadResult]:
     thread = session.get(Thread, thread_id)
     if thread is None:
         return None
-    return _to_thread_result(thread)
+    member_count = session.execute(
+        select(func.count()).select_from(ThreadMembership).where(
+            ThreadMembership.thread_id == thread_id,
+            ThreadMembership.suppressed == False,
+        )
+    ).scalar_one()
+    return _to_thread_result(thread, member_count)
 
 
 def get_thread_members(session: Session, thread_id: int) -> List[ThreadMemberResult]:
