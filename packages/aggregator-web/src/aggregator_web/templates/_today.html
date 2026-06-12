@@ -1,84 +1,44 @@
 {#
-  _today.html — Today's intelligent daily brief.
+  _today.html — Today list pane: scrollable list of brief cards, newest first.
   Context:
-    brief     : Brief | None — latest ready brief (None when generating or no brief yet)
-    generating : bool        — True when a brief is pending or being generated
+    briefs      : list[Brief]  — recent ready briefs, newest first (limit 30)
+    generating  : bool         — True when a brief is pending/generating
+    selected_id : int | None   — id of the newest ready brief (auto-selected on desktop)
 #}
+<div id="article-list"
+     x-data="briefList"
+     role="feed"
+     aria-label="Daily briefs">
 
-{% if brief %}
-<div class="today-brief">
-  <div class="today-brief-header">
-    <h1 class="today-brief-headline">{{ brief.headline or "Today's Brief" }}</h1>
+  <div class="brief-list-header">
+    <span class="brief-list-title">Today</span>
     <form hx-post="/today/refresh" hx-target="#article-list" hx-swap="innerHTML">
       <button type="submit" class="today-refresh-btn">Refresh</button>
     </form>
   </div>
 
-  {% if brief.intro %}
-  <p class="today-brief-intro">{{ brief.intro }}</p>
+  {% if generating %}
+  <div class="brief-generating-banner"
+       hx-get="/today"
+       hx-target="#article-list"
+       hx-swap="innerHTML"
+       hx-trigger="every 5s">
+    <span class="brief-generating-spinner"></span>
+    <span>Generating your daily brief&hellip;</span>
+  </div>
   {% endif %}
 
-  <div class="today-topics">
-    {% for topic in brief.topics %}
-    <div class="today-topic">
-      <h2 class="today-topic-headline">{{ topic.headline }}</h2>
+  {% for brief in briefs %}
+  {% include "_brief_card.html" %}
+  {% endfor %}
 
-      <div class="today-topic-section">
-        <h3>What happened</h3>
-        <p>{{ topic.what_happened }}</p>
-      </div>
-
-      <div class="today-topic-section">
-        <h3>Why it matters</h3>
-        <p>{{ topic.why_it_matters }}</p>
-      </div>
-
-      {% if topic.historical_context %}
-      <div class="today-topic-section">
-        <h3>Background</h3>
-        <p>{{ topic.historical_context }}</p>
-      </div>
-      {% endif %}
-
-      {% if topic.topic_refs %}
-      <div class="today-topic-refs">
-        <h3>Read</h3>
-        <ul>
-          {% for ref in topic.topic_refs %}
-          <li>
-            {% if ref.internal and ref.article_id %}
-            <a hx-get="/article/{{ ref.article_id }}"
-               hx-target="#article-detail"
-               hx-swap="innerHTML">{{ ref.title }}</a>
-            {% elif ref.url %}
-            <a href="{{ ref.url }}" target="_blank" rel="noopener">{{ ref.title }}</a>
-            {% else %}
-            {{ ref.title }}
-            {% endif %}
-          </li>
-          {% endfor %}
-        </ul>
-      </div>
-      {% endif %}
-    </div>
-    {% endfor %}
+  {% if not briefs and not generating %}
+  <div class="today-empty">
+    <p>No brief yet.</p>
+    <form hx-post="/today/refresh" hx-target="#article-list" hx-swap="innerHTML">
+      <button type="submit" class="today-refresh-btn">Generate Brief</button>
+    </form>
   </div>
-</div>
+  {% endif %}
 
-{% elif generating %}
-<div class="today-generating"
-     hx-get="/today"
-     hx-target="#article-list"
-     hx-swap="innerHTML"
-     hx-trigger="every 5s">
-  <p>Generating your daily brief&hellip;</p>
 </div>
-
-{% else %}
-<div class="today-empty">
-  <p>No brief yet.</p>
-  <form hx-post="/today/refresh" hx-target="#article-list" hx-swap="innerHTML">
-    <button type="submit" class="today-refresh-btn">Generate Brief</button>
-  </form>
-</div>
-{% endif %}

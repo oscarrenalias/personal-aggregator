@@ -1,0 +1,70 @@
+{#
+  _brief_detail.html — Full brief reader-pane fragment.
+  Context:
+    brief : Brief ORM object with topics loaded
+#}
+<div id="brief-detail" class="brief-detail">
+  <header class="brief-detail-header">
+    <h1 class="brief-detail-headline">{{ brief.headline or "Daily Brief" }}</h1>
+    <div class="brief-detail-meta">
+      {% if brief.generated_at %}
+      <time datetime="{{ brief.generated_at.isoformat() }}">
+        {{ brief.generated_at.strftime('%-d %b %Y, %H:%M') }}
+      </time>
+      {% endif %}
+      {% if brief.model %}
+      <span class="brief-detail-model">{{ brief.model }}</span>
+      {% endif %}
+    </div>
+  </header>
+
+  {% if brief.intro %}
+  <p class="brief-detail-intro">{{ brief.intro }}</p>
+  {% endif %}
+
+  <div class="today-topics">
+    {% for topic in brief.topics %}
+    <div class="today-topic">
+      <h2 class="today-topic-headline">{{ topic.headline }}</h2>
+
+      <div class="today-topic-section">
+        <h3>What happened</h3>
+        <p>{{ topic.what_happened }}</p>
+      </div>
+
+      <div class="today-topic-section">
+        <h3>Why it matters</h3>
+        <p>{{ topic.why_it_matters }}</p>
+      </div>
+
+      {% if topic.historical_context %}
+      <div class="today-topic-section">
+        <h3>Background</h3>
+        <p>{{ topic.historical_context }}</p>
+      </div>
+      {% endif %}
+
+      {% if topic.topic_refs %}
+      <div class="today-topic-refs">
+        <h3>Read</h3>
+        <ul>
+          {% for ref in topic.topic_refs %}
+          <li>
+            {% if ref.internal and ref.article_id %}
+            <a hx-get="/article/{{ ref.article_id }}"
+               hx-target="#reader-pane"
+               hx-swap="innerHTML">{{ ref.title }}</a>
+            {% elif ref.url %}
+            <a href="{{ ref.url }}" target="_blank" rel="noopener">{{ ref.title }}</a>
+            {% else %}
+            {{ ref.title }}
+            {% endif %}
+          </li>
+          {% endfor %}
+        </ul>
+      </div>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+</div>

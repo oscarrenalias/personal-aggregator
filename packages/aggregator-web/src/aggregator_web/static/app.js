@@ -166,6 +166,38 @@ function articleList() {
   };
 }
 
+/* ── Brief list component (bound to the today list div in _today.html)
+   Manages: brief card selection, reader pane loading, desktop auto-select.
+   ─────────────────────────────────────────────────────────────────────── */
+function briefList() {
+  return {
+    selectedId: null,
+
+    init() {
+      if (window.innerWidth >= 1024) {
+        const first = this.$el.querySelector('.brief-card');
+        if (first) {
+          this.selectBrief(parseInt(first.dataset.briefId, 10));
+        }
+      }
+    },
+
+    selectBrief(id) {
+      this.selectedId = id;
+      const pane = document.getElementById('reader-pane');
+      htmx.ajax('GET', `/brief/${id}`, {
+        target: '#reader-pane',
+        swap: 'innerHTML',
+      });
+      document.body.classList.add('reader-open');
+      if (pane) {
+        pane.addEventListener('htmx:afterSwap', () => { pane.scrollTop = 0; }, { once: true });
+      }
+    },
+  };
+}
+
+
 /* Register component factories with Alpine so x-data="aggregatorApp" / "articleList"
    resolve correctly regardless of when exactly Alpine initialises relative to this
    script. This file must still be loaded BEFORE the Alpine CDN script so this
@@ -173,4 +205,5 @@ function articleList() {
 document.addEventListener('alpine:init', () => {
   window.Alpine.data('aggregatorApp', aggregatorApp);
   window.Alpine.data('articleList', articleList);
+  window.Alpine.data('briefList', briefList);
 });
