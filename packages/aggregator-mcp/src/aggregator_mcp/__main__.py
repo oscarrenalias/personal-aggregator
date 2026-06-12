@@ -1,7 +1,5 @@
 import sys
 
-from mcp.server.fastmcp import FastMCP
-
 from aggregator_common import load_env
 from aggregator_common.logging_setup import configure_logging
 from aggregator_mcp.config import McpSettings
@@ -12,8 +10,9 @@ def main() -> None:
     settings = McpSettings()
     configure_logging(settings, stream=sys.stdout)
 
-    # server.py will register tools/resources/prompts on this instance; imported here once implemented.
-    mcp = FastMCP("aggregator-mcp")
+    # Deferred import: server.py imports db.py which creates the engine at module level,
+    # so it must be imported after load_env() sets DATABASE_URL.
+    from aggregator_mcp.server import mcp  # noqa: PLC0415
     mcp.run(
         transport="streamable-http",
         host=settings.mcp_host,
