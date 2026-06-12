@@ -181,16 +181,53 @@ def list_articles(
     return [_to_result(a, names.get(a.source_id)) for a in articles]
 
 
-def get_article(session: Session, article_id: int) -> ArticleResult:
-    """Get a single article by id. Raises ValueError for an unknown article_id."""
+def _get_article_orm(session: Session, article_id: int) -> Article:
     article = session.get(Article, article_id)
     if article is None:
         raise ValueError(f"Article {article_id} not found")
+    return article
+
+
+def get_article(session: Session, article_id: int) -> ArticleResult:
+    """Get a single article by id. Raises ValueError for an unknown article_id."""
+    article = _get_article_orm(session, article_id)
     source_name = None
     if article.source_id is not None:
         source = session.get(Source, article.source_id)
         source_name = source.name if source else None
     return _to_result(article, source_name)
+
+
+def mark_read(session: Session, article_id: int) -> dict:
+    """Set is_read=True. Raises ValueError for an unknown article_id."""
+    article = _get_article_orm(session, article_id)
+    article.is_read = True
+    session.commit()
+    return asdict(get_article(session, article_id))
+
+
+def mark_unread(session: Session, article_id: int) -> dict:
+    """Set is_read=False. Raises ValueError for an unknown article_id."""
+    article = _get_article_orm(session, article_id)
+    article.is_read = False
+    session.commit()
+    return asdict(get_article(session, article_id))
+
+
+def save_article(session: Session, article_id: int) -> dict:
+    """Set is_saved=True. Raises ValueError for an unknown article_id."""
+    article = _get_article_orm(session, article_id)
+    article.is_saved = True
+    session.commit()
+    return asdict(get_article(session, article_id))
+
+
+def unsave_article(session: Session, article_id: int) -> dict:
+    """Set is_saved=False. Raises ValueError for an unknown article_id."""
+    article = _get_article_orm(session, article_id)
+    article.is_saved = False
+    session.commit()
+    return asdict(get_article(session, article_id))
 
 
 def get_interest_profile(session: Session) -> str:
