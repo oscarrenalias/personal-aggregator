@@ -757,12 +757,25 @@ button {
 }
 
 
-/* ── Feed sort toggle ────────────────────────────────────────── */
+/* ── Feed controls header (sort + hide-read toggles) ─────────── */
+.feed-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--c-border-subtle);
+}
+
 .feed-sort-toggle {
   display: flex;
   gap: 2px;
-  padding: 6px 12px;
-  border-bottom: 1px solid var(--c-border-subtle);
+}
+
+.feed-hide-read-toggle {
+  display: flex;
+  gap: 2px;
+  padding-left: 8px;
+  border-left: 1px solid var(--c-border-subtle);
 }
 
 .sort-btn {
@@ -874,10 +887,29 @@ button {
   margin-bottom: 12px;
 }
 
+.detail-summary {
+  margin-top: 8px;
+  margin-bottom: 0;
+}
+
+.summary-block {
+  font-size: 0.9em;
+  font-style: italic;
+  color: var(--c-text-2);
+  line-height: 1.6;
+}
+
+.summary-block p {
+  margin: 0 0 0.5em;
+  font-size: inherit;
+  color: inherit;
+  line-height: inherit;
+}
+
 .detail-body {
   border-top: 1px solid var(--c-border);
-  margin-top: 20px;
-  padding-top: 20px;
+  margin-top: 12px;
+  padding-top: 12px;
 }
 
 

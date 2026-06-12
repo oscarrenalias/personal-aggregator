@@ -117,14 +117,12 @@
 
     {% if article.summary %}
     <section class="detail-summary">
-      <h2 class="detail-section-heading">Summary</h2>
       <div class="summary-block">{{ article.summary | paragraphs }}</div>
     </section>
     {% endif %}
 
     {% if article.clean_text %}
     <section class="detail-body">
-      <h2 class="detail-section-heading">Article</h2>
       <div class="article-text">{{ article.clean_text | paragraphs }}</div>
     </section>
     {% endif %}

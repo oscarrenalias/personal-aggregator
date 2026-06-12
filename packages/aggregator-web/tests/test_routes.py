@@ -858,8 +858,8 @@ def test_article_detail_clean_text_html_is_escaped(db_session, client):
 # ---------------------------------------------------------------------------
 
 
-def test_article_detail_has_article_section_heading(db_session, client):
-    """Detail view with body text must render the 'Article' section heading."""
+def test_article_detail_has_article_text_container(db_session, client):
+    """Detail view with body text must render the .article-text container."""
     src = make_source(db_session)
     article = make_article(
         db_session,
@@ -868,7 +868,39 @@ def test_article_detail_has_article_section_heading(db_session, client):
     )
     response = client.get(f"/article/{article.id}")
     assert response.status_code == 200
-    assert ">Article<" in response.text
+    assert 'class="article-text"' in response.text
+    assert "Body content here." in response.text
+
+
+def test_article_detail_no_section_headings(db_session, client):
+    """Detail view must not render 'Summary' or 'Article' section headings."""
+    src = make_source(db_session)
+    article = make_article(
+        db_session,
+        source_id=src.id,
+        summary="A generated summary.",
+        clean_text="Body content here.",
+    )
+    response = client.get(f"/article/{article.id}")
+    assert response.status_code == 200
+    assert ">Summary<" not in response.text
+    assert ">Article<" not in response.text
+    assert "detail-section-heading" not in response.text
+
+
+def test_article_detail_summary_rendered_without_heading(db_session, client):
+    """Summary section must render .detail-summary and .summary-block without a heading."""
+    src = make_source(db_session)
+    article = make_article(
+        db_session,
+        source_id=src.id,
+        summary="LLM-generated abstract.",
+    )
+    response = client.get(f"/article/{article.id}")
+    assert response.status_code == 200
+    assert 'class="detail-summary"' in response.text
+    assert 'class="summary-block"' in response.text
+    assert "LLM-generated abstract." in response.text
 
 
 # ---------------------------------------------------------------------------
@@ -1362,3 +1394,103 @@ def test_new_articles_banner_unread_filter_uses_global_unread_max_id(db_session,
 
     upd = client.get(f"/feed/smart/all/updates?since={a_page2.id}&unread=1")
     assert "new-articles-pill" not in upd.text
+
+
+# ---------------------------------------------------------------------------
+# Hide-read toggle: UI control + route behaviour
+# ---------------------------------------------------------------------------
+
+
+def test_feed_hide_read_toggle_present_in_html(db_session, client):
+    """Every feed must render the hide-read toggle control."""
+    src = make_source(db_session)
+    make_article(db_session, source_id=src.id)
+    response = client.get(f"/feed/source/{src.id}")
+    assert response.status_code == 200
+    assert "feed-hide-read-toggle" in response.text
+    assert "Hide read" in response.text
+    assert "Show all" in response.text
+
+
+def test_feed_hide_read_toggle_active_when_unread_only(db_session, client):
+    """When unread=1 is active the 'Hide read' button must carry the active CSS class."""
+    src = make_source(db_session)
+    make_article(db_session, source_id=src.id, is_read=False)
+    response = client.get(f"/feed/source/{src.id}?unread=1")
+    assert response.status_code == 200
+    html = response.text
+    # The active class must appear on the Hide-read button, not on Show-all.
+    # Locate the hide-read toggle group and check button order / active marker.
+    group_start = html.find('feed-hide-read-toggle')
+    assert group_start != -1
+    group = html[group_start: html.find('</div>', group_start) + 6]
+    # "Show all" button must NOT be active; "Hide read" button MUST be active.
+    assert 'sort-btn active' in group
+    hide_idx = group.find('Hide read')
+    show_idx = group.find('Show all')
+    assert hide_idx != -1 and show_idx != -1
+    # The active class on the button containing "Hide read" must come before "Hide read" text.
+    active_idx = group.rfind('sort-btn active', 0, hide_idx)
+    assert active_idx != -1, "'Hide read' button must have the active class"
+
+
+def test_feed_hide_read_returns_only_unread_articles(db_session, client):
+    """GET /feed/source/<id>?unread=1 must exclude read articles."""
+    src = make_source(db_session)
+    make_article(db_session, source_id=src.id, is_read=False, feed_title="Unread Article")
+    make_article(db_session, source_id=src.id, dedup_key="k2", is_read=True, feed_title="Read Article")
+    response = client.get(f"/feed/source/{src.id}?unread=1")
+    assert response.status_code == 200
+    assert "Unread Article" in response.text
+    assert "Read Article" not in response.text
+
+
+def test_feed_hide_read_next_url_carries_unread(db_session, client, monkeypatch):
+    """Cursor next_url must include unread=1 when hide-read filter is active."""
+    import aggregator_web.app as app_mod
+
+    monkeypatch.setattr(app_mod.settings, "web_page_size", 1)
+
+    src = make_source(db_session)
+    for i in range(2):
+        make_article(db_session, source_id=src.id, dedup_key=f"k{i}", is_read=False)
+
+    response = client.get(f"/feed/source/{src.id}?unread=1")
+    assert response.status_code == 200
+    assert "unread=1" in response.text
+
+
+def test_feed_hide_read_toggle_preserves_sort_newest(db_session, client):
+    """The hide-read 'Hide read' button hx-get must carry both unread=1 and sort=newest."""
+    src = make_source(db_session)
+    make_article(db_session, source_id=src.id, is_read=False)
+    response = client.get(f"/feed/source/{src.id}?sort=newest")
+    assert response.status_code == 200
+    html = response.text
+    group_start = html.find('feed-hide-read-toggle')
+    assert group_start != -1
+    group = html[group_start: html.find('</div>', group_start) + 6]
+    # The "Hide read" button must include both params in its hx-get URL.
+    assert "unread=1" in group
+    assert "sort=newest" in group
+
+
+def test_feed_hide_read_show_all_button_preserves_sort_newest(db_session, client):
+    """The 'Show all' button hx-get must carry sort=newest when sort is newest."""
+    src = make_source(db_session)
+    make_article(db_session, source_id=src.id, is_read=False)
+    response = client.get(f"/feed/source/{src.id}?sort=newest&unread=1")
+    assert response.status_code == 200
+    html = response.text
+    group_start = html.find('feed-hide-read-toggle')
+    assert group_start != -1
+    group = html[group_start: html.find('</div>', group_start) + 6]
+    # "Show all" must include sort=newest (but not unread=1) in its hx-get URL.
+    show_idx = group.find('Show all')
+    assert show_idx != -1
+    # hx-get URL for Show all comes before the "Show all" text
+    btn_start = group.rfind('hx-get=', 0, show_idx)
+    assert btn_start != -1
+    btn_url = group[btn_start: group.find('"', btn_start + 8) + 1]
+    assert "sort=newest" in btn_url
+    assert "unread=1" not in btn_url
