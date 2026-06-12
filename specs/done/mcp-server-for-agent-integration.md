@@ -5,7 +5,7 @@ description: "A dedicated aggregator-mcp service exposing the aggregator over th
 dependencies: null
 priority: high
 complexity: high
-status: planned
+status: done
 tags:
 - mcp
 - agent
