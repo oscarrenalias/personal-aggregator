@@ -18,12 +18,16 @@
 
   <link rel="stylesheet" href="/static/styles.css">
 
+  <!-- app.js must execute before Alpine starts so aggregatorApp/articleList factories
+       exist when the alpine:init event fires. No defer — runs synchronously during
+       head parse; safe because app.js only defines functions (no DOM access). -->
+  <script src="/static/app.js"></script>
   <!-- Alpine.js (defer keeps it non-blocking; must precede htmx for x-cloak to work) -->
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.1/dist/cdn.min.js"></script>
   <!-- HTMX -->
   <script src="https://unpkg.com/htmx.org@1.9.12" defer></script>
 </head>
-<body x-data="aggregatorApp()" @keydown.window="handleKey($event)">
+<body x-data="aggregatorApp" @keydown.window="handleKey($event)">
 
   <!-- Mobile header (hidden on desktop via CSS) -->
   <header class="mobile-header" role="banner">
@@ -111,7 +115,6 @@
     </div>
   </div>
 
-  <script src="/static/app.js" defer></script>
   <script>
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('/static/sw.js');

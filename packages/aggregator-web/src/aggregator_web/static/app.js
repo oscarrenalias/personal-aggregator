@@ -157,3 +157,12 @@ function articleList() {
     },
   };
 }
+
+/* Register component factories with Alpine so x-data="aggregatorApp" / "articleList"
+   resolve correctly regardless of when exactly Alpine initialises relative to this
+   script. This file must still be loaded BEFORE the Alpine CDN script so this
+   listener is in place before Alpine fires 'alpine:init'. */
+document.addEventListener('alpine:init', () => {
+  window.Alpine.data('aggregatorApp', aggregatorApp);
+  window.Alpine.data('articleList', articleList);
+});

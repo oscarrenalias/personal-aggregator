@@ -15,7 +15,7 @@
     next_url trigger (or omit it when the final page is reached).
 #}
 <div id="article-list"
-     x-data="articleList()"
+     x-data="articleList"
      @keydown.j.window="selectNext()"
      @keydown.k.window="selectPrev()"
      @keydown.v.window="openSelected()"

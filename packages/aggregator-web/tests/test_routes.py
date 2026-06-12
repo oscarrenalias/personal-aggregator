@@ -33,6 +33,49 @@ def test_get_index_has_htmx_sidebar(client):
     assert "hx-get" in response.text
 
 
+def test_app_js_loads_before_alpine_in_shell(client):
+    """Regression: app.js must appear in <head> before the Alpine CDN script.
+
+    Alpine v3 auto-starts when its deferred script executes.  If app.js loads
+    after Alpine, aggregatorApp() and articleList() are undefined when Alpine
+    evaluates x-data, making all keyboard shortcuts and UI interactions dead.
+    This test fails against the old shell.html that placed app.js at the bottom
+    of <body> with defer.
+    """
+    response = client.get("/")
+    assert response.status_code == 200
+    html = response.text
+
+    app_js_idx = html.find('/static/app.js')
+    alpine_idx = html.find('alpinejs')
+
+    assert app_js_idx != -1, "/static/app.js script tag not found in shell HTML"
+    assert alpine_idx != -1, "Alpine CDN script tag not found in shell HTML"
+    assert app_js_idx < alpine_idx, (
+        "app.js must appear before the Alpine CDN script so component factories "
+        "exist when alpine:init fires"
+    )
+
+
+def test_shell_uses_alpine_data_registered_names(client):
+    """Regression: x-data must reference registered Alpine.data names (no parens).
+
+    When x-data uses call syntax ('aggregatorApp()') the factory must already be
+    a global at parse time.  Using the registered name ('aggregatorApp') lets
+    Alpine resolve it via Alpine.data(), which is order-robust.
+    """
+    response = client.get("/")
+    assert response.status_code == 200
+    html = response.text
+
+    assert 'x-data="aggregatorApp"' in html, (
+        "shell <body> must use x-data=\"aggregatorApp\" (no parentheses)"
+    )
+    assert 'x-data="aggregatorApp()"' not in html, (
+        "call syntax aggregatorApp() must be replaced by registered name"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Sidebar
 # ---------------------------------------------------------------------------
