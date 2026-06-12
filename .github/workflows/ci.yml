@@ -130,4 +130,5 @@ jobs:
             docker-compose.prod.yml \
             deploy/aggregator.service \
             deploy/install.sh \
+            deploy/bootstrap.sh \
             env.example

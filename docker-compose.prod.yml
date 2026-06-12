@@ -62,6 +62,10 @@ services:
     image: ${IMAGE_PREFIX:-personal-aggregator}/aggregator-web:${APP_VERSION:-dev}
     env_file: .env
     environment:
+      # Reach Postgres by its compose service name (matches the other services).
+      # Without this, web would inherit .env's localhost DATABASE_URL and fail to
+      # connect from inside the container.
+      DATABASE_URL: postgresql://aggregator:aggregator@postgres:5432/aggregator
       # The container must listen on all interfaces so Docker's published port can
       # reach uvicorn. The host-side exposure is controlled by WEB_BIND below, not here.
       WEB_HOST: 0.0.0.0

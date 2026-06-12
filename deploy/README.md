@@ -20,10 +20,32 @@ summarize-rank) as a systemd-managed Docker Compose service.
 
 ---
 
-## One-time install
+## Quick install (one-liner)
+
+On the Pi, run:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/oscarrenalias/personal-aggregator/main/deploy/bootstrap.sh | sh
+```
+
+This downloads the latest release assets, asks for your LLM API key and whether to expose
+the UI on your LAN, installs the stack, and starts it — then prints the URL to open. It
+needs `docker` (with the Compose plugin) and `sudo` already present.
+
+Non-interactive (e.g. unattended), pass answers as env vars:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/oscarrenalias/personal-aggregator/main/deploy/bootstrap.sh \
+  | NONINTERACTIVE=1 OPENAI_API_KEY=sk-... WEB_BIND=0.0.0.0 sh
+```
+
+> Prefer not to pipe a script into a shell sight-unseen? Read it first:
+> `curl -fsSL .../deploy/bootstrap.sh` — or follow the manual steps below.
+
+## Manual install
 
 1. **Download the release assets** from the [latest GitHub Release](../../releases/latest).
-   You need: `install.sh`, `docker-compose.prod.yml`, `aggregator.service`, and `.env.example`.
+   You need: `install.sh`, `docker-compose.prod.yml`, `aggregator.service`, and `env.example`.
    Place all four files in the same directory (e.g. `~/aggregator-install/`).
 
 2. **Make the script executable and run it:**
