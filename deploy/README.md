@@ -150,6 +150,50 @@ The service worker caches the app shell and static assets so the UI loads instan
 
 ---
 
+## Accessing the MCP server
+
+The `mcp` service exposes a **Model Context Protocol (MCP) endpoint** (Streamable HTTP transport) so external agents (e.g. openclaw) can query and act on the aggregator. Tools include `search_articles`, `list_articles`, `get_article`, `get_interest_profile`, `list_categories`, `list_sources`, and article write actions (`mark_read`, `mark_unread`, `save_article`, `unsave_article`).
+
+> **Note:** brief-related tools (`get_daily_brief`, `refresh_brief`) and the `daily_brief` prompt are deferred to a follow-up increment and are not present in v1.
+
+### Endpoint URL
+
+The MCP endpoint is:
+
+```
+http://<pi-ip-or-tailscale-hostname>:<MCP_PORT><MCP_PATH>
+```
+
+With the defaults (`MCP_PORT=8765`, `MCP_PATH=/mcp`), that is:
+
+```
+http://<pi>:8765/mcp
+```
+
+### Authentication
+
+There is **no app-level authentication** in v1. The tailnet is the trust boundary — the MCP port should only be reachable from devices on your Tailscale network. Do not expose it on a public interface.
+
+Set `MCP_BIND=127.0.0.1` in `.env` to restrict the published port to the Pi itself, then use Tailscale Serve (see below) to provide HTTPS access over your tailnet.
+
+### Tailscale Serve (recommended — HTTPS over your tailnet)
+
+Use **Tailscale Serve** to expose the MCP endpoint to all your Tailscale-connected devices with automatic HTTPS:
+
+```bash
+sudo tailscale serve --bg --set-path /mcp 8765
+```
+
+This proxies `https://<hostname>.your-tailnet.ts.net/mcp` to the local MCP port. Point your agents at the HTTPS URL and set `MCP_BIND=127.0.0.1` in `.env` to prevent direct LAN access.
+
+To check or remove the serve rule:
+```bash
+tailscale serve status
+sudo tailscale serve --remove /mcp
+```
+
+---
+
 ## Managing feeds, interests & categories (`aggregator` CLI)
 
 The installer places a self-contained **`aggregator`** script at **`/opt/personal-aggregator/aggregator`**. It runs the admin CLI in a one-off container against the running stack, so you can operate the app without any source checkout. Docker needs root, so use `sudo` (or add your user to the `docker` group).
