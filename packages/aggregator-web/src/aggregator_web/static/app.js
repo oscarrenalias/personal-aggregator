@@ -27,24 +27,13 @@ function aggregatorApp() {
       this.focusSearch();
     },
 
-    /* Focus the search input, loading the search pane first if it is not rendered. */
+    /* Focus the sidebar search input. */
     focusSearch() {
-      const el = document.getElementById('search-input');
+      const el = document.getElementById('sidebar-search-input');
       if (el) {
         el.focus();
         el.select();
-        return;
       }
-      /* Search pane not yet rendered — load it via HTMX, then focus on swap. */
-      htmx.ajax('GET', '/search', { target: '#article-list', swap: 'innerHTML' });
-      document.addEventListener(
-        'htmx:afterSwap',
-        () => {
-          const input = document.getElementById('search-input');
-          if (input) input.focus();
-        },
-        { once: true },
-      );
     },
   };
 }
