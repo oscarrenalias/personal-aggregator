@@ -196,6 +196,62 @@ def test_styles_css_article_detail_has_max_width_rule(client):
 
 
 # ---------------------------------------------------------------------------
+# 5b. styles.css — detail-header mobile toolbar CSS source-order regression
+#
+# Bug: the @media (max-width:1023px) override for .detail-reader-toolbar was
+# placed BEFORE the base desktop rule in CSS source order.  Because @media adds
+# no extra specificity, the later base rule (position:absolute + padding-right)
+# always won, clobbering the mobile override.  Fix uses float:right on desktop
+# and places the float:none override in a fresh media block AFTER the base rule.
+# ---------------------------------------------------------------------------
+
+
+def test_detail_reader_toolbar_uses_float_not_absolute(client):
+    """.detail-reader-toolbar base rule must use float:right, not position:absolute."""
+    response = client.get("/static/styles.css")
+    assert response.status_code == 200
+    css = response.text
+    # Base rule must contain float:right
+    base_pos = css.find(".detail-reader-toolbar")
+    assert base_pos != -1, ".detail-reader-toolbar rule not found"
+    block_end = css.find("}", base_pos)
+    base_block = css[base_pos:block_end + 1]
+    assert "float: right" in base_block, "float:right missing from .detail-reader-toolbar base rule"
+    assert "position: absolute" not in base_block, "position:absolute must not appear in base rule"
+
+
+def test_detail_header_no_padding_right_reservation(client):
+    """.detail-header must not use the hard padding-right:160px desktop reservation."""
+    response = client.get("/static/styles.css")
+    assert response.status_code == 200
+    css = response.text
+    # The old fragile 160px reservation must be gone
+    assert "padding-right: 160px" not in css, "legacy padding-right:160px still present in styles.css"
+
+
+def test_mobile_toolbar_override_comes_after_base_rule(client):
+    """The @media (max-width:1023px) float:none override must appear AFTER the base float:right rule.
+
+    This is the regression guard for the source-order bug: equal-specificity rules obey
+    document order, so the override must be last to win on mobile viewports.
+    """
+    response = client.get("/static/styles.css")
+    assert response.status_code == 200
+    css = response.text
+
+    # Locate the base float:right rule
+    base_pos = css.find("float: right")
+    assert base_pos != -1, "float:right not found in styles.css"
+
+    # Locate the mobile override float:none (must appear after float:right)
+    override_pos = css.find("float: none", base_pos)
+    assert override_pos != -1, (
+        "float:none override for .detail-reader-toolbar not found AFTER the base float:right rule — "
+        "the mobile override must come later in CSS source order to win at <=1023px"
+    )
+
+
+# ---------------------------------------------------------------------------
 # 6. Keyboard shortcuts overlay in GET /
 # ---------------------------------------------------------------------------
 
