@@ -4,18 +4,20 @@ Personal RSS reader and news aggregator. Periodically retrieves articles from co
 
 ## Architecture
 
-Six services communicating **only through shared Postgres state** (no synchronous service-to-service calls). Articles move through a durable state machine; each service finds its pending work by claiming rows.
+Seven services communicating **only through shared Postgres state** (no synchronous service-to-service calls). Articles move through a durable state machine; each service finds its pending work by claiming rows.
 
 ```
 sources → retriever → processor → summarize-rank → web UI
                                                   → brief
+                                                  → aggregator-mcp (agent interface)
 ```
 
 - **retriever** — polls feeds, persists raw articles, marks them pending processing.
 - **processor** — cleans/extracts article content, header image, search index; marks ready for ranking.
 - **summarize-rank** — LLM summary, topics, importance score + reason (the only service that calls the LLM).
-- **web** — FastAPI + HTMX + Alpine.js read/UI surface + reader operations (mark read, save, search). Served as a PWA; exposed privately over Tailscale (binds `127.0.0.1` by default). Also the future seam for an MCP/agent interface.
+- **web** — FastAPI + HTMX + Alpine.js read/UI surface + reader operations (mark read, save, search). Served as a PWA; exposed privately over Tailscale (binds `127.0.0.1` by default).
 - **brief** — scheduled LLM service that reads ranked articles, generates a structured daily brief (headline + topics + summaries), and persists it to Postgres. Runs once per day at a configurable hour; the web service serves the brief on the Today view.
+- **aggregator-mcp** — FastMCP server exposing the aggregator over the MCP/Streamable HTTP interface for agent integration. Provides tools for searching, listing, and mutating articles, plus resources and prompts for LLM agents.
 - **admin** — Rich CLI for feed management and operational tasks.
 
 The shared contract lives in `aggregator-common`: SQLAlchemy models, DB access, config, and the **article state machine**. Because services integrate only through the DB, the schema and allowed state transitions are the API — treat them as such.
@@ -45,6 +47,7 @@ packages/
   aggregator-summarize-rank/
   aggregator-web/               # FastAPI + HTMX + Alpine.js PWA web UI
   aggregator-brief/             # scheduled daily brief generator
+  aggregator-mcp/               # FastMCP server — MCP/Streamable HTTP agent interface
   aggregator-admin/
 docker-compose.yml              # postgres only (app service definitions added per service spec)
 ```
@@ -62,6 +65,7 @@ src/aggregator_common/
   config.py        # pydantic-settings Settings (reads DATABASE_URL from env/.env)
   env.py           # load_env() — loads .env into os.environ at startup
   logging_setup.py # configure_logging() — shared log setup for all services
+  queries.py       # shared read + mutation helpers (list/search/get articles, mark read/saved, etc.)
   migrations/      # Alembic environment; versions/ holds migration scripts
 ```
 
