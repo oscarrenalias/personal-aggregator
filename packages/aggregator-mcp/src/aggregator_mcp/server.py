@@ -7,6 +7,7 @@ from typing import Optional
 from mcp.server.fastmcp import FastMCP
 
 import aggregator_common.management as management
+import aggregator_common.ops as ops
 import aggregator_common.queries as queries
 from aggregator_common.db import get_session
 from aggregator_common.errors import ConflictError, NotFoundError
@@ -422,3 +423,63 @@ def remove_category(category_id: int) -> dict:
         return {"error": "not_found", "detail": str(exc)}
     except ConflictError as exc:
         return {"error": "conflict", "detail": str(exc)}
+
+
+@mcp.tool()
+def pipeline_status() -> dict:
+    """Return a snapshot of the article processing pipeline.
+
+    Returns a dict with three keys:
+    - article_counts: mapping of ArticleStatus value → count of articles in that status.
+    - in_flight: number of articles currently claimed by a worker.
+    - sources: dict with 'enabled' and 'disabled' source counts.
+
+    Use this as a first-pass health check before diving into list_stuck or list_failures.
+    """
+    with get_session() as session:
+        return ops.pipeline_status(session)
+
+
+@mcp.tool()
+def list_stuck(lease_seconds: int = 600) -> list:
+    """List articles with a stale claim older than lease_seconds seconds.
+
+    An article is considered stuck when its claimed_at timestamp is older than
+    lease_seconds ago, meaning the worker that claimed it has likely crashed or
+    stalled. Returns a list of dicts, each with:
+    - id: article id
+    - status: current article status
+    - claimed_by: worker identifier that holds the claim
+    - claimed_at: ISO-format timestamp when the claim was taken
+    - source_name: name of the source the article belongs to
+
+    To release stuck articles so they can be reprocessed, call reap_stale_claims
+    with the same lease_seconds value.
+    """
+    with get_session() as session:
+        rows = ops.list_stuck(session, lease_seconds)
+    for row in rows:
+        if row.get("claimed_at") is not None:
+            row["claimed_at"] = row["claimed_at"].isoformat()
+    return rows
+
+
+@mcp.tool()
+def list_failures(stage: Optional[str] = None, limit: int = 50) -> list:
+    """List articles that have failed processing or ranking.
+
+    stage filters by pipeline stage: pass 'processor' for failed_processing,
+    'summarize_rank' for failed_ranking, or omit (None) for both.
+
+    Returns up to limit results ordered by most-recently-updated first. Each
+    result dict contains:
+    - id: article id
+    - status: failed_processing or failed_ranking
+    - retry_count: number of attempts made
+    - last_error: error message from the last failure attempt
+    - source_name: name of the source the article belongs to
+
+    To requeue failed articles for retry, call retry_failed with the same stage.
+    """
+    with get_session() as session:
+        return ops.list_failures(session, stage=stage, limit=limit)
