@@ -38,6 +38,7 @@ def insert_articles(
             "feed_url": e.feed_url,
             "feed_summary": e.feed_summary,
             "feed_published_at": e.feed_published_at,
+            "comments_url": e.comments_url,
         }
         for e in entries
     ]

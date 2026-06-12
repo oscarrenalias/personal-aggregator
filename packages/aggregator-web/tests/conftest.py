@@ -176,6 +176,7 @@ def make_article(
     is_read: bool = False,
     is_saved: bool = False,
     is_hidden: bool = False,
+    comments_url: str | None = None,
 ) -> Article:
     article = Article(
         source_id=source_id,
@@ -196,6 +197,7 @@ def make_article(
         is_read=is_read,
         is_saved=is_saved,
         is_hidden=is_hidden,
+        comments_url=comments_url,
     )
     session.add(article)
     session.flush()

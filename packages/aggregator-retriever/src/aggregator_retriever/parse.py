@@ -18,6 +18,7 @@ class NormalizedEntry:
     feed_title: Optional[str]
     feed_summary: Optional[str]
     feed_published_at: Optional[datetime.datetime]
+    comments_url: Optional[str]
     raw_payload: dict
 
 
@@ -78,6 +79,7 @@ def parse_feed(body: bytes, source_id: int) -> list[NormalizedEntry]:
                     feed_title=_get(entry, "title"),
                     feed_summary=_get(entry, "summary"),
                     feed_published_at=_parse_published_at(entry),
+                    comments_url=_get(entry, "comments") or None,
                     raw_payload=serialize_entry(entry),
                 )
             )

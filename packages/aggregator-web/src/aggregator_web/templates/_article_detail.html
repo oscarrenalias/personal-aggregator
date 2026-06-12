@@ -64,6 +64,14 @@
            aria-label="Open article source in new tab"
            title="Open article source in new tab">↗</a>
         {% endif %}
+        {% if article.comments_url %}
+        <a class="toolbar-btn btn-open-comments"
+           href="{{ article.comments_url }}"
+           target="_blank"
+           rel="noopener"
+           aria-label="Open comments in new tab"
+           title="Open comments in new tab">💬</a>
+        {% endif %}
       </div>
 
       <div class="detail-meta">

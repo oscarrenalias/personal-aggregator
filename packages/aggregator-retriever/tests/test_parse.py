@@ -245,3 +245,43 @@ class TestParseFeedEdgeCases:
 </rss>"""
         entries = parse_feed(feed, source_id=6)
         assert entries == []
+
+
+class TestCommentsUrl:
+    _FEED_WITH_COMMENTS = b"""<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>HN-style Feed</title>
+    <link>https://hn.example.com</link>
+    <description>Feed with comments links</description>
+    <item>
+      <title>Ask HN: Something interesting</title>
+      <link>https://news.ycombinator.com/item?id=12345</link>
+      <guid>https://news.ycombinator.com/item?id=12345</guid>
+      <comments>https://news.ycombinator.com/item?id=12345</comments>
+      <description>Discussion thread</description>
+    </item>
+    <item>
+      <title>No comments link here</title>
+      <link>https://hn.example.com/2</link>
+      <guid>https://hn.example.com/guid/2</guid>
+      <description>No comments element</description>
+    </item>
+  </channel>
+</rss>
+"""
+
+    def test_comments_url_captured_when_present(self):
+        entries = parse_feed(self._FEED_WITH_COMMENTS, source_id=10)
+        entry = next(e for e in entries if "12345" in e.dedup_key)
+        assert entry.comments_url == "https://news.ycombinator.com/item?id=12345"
+
+    def test_comments_url_none_when_absent(self):
+        entries = parse_feed(self._FEED_WITH_COMMENTS, source_id=10)
+        entry = next(e for e in entries if "guid/2" in e.dedup_key)
+        assert entry.comments_url is None
+
+    def test_rss2_feed_without_comments_has_none(self):
+        entries = parse_feed(_RSS2_FEED, source_id=1)
+        for e in entries:
+            assert e.comments_url is None

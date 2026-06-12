@@ -39,6 +39,7 @@ def _entry(dedup_key: str = "entry-1", title: str = "Test Article") -> Normalize
         feed_title=title,
         feed_summary="Test summary",
         feed_published_at=datetime(2024, 1, 1, tzinfo=timezone.utc),
+        comments_url=None,
         raw_payload={"title": title, "key": dedup_key},
     )
 
