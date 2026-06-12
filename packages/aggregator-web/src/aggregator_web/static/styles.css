@@ -1461,6 +1461,12 @@ button {
   border-color: var(--c-accent);
 }
 
+.btn-recluster[disabled] {
+  opacity: 0.6;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
 .recluster-indicator {
   font-size: 11px;
   color: var(--c-accent-light);
@@ -1766,8 +1772,13 @@ button {
   transition: background var(--t-fast);
 }
 
-.thread-card:hover {
+.thread-card:hover,
+.thread-card.is-selected {
   background: var(--c-surface-2);
+}
+
+.thread-card.is-selected {
+  box-shadow: inset 3px 0 0 var(--c-accent);
 }
 
 .thread-card .card-meta {

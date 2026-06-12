@@ -13,7 +13,33 @@
   ("low_noise",      "Low Noise"),
 ] %}
 
-<div id="article-list" class="thread-list-pane">
+<div id="article-list" class="thread-list-pane"
+     x-data="{ ...threadList(), activeTier: '{{ tier or 'all' }}' }">
+
+  <div class="feed-controls" role="group" aria-label="Filter threads by tier">
+    <div class="feed-sort-toggle">
+      <button class="sort-btn"
+              :class="{ 'active': activeTier === 'all' }"
+              @click="setTierFilter('all')"
+              :aria-pressed="(activeTier === 'all').toString()">All</button>
+      <button class="sort-btn"
+              :class="{ 'active': activeTier === 'must_know' }"
+              @click="setTierFilter('must_know')"
+              :aria-pressed="(activeTier === 'must_know').toString()">Must Know</button>
+      <button class="sort-btn"
+              :class="{ 'active': activeTier === 'worth_tracking' }"
+              @click="setTierFilter('worth_tracking')"
+              :aria-pressed="(activeTier === 'worth_tracking').toString()">Worth</button>
+      <button class="sort-btn"
+              :class="{ 'active': activeTier === 'deep_read' }"
+              @click="setTierFilter('deep_read')"
+              :aria-pressed="(activeTier === 'deep_read').toString()">Deep</button>
+      <button class="sort-btn"
+              :class="{ 'active': activeTier === 'low_noise' }"
+              @click="setTierFilter('low_noise')"
+              :aria-pressed="(activeTier === 'low_noise').toString()">Low Noise</button>
+    </div>
+  </div>
 
   <div class="feed-controls thread-controls">
     <p class="suppressed-summary">
@@ -24,11 +50,12 @@
       {% endif %}
     </p>
     <button class="btn-recluster"
+            @click="startRecluster()"
             hx-post="/threads/recluster"
             hx-swap="none"
-            hx-indicator=".recluster-indicator">
-      Re-cluster now
-      <span class="recluster-indicator htmx-indicator" aria-hidden="true">…</span>
+            :disabled="reclustering">
+      <span x-show="!reclustering">Re-cluster now</span>
+      <span x-show="reclustering" x-cloak aria-live="polite">Clustering…</span>
     </button>
   </div>
 

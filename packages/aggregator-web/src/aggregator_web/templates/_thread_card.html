@@ -15,7 +15,9 @@
 } %}
 
 <article class="thread-card tier-{{ thread.tier or 'untiered' }}"
-         data-thread-id="{{ thread.id }}">
+         data-thread-id="{{ thread.id }}"
+         :class="{ 'is-selected': selectedId === {{ thread.id }} }"
+         @click="selectThread({{ thread.id }})">
 
   <div class="card-body">
     <div class="card-meta">
@@ -44,8 +46,7 @@
          hx-get="/threads/{{ thread.id }}"
          hx-target="#reader-content"
          hx-swap="innerHTML"
-         hx-push-url="true"
-         @click="document.body.classList.add('reader-open')">
+         hx-push-url="true">
         {{ thread.representative_title | e }}
       </a>
     </h2>

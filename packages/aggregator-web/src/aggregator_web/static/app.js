@@ -266,6 +266,54 @@ function briefList() {
 }
 
 
+/* ── Thread list component (bound to the thread list div in _thread_list.html)
+   Manages: active thread selection (master-detail), tier filter state,
+   and recluster button loading state.
+   ──────────────────────────────────────────────────────────────────────────── */
+function threadList() {
+  return {
+    selectedId: null,
+    activeTier: 'all',
+    reclustering: false,
+
+    init() {
+      this._onAfterRequest = (evt) => {
+        if (
+          evt.detail.requestConfig &&
+          evt.detail.requestConfig.path === '/threads/recluster'
+        ) {
+          this.reclustering = false;
+        }
+      };
+      this.$el.addEventListener('htmx:afterRequest', this._onAfterRequest);
+    },
+
+    destroy() {
+      this.$el.removeEventListener('htmx:afterRequest', this._onAfterRequest);
+    },
+
+    /* Mark a thread as selected and open the reader pane. HTMX loads the detail
+       via hx-get on the card's <a> tag; this just tracks selection state. */
+    selectThread(id) {
+      this.selectedId = id;
+      document.body.classList.add('reader-open');
+    },
+
+    /* Change the active tier filter and reload the thread list via HTMX. */
+    setTierFilter(tier) {
+      this.activeTier = tier;
+      const url = tier === 'all' ? '/threads' : `/threads?tier=${encodeURIComponent(tier)}`;
+      htmx.ajax('GET', url, { target: '#article-list', swap: 'innerHTML' });
+    },
+
+    /* Called on recluster button click; set loading state (reset by htmx:afterRequest). */
+    startRecluster() {
+      this.reclustering = true;
+    },
+  };
+}
+
+
 /* Register component factories with Alpine so x-data="aggregatorApp" / "articleList"
    resolve correctly regardless of when exactly Alpine initialises relative to this
    script. This file must still be loaded BEFORE the Alpine CDN script so this
@@ -274,4 +322,5 @@ document.addEventListener('alpine:init', () => {
   window.Alpine.data('aggregatorApp', aggregatorApp);
   window.Alpine.data('articleList', articleList);
   window.Alpine.data('briefList', briefList);
+  window.Alpine.data('threadList', threadList);
 });
