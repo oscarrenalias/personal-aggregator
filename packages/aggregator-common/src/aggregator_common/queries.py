@@ -4,10 +4,10 @@ from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Literal, Optional
 
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, exists, func, or_, select
 from sqlalchemy.orm import Session
 
-from aggregator_common.models import Article, Brief, BriefTopic, Category, InterestProfile, Source
+from aggregator_common.models import Article, Brief, BriefTopic, Category, InterestProfile, Source, Thread, ThreadMembership
 from aggregator_common.state import ArticleStatus
 
 ViewName = Literal["all", "unread", "important", "saved", "uncategorized", "today"]
@@ -61,6 +61,42 @@ class BriefTopicResult:
     why_it_matters: str
     historical_context: Optional[str]
     refs: list
+
+
+@dataclass
+class ThreadResult:
+    id: int
+    representative_title: str
+    rolling_summary: Optional[str]
+    known_facts: Optional[list]
+    first_seen: str
+    last_updated: str
+    status: str
+    tier: Optional[str]
+    tier_reason: Optional[str]
+    relevance_score: Optional[float]
+    novelty_score: Optional[float]
+    importance_score: Optional[float]
+    diversity_score: Optional[float]
+    time_sensitivity_score: Optional[float]
+    source_diversity: Optional[float]
+    confidence: Optional[float]
+    novelty_label: Optional[str]
+
+
+@dataclass
+class ThreadMemberResult:
+    id: int
+    thread_id: int
+    article_id: int
+    classification_label: Optional[str]
+    new_facts: Optional[list]
+    reason: Optional[str]
+    confidence: Optional[float]
+    suppressed: bool
+    assigned_at: str
+    clean_title: Optional[str]
+    url: Optional[str]
 
 
 @dataclass
@@ -330,6 +366,114 @@ def get_latest_brief(session: Session) -> Optional[BriefResult]:
             for t in topics
         ],
     )
+
+
+def _to_thread_result(thread: Thread) -> ThreadResult:
+    return ThreadResult(
+        id=thread.id,
+        representative_title=thread.representative_title,
+        rolling_summary=thread.rolling_summary,
+        known_facts=thread.known_facts,
+        first_seen=thread.first_seen.isoformat(),
+        last_updated=thread.last_updated.isoformat(),
+        status=thread.status,
+        tier=thread.tier,
+        tier_reason=thread.tier_reason,
+        relevance_score=thread.relevance_score,
+        novelty_score=thread.novelty_score,
+        importance_score=thread.importance_score,
+        diversity_score=thread.diversity_score,
+        time_sensitivity_score=thread.time_sensitivity_score,
+        source_diversity=thread.source_diversity,
+        confidence=thread.confidence,
+        novelty_label=thread.novelty_label,
+    )
+
+
+def list_threads(
+    session: Session,
+    *,
+    tier: Optional[str] = None,
+    status: Optional[str] = None,
+    limit: int = _DEFAULT_LIMIT,
+    offset: int = 0,
+) -> List[ThreadResult]:
+    """List threads with optional tier/status filters, ordered by last_updated desc."""
+    filters = []
+    if tier is not None:
+        filters.append(Thread.tier == tier)
+    if status is not None:
+        filters.append(Thread.status == status)
+    q = select(Thread)
+    if filters:
+        q = q.where(*filters)
+    q = q.order_by(Thread.last_updated.desc()).limit(limit).offset(offset)
+    return [_to_thread_result(t) for t in session.execute(q).scalars().all()]
+
+
+def get_thread(session: Session, thread_id: int) -> Optional[ThreadResult]:
+    """Get a single thread by id, or None if not found."""
+    thread = session.get(Thread, thread_id)
+    if thread is None:
+        return None
+    return _to_thread_result(thread)
+
+
+def get_thread_members(session: Session, thread_id: int) -> List[ThreadMemberResult]:
+    """Return all members (suppressed and non-suppressed) for a thread, with article details."""
+    rows = session.execute(
+        select(ThreadMembership, Article)
+        .join(Article, ThreadMembership.article_id == Article.id)
+        .where(ThreadMembership.thread_id == thread_id)
+        .order_by(ThreadMembership.assigned_at.desc())
+    ).all()
+    return [
+        ThreadMemberResult(
+            id=tm.id,
+            thread_id=tm.thread_id,
+            article_id=tm.article_id,
+            classification_label=tm.classification_label,
+            new_facts=tm.new_facts,
+            reason=tm.reason,
+            confidence=tm.confidence,
+            suppressed=tm.suppressed,
+            assigned_at=tm.assigned_at.isoformat(),
+            clean_title=a.clean_title or a.feed_title,
+            url=_article_url(a),
+        )
+        for tm, a in rows
+    ]
+
+
+def list_unassigned_ready_articles(
+    session: Session,
+    since: datetime,
+    limit: int = _DEFAULT_LIMIT,
+) -> List[Article]:
+    """Return ready articles with no thread_memberships row, published on or after since."""
+    has_membership = exists().where(ThreadMembership.article_id == Article.id)
+    q = (
+        select(Article)
+        .where(
+            Article.status == ArticleStatus.ready,
+            Article.feed_published_at >= since,
+            ~has_membership,
+        )
+        .order_by(Article.feed_published_at.desc().nulls_last())
+        .limit(limit)
+    )
+    return list(session.execute(q).scalars().all())
+
+
+def count_suppressed_today(session: Session) -> int:
+    """Count suppressed thread memberships whose assigned_at is on or after midnight UTC today."""
+    today_midnight = datetime.now(tz=timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    return session.execute(
+        select(func.count()).select_from(ThreadMembership).where(
+            ThreadMembership.suppressed == True,
+            ThreadMembership.assigned_at >= today_midnight,
+        )
+    ).scalar_one()
 
 
 def enqueue_brief(session: Session) -> dict:
