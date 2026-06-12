@@ -23,6 +23,22 @@
     <kbd class="sidebar-search-hint">/</kbd>
   </div>
 
+  <!-- Today's brief -->
+  <section class="sidebar-section" aria-labelledby="today-heading">
+    <h2 class="sidebar-section-title" id="today-heading">Daily</h2>
+    <ul class="sidebar-nav-list" role="list">
+      <li>
+        <a class="sidebar-link"
+           hx-get="/today"
+           hx-target="#article-list"
+           hx-swap="innerHTML"
+           hx-push-url="true">
+          Today
+        </a>
+      </li>
+    </ul>
+  </section>
+
   <!-- Smart views -->
   <section class="sidebar-section" aria-labelledby="smart-views-heading">
     <h2 class="sidebar-section-title" id="smart-views-heading">Smart Views</h2>

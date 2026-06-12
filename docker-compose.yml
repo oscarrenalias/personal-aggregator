@@ -74,6 +74,21 @@ services:
         condition: service_completed_successfully
     restart: unless-stopped
 
+  brief:
+    build:
+      context: .
+      dockerfile: packages/aggregator-brief/Dockerfile
+    image: personal-aggregator/aggregator-brief:dev
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://aggregator:aggregator@postgres:5432/aggregator
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
   web:
     build:
       context: .
