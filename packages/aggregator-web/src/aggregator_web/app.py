@@ -73,7 +73,32 @@ def _paragraphs_filter(text: str) -> Markup:
     return Markup("".join(f"<p>{line}</p>" for line in lines))
 
 
+def _timeago_filter(dt_str: str) -> str:
+    """Convert an ISO datetime string to a human-relative string (e.g. '3h ago')."""
+    try:
+        dt = datetime.fromisoformat(str(dt_str).replace("Z", "+00:00"))
+        delta = datetime.now(timezone.utc) - dt.astimezone(timezone.utc)
+        s = int(delta.total_seconds())
+        if s < 60:
+            return "just now"
+        if s < 3600:
+            m = s // 60
+            return f"{m}m ago"
+        if s < 86400:
+            h = s // 3600
+            return f"{h}h ago"
+        d = s // 86400
+        if d == 1:
+            return "yesterday"
+        if d < 7:
+            return f"{d}d ago"
+        return dt.strftime("%-d %b %Y")
+    except (ValueError, AttributeError):
+        return str(dt_str)[:10] if dt_str else ""
+
+
 templates.env.filters["paragraphs"] = _paragraphs_filter
+templates.env.filters["timeago"] = _timeago_filter
 
 
 def get_db() -> Generator[Session, None, None]:

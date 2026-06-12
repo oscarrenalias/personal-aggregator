@@ -1,0 +1,59 @@
+{#
+  _thread_card.html — Single thread card for the thread list view.
+
+  Context (inherited from _thread_list.html include scope):
+    thread : ThreadResult — thread data object
+
+  Note: source_count and member_count are not currently in ThreadResult; those
+  fields render empty until the route/query populates them.
+#}
+{% set tier_labels = {
+  "must_know":      "Must Know",
+  "worth_tracking": "Worth Tracking",
+  "deep_read":      "Deep Read",
+  "low_noise":      "Low Noise",
+} %}
+
+<article class="thread-card tier-{{ thread.tier or 'untiered' }}"
+         data-thread-id="{{ thread.id }}">
+
+  <div class="card-body">
+    <div class="card-meta">
+      {% if thread.tier %}
+      <span class="tier-badge tier-badge-{{ thread.tier }}"
+            title="{{ tier_labels.get(thread.tier, thread.tier) }}">
+        {{ tier_labels.get(thread.tier, thread.tier) }}
+      </span>
+      {% endif %}
+
+      {% if thread.source_count %}
+      <span class="source-count">{{ thread.source_count }} source{{ 's' if thread.source_count != 1 else '' }}</span>
+      {% endif %}
+
+      {% if thread.member_count %}
+      <span class="member-count">{{ thread.member_count }} article{{ 's' if thread.member_count != 1 else '' }}</span>
+      {% endif %}
+
+      <time class="thread-updated" datetime="{{ thread.last_updated }}">
+        {{ thread.last_updated | timeago }}
+      </time>
+    </div>
+
+    <h2 class="card-title">
+      <a href="/threads/{{ thread.id }}"
+         hx-get="/threads/{{ thread.id }}"
+         hx-target="#reader-content"
+         hx-swap="innerHTML"
+         hx-push-url="true"
+         @click="document.body.classList.add('reader-open')">
+        {{ thread.representative_title | e }}
+      </a>
+    </h2>
+
+    {% if thread.tier_reason %}
+    <p class="priority-reason">{{ thread.tier_reason | e }}</p>
+    {% endif %}
+
+  </div>
+
+</article>
