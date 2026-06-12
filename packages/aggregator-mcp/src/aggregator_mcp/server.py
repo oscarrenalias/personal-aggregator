@@ -326,7 +326,7 @@ def add_category(
 def rename_category(category_id: int, new_name: str) -> dict:
     """Rename an existing category.
 
-    category_id may be an integer primary key or an exact name string.
+    category_id must be the integer primary key of the category (not a name string).
     Returns the updated category id and name on success, or an error dict with
     'error' and 'detail' keys when the category is not found or the new name
     is already taken by another category.
@@ -465,7 +465,7 @@ def list_stuck(lease_seconds: int = 600) -> list:
 
 
 @mcp.tool()
-def list_failures(stage: Optional[str] = None, limit: int = 50) -> list:
+def list_failures(stage: Optional[str] = None, limit: int = 50) -> list | dict:
     """List articles that have failed processing or ranking.
 
     stage filters by pipeline stage: pass 'processor' for failed_processing,
@@ -481,8 +481,11 @@ def list_failures(stage: Optional[str] = None, limit: int = 50) -> list:
 
     To requeue failed articles for retry, call retry_failed with the same stage.
     """
-    with get_session() as session:
-        return ops.list_failures(session, stage=stage, limit=limit)
+    try:
+        with get_session() as session:
+            return ops.list_failures(session, stage=stage, limit=limit)
+    except ValueError as exc:
+        return {"error": "invalid_stage", "detail": str(exc)}
 
 
 @mcp.tool()

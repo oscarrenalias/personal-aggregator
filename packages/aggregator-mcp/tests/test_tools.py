@@ -779,6 +779,15 @@ class TestListFailuresTool:
 
         assert all(r["status"] == "failed_processing" for r in result)
 
+    def test_invalid_stage_returns_error_dict(self, session: Session):
+        import aggregator_mcp.server as srv
+
+        result = srv.list_failures(stage="bad_stage")
+
+        assert isinstance(result, dict)
+        assert result["error"] == "invalid_stage"
+        assert "bad_stage" in result["detail"]
+
 
 # ---------------------------------------------------------------------------
 # Ops remediation tools
