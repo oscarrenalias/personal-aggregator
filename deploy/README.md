@@ -152,9 +152,13 @@ The service worker caches the app shell and static assets so the UI loads instan
 
 ## Accessing the MCP server
 
-The `mcp` service exposes a **Model Context Protocol (MCP) endpoint** (Streamable HTTP transport) so external agents (e.g. openclaw) can query and act on the aggregator. Tools include `search_articles`, `list_articles`, `get_article`, `get_interest_profile`, `list_categories`, `list_sources`, and article write actions (`mark_read`, `mark_unread`, `save_article`, `unsave_article`).
+The `mcp` service exposes a **Model Context Protocol (MCP) endpoint** (Streamable HTTP transport) so external agents (e.g. openclaw) can query and act on the aggregator. Tools include `search_articles`, `list_articles`, `get_article`, `get_interest_profile`, `list_categories`, `list_sources`, article write actions (`mark_read`, `mark_unread`, `save_article`, `unsave_article`), and brief tools (`get_daily_brief`, `refresh_brief`).
 
-> **Note:** brief-related tools (`get_daily_brief`, `refresh_brief`) and the `daily_brief` prompt are deferred to a follow-up increment and are not present in v1.
+**Brief tools:**
+- `get_daily_brief` — returns the latest ready daily brief (headline, intro, topics with what happened / why it matters / links). Returns `{"status": "no_brief"}` when no ready brief exists yet.
+- `refresh_brief` — enqueues a new brief generation run. Returns `{"status": "queued"}` when enqueued or `{"status": "already_pending"}` when one is already in progress.
+- `brief://today` resource — the latest ready brief as a readable MCP resource.
+- `daily_brief` prompt — instructs the agent to fetch and present the daily brief with topics and links.
 
 ### Endpoint URL
 
