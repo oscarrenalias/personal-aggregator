@@ -2,8 +2,7 @@
 
 /* ── Root app component (bound to <body> in shell.html) ────────────────────
    Manages: sidebar drawer state, keyboard shortcuts help overlay (? key),
-   and search focus — triggered by the sidebar search button or the / key.
-   The j/k/v/m shortcuts are handled by the nested articleList() component.
+   reader close/open, and search focus.
    ────────────────────────────────────────────────────────────────────────── */
 function aggregatorApp() {
   return {
@@ -13,7 +12,8 @@ function aggregatorApp() {
     /* Handles keydown events on the window (delegated from @keydown.window). */
     handleKey(event) {
       if (event.key === 'Escape') {
-        if (this.showHelp) { this.showHelp = false; }
+        if (this.showHelp) { this.showHelp = false; return; }
+        if (document.body.classList.contains('reader-open')) { this.closeReader(); return; }
         return;
       }
       if (event.target.tagName === 'INPUT' || event.target.tagName === 'TEXTAREA') return;
@@ -25,6 +25,21 @@ function aggregatorApp() {
       if (event.key !== '/') return;
       event.preventDefault();
       this.focusSearch();
+    },
+
+    /* Remove reader-open from body and notify articleList to clear selection. */
+    closeReader() {
+      document.body.classList.remove('reader-open');
+      window.dispatchEvent(new CustomEvent('reader:closed'));
+    },
+
+    /* Toggle the sidebar drawer; close the reader first when opening so the
+       sidebar (z-sidebar:20) is not hidden behind the reader overlay (z-reader:25). */
+    toggleDrawer() {
+      if (!this.drawerOpen) {
+        this.closeReader();
+      }
+      this.drawerOpen = !this.drawerOpen;
     },
 
     /* Focus the sidebar search input. */
@@ -53,22 +68,40 @@ function articleList() {
     sortMode: 'relevance',
     unreadOnly: false,
 
-    /* On init: apply remembered sort and hide-read preferences if they differ from the server. */
+    /* On init: apply remembered sort/hide-read prefs and register reader event listeners. */
     init() {
-      if (!this.baseUrl) return;
-      const persistedSort = localStorage.getItem('feedSort:' + this.baseUrl);
-      const persistedHideRead = localStorage.getItem('feedHideRead:' + this.baseUrl);
-      const wantNewest = persistedSort === 'newest';
-      const wantHideRead = persistedHideRead === 'hide';
-      if ((wantNewest && this.sortMode !== 'newest') || (wantHideRead && !this.unreadOnly)) {
-        const useNewest = wantNewest || this.sortMode === 'newest';
-        const useHideRead = wantHideRead || this.unreadOnly;
-        const params = [];
-        if (useNewest) params.push('sort=newest');
-        if (useHideRead) params.push('unread=1');
-        const url = this.baseUrl + (params.length ? '?' + params.join('&') : '');
-        htmx.ajax('GET', url, { target: '#article-list', swap: 'innerHTML' });
+      if (this.baseUrl) {
+        const persistedSort = localStorage.getItem('feedSort:' + this.baseUrl);
+        const persistedHideRead = localStorage.getItem('feedHideRead:' + this.baseUrl);
+        const wantNewest = persistedSort === 'newest';
+        const wantHideRead = persistedHideRead === 'hide';
+        if ((wantNewest && this.sortMode !== 'newest') || (wantHideRead && !this.unreadOnly)) {
+          const useNewest = wantNewest || this.sortMode === 'newest';
+          const useHideRead = wantHideRead || this.unreadOnly;
+          const params = [];
+          if (useNewest) params.push('sort=newest');
+          if (useHideRead) params.push('unread=1');
+          const url = this.baseUrl + (params.length ? '?' + params.join('&') : '');
+          htmx.ajax('GET', url, { target: '#article-list', swap: 'innerHTML' });
+        }
       }
+
+      /* Named handlers so destroy() can remove the exact same references. */
+      this._onReaderNext = () => this.selectNext();
+      this._onReaderPrev = () => this.selectPrev();
+      this._onReaderReadNext = () => this.markReadAndNext();
+      this._onReaderClosed = () => { this.selectedId = null; };
+      window.addEventListener('reader:next', this._onReaderNext);
+      window.addEventListener('reader:prev', this._onReaderPrev);
+      window.addEventListener('reader:read-next', this._onReaderReadNext);
+      window.addEventListener('reader:closed', this._onReaderClosed);
+    },
+
+    destroy() {
+      window.removeEventListener('reader:next', this._onReaderNext);
+      window.removeEventListener('reader:prev', this._onReaderPrev);
+      window.removeEventListener('reader:read-next', this._onReaderReadNext);
+      window.removeEventListener('reader:closed', this._onReaderClosed);
     },
 
     /* Write sort preference to localStorage; called by sort toggle buttons. */
@@ -112,7 +145,7 @@ function articleList() {
     },
 
     /* Select the article with the given id: update state, scroll into view,
-       and (on desktop) load it in the reader pane. */
+       and load it in the reader pane (mobile: slide-in overlay; desktop: 3rd pane). */
     select(id) {
       this.selectedId = id;
       const cards = this._cards();
@@ -122,10 +155,7 @@ function articleList() {
       if (idx >= 0) {
         cards[idx].scrollIntoView({ block: 'nearest', behavior: 'smooth' });
       }
-      /* Desktop (three-pane layout ≥ 1024 px): load article in reader pane. */
-      if (window.innerWidth >= 1024) {
-        this._loadReader(id);
-      }
+      this._loadReader(id);
     },
 
     /* j — select next article; clamped at the last card. */
@@ -189,16 +219,16 @@ function articleList() {
       }
     },
 
-    /* Load the given article into the reader pane via HTMX. */
+    /* Load the given article into the reader content area via HTMX. */
     _loadReader(id) {
-      const pane = document.getElementById('reader-pane');
+      const content = document.getElementById('reader-content');
       htmx.ajax('GET', `/article/${id}`, {
-        target: '#reader-pane',
+        target: '#reader-content',
         swap: 'innerHTML',
       });
       document.body.classList.add('reader-open');
-      if (pane) {
-        pane.addEventListener('htmx:afterSwap', () => { pane.scrollTop = 0; }, { once: true });
+      if (content) {
+        content.addEventListener('htmx:afterSwap', () => { content.scrollTop = 0; }, { once: true });
       }
     },
   };
@@ -222,14 +252,14 @@ function briefList() {
 
     selectBrief(id) {
       this.selectedId = id;
-      const pane = document.getElementById('reader-pane');
+      const content = document.getElementById('reader-content');
       htmx.ajax('GET', `/brief/${id}`, {
-        target: '#reader-pane',
+        target: '#reader-content',
         swap: 'innerHTML',
       });
       document.body.classList.add('reader-open');
-      if (pane) {
-        pane.addEventListener('htmx:afterSwap', () => { pane.scrollTop = 0; }, { once: true });
+      if (content) {
+        content.addEventListener('htmx:afterSwap', () => { content.scrollTop = 0; }, { once: true });
       }
     },
   };

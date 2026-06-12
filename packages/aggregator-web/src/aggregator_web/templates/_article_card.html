@@ -90,10 +90,7 @@
     </div>
 
     <h2 class="card-title">
-      <a href="/article/{{ article.id }}"
-         hx-get="/article/{{ article.id }}"
-         hx-target="#article-reader"
-         hx-push-url="true">{{ title | e }}</a>
+      <a href="/article/{{ article.id }}">{{ title | e }}</a>
     </h2>
 
     {% if article.categories %}

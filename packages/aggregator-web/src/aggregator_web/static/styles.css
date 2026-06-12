@@ -198,9 +198,45 @@ button {
 .reader-pane {
   grid-area: reader;
   background: var(--c-bg);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* Scrollable content area inside the reader pane.
+   HTMX targets #reader-content (not #reader-pane) so the chrome persists. */
+#reader-content {
+  flex: 1;
   overflow-y: auto;
   overscroll-behavior: contain;
   padding: 24px 28px;
+}
+
+/* Back button: only shown on mobile (≤1023px); always present in the DOM
+   so it persists through HTMX swaps into #reader-content. */
+.reader-close-btn {
+  display: none;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 14px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--c-text-2);
+  background: var(--c-surface);
+  border-bottom: 1px solid var(--c-border);
+  border-top: none;
+  border-left: none;
+  border-right: none;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: color var(--t-fast), background var(--t-fast);
+  text-align: left;
+  width: 100%;
+}
+
+.reader-close-btn:hover {
+  color: var(--c-text);
+  background: var(--c-surface-2);
 }
 
 .reader-empty {
@@ -244,12 +280,33 @@ button {
     transform: translateX(100%);
     transition: transform var(--t-med);
     z-index: var(--z-reader);
-    overflow-y: auto;
+    overflow: hidden;    /* flex child (#reader-content) handles scrolling */
   }
 
   /* app.js adds .reader-open to <body> when an article is loaded */
   body.reader-open .reader-pane {
     transform: translateX(0);
+  }
+
+  /* Back button: show on mobile overlay; hidden on desktop 3-pane */
+  .reader-close-btn {
+    display: flex;
+  }
+
+  /* Content area padding reduced on the narrower side panel */
+  #reader-content {
+    padding: 16px 20px;
+  }
+
+  /* Article detail header: remove the desktop padding-right that reserves space
+     for the absolute-positioned toolbar. On mobile the toolbar flows statically. */
+  .detail-header {
+    padding-right: 0;
+  }
+
+  .detail-reader-toolbar {
+    position: static;
+    margin-bottom: 8px;
   }
 }
 
@@ -308,13 +365,16 @@ button {
     transform: translateX(100%);
     transition: transform var(--t-med);
     z-index: var(--z-reader);
-    overflow-y: auto;
-    padding: 16px;
+    overflow: hidden;    /* flex child (#reader-content) handles scrolling */
     box-shadow: none;
   }
 
   body.reader-open .reader-pane {
     transform: translateX(0);
+  }
+
+  #reader-content {
+    padding: 16px;
   }
 }
 
@@ -910,6 +970,33 @@ button {
   border-top: 1px solid var(--c-border);
   margin-top: 12px;
   padding-top: 12px;
+}
+
+/* ── Prev / Next article navigation (shown in article reader, all viewports) */
+.reader-nav-row {
+  display: flex;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.reader-nav-btn {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  font-size: 12px;
+  font-weight: 500;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--c-text-muted);
+  border: 1px solid var(--c-border);
+  cursor: pointer;
+  transition: background var(--t-fast), color var(--t-fast), border-color var(--t-fast);
+}
+
+.reader-nav-btn:hover {
+  background: var(--c-surface-2);
+  color: var(--c-text);
+  border-color: var(--c-accent);
 }
 
 

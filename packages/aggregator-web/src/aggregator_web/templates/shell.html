@@ -27,13 +27,13 @@
   <!-- HTMX -->
   <script src="https://unpkg.com/htmx.org@1.9.12" defer></script>
 </head>
-<body x-data="aggregatorApp" @keydown.window="handleKey($event)">
+<body x-data="aggregatorApp" @keydown.window="handleKey($event)" @reader:close.window="closeReader()">
 
   <!-- Mobile header (hidden on desktop via CSS) -->
   <header class="mobile-header" role="banner">
     <button class="hamburger"
             type="button"
-            @click="drawerOpen = !drawerOpen"
+            @click="toggleDrawer()"
             :aria-expanded="drawerOpen.toString()"
             :aria-label="drawerOpen ? 'Close menu' : 'Open menu'">
       <span></span>
@@ -79,8 +79,16 @@
     <aside class="reader-pane"
            id="reader-pane"
            aria-label="Article reader">
-      <div class="reader-empty">
-        <p>Select an article to read.</p>
+      <!-- Back button: visible only on mobile (<1024px), persists through HTMX swaps -->
+      <button class="reader-close-btn"
+              type="button"
+              @click="closeReader()"
+              aria-label="Back to article list">&#8592; Back</button>
+      <!-- Scrollable content area; HTMX targets this div, not #reader-pane -->
+      <div id="reader-content">
+        <div class="reader-empty">
+          <p>Select an article to read.</p>
+        </div>
       </div>
     </aside>
 

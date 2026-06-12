@@ -113,6 +113,19 @@
       </div>
       {% endif %}
 
+      <div class="reader-nav-row">
+        <button class="reader-nav-btn"
+                type="button"
+                onclick="window.dispatchEvent(new CustomEvent('reader:prev'))"
+                aria-label="Previous article"
+                title="Previous article">&#8592; Prev</button>
+        <button class="reader-nav-btn"
+                type="button"
+                onclick="window.dispatchEvent(new CustomEvent('reader:next'))"
+                aria-label="Next article"
+                title="Next article">Next &#8594;</button>
+      </div>
+
     </header>
 
     {% if article.summary %}
