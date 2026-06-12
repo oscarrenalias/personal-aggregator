@@ -1,10 +1,36 @@
 from datetime import datetime
+from enum import Enum as PyEnum
 from typing import List, Optional
 
-from sqlalchemy import BigInteger, Boolean, CheckConstraint, Enum, ForeignKey, Integer, Text, UniqueConstraint, func
+from sqlalchemy import BigInteger, Boolean, CheckConstraint, Enum, Float, ForeignKey, Integer, Text, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import JSONB, TIMESTAMP, TSVECTOR
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy.schema import Identity
+
+
+class ThreadStatus(PyEnum):
+    active = "active"
+    dormant = "dormant"
+    archived = "archived"
+
+
+class ThreadTier(PyEnum):
+    must_know = "must_know"
+    worth_tracking = "worth_tracking"
+    deep_read = "deep_read"
+    low_noise = "low_noise"
+
+
+class ClassificationLabel(PyEnum):
+    new_thread = "new_thread"
+    same_thread_new_fact = "same_thread_new_fact"
+    same_thread_new_angle = "same_thread_new_angle"
+    same_thread_duplicate = "same_thread_duplicate"
+    same_thread_background_only = "same_thread_background_only"
+    correction_or_clarification = "correction_or_clarification"
+    related_new_thread = "related_new_thread"
+    irrelevant_or_low_value = "irrelevant_or_low_value"
+
 
 # Postgres enum type declared here; Python-level enum and state machine live in state.py
 article_status_type = Enum(
@@ -15,6 +41,22 @@ article_status_type = Enum(
     "failed_ranking",
     "skipped",
     name="article_status",
+)
+
+thread_status_type = Enum("active", "dormant", "archived", name="thread_status")
+
+thread_tier_type = Enum("must_know", "worth_tracking", "deep_read", "low_noise", name="thread_tier")
+
+classification_label_type = Enum(
+    "new_thread",
+    "same_thread_new_fact",
+    "same_thread_new_angle",
+    "same_thread_duplicate",
+    "same_thread_background_only",
+    "correction_or_clarification",
+    "related_new_thread",
+    "irrelevant_or_low_value",
+    name="classification_label",
 )
 
 
@@ -110,6 +152,11 @@ class Article(Base):
         TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
     )
 
+    # Thread clustering
+    thread_membership: Mapped[Optional["ThreadMembership"]] = relationship(
+        "ThreadMembership", back_populates="article", uselist=False
+    )
+
 
 class Category(Base):
     __tablename__ = "categories"
@@ -182,3 +229,48 @@ class BriefTopic(Base):
     )
 
     brief: Mapped["Brief"] = relationship("Brief", back_populates="topics")
+
+
+class Thread(Base):
+    __tablename__ = "threads"
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(always=True), primary_key=True)
+    representative_title: Mapped[str] = mapped_column(Text, nullable=False)
+    rolling_summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    known_facts: Mapped[Optional[list]] = mapped_column(JSONB, nullable=True)
+    first_seen: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), nullable=False)
+    last_updated: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), nullable=False)
+    status: Mapped[str] = mapped_column(thread_status_type, nullable=False, server_default="active")
+    source_list: Mapped[Optional[list]] = mapped_column(JSONB, nullable=True)
+    source_diversity: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    confidence: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    novelty_label: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    tier: Mapped[Optional[str]] = mapped_column(thread_tier_type, nullable=True)
+    tier_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    relevance_score: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    novelty_score: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    importance_score: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    diversity_score: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    time_sensitivity_score: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+
+    members: Mapped[List["ThreadMembership"]] = relationship(
+        "ThreadMembership", back_populates="thread", cascade="all, delete-orphan"
+    )
+
+
+class ThreadMembership(Base):
+    __tablename__ = "thread_memberships"
+    __table_args__ = (UniqueConstraint("article_id", name="uq_thread_memberships_article_id"),)
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(always=True), primary_key=True)
+    thread_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("threads.id", ondelete="CASCADE"), nullable=False)
+    article_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("articles.id"), nullable=False)
+    classification_label: Mapped[Optional[str]] = mapped_column(classification_label_type, nullable=True)
+    new_facts: Mapped[Optional[list]] = mapped_column(JSONB, nullable=True)
+    reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    confidence: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    suppressed: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
+    assigned_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), nullable=False)
+
+    thread: Mapped["Thread"] = relationship("Thread", back_populates="members")
+    article: Mapped["Article"] = relationship("Article", back_populates="thread_membership")
