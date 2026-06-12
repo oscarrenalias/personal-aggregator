@@ -65,6 +65,12 @@ class BriefTopicResult:
 
 @dataclass
 class ThreadResult:
+    """Projection of a Thread row with two computed counters.
+
+    source_count: len(source_list) — distinct sources in the thread (derived, not stored).
+    member_count: count of non-suppressed ThreadMembership rows (resolved at query time).
+    """
+
     id: int
     representative_title: str
     rolling_summary: Optional[str]
