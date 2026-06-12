@@ -22,6 +22,9 @@ You are an article analyst. For the article provided:
    - 31-60: maybe useful, tangentially related to interests
    - 61-80: relevant, directly related to one or more stated interests
    - 81-100: highly important, strongly matches interests
+   The interest profile may include topics or subjects marked as low-priority, negative, or to be deprioritized.
+   If the article's subject matches those low-priority or deprioritized signals, assign a LOWER score (push toward the 0-30 band) even if the article is otherwise newsworthy.
+   Both the profile's stated priorities AND its deprioritizations shape the score.
    Consider: interest match, source relevance, novelty, and practical usefulness.
 4. Give a one-sentence reason for the score."""
 
@@ -49,7 +52,11 @@ def _build_category_instruction(categories: Sequence[_CategoryEntry]) -> str:
             lines.append(f"- {cat.name}")
     category_list = "\n".join(lines)
     return (
-        "5. Assign the article to zero or more of these categories, using the exact names. "
+        "5. Assign the article to zero or more of these categories using the exact names from the list below. "
+        "Only assign a category when the article clearly matches that category's description. "
+        "Honor any exclusions stated in a description (e.g. if a description says it EXCLUDES a topic, do not assign that category to articles about that topic). "
+        "Prefer the most specific matching category. "
+        "Do not over-assign, pad, or guess — assigning zero categories is acceptable when nothing clearly fits. "
         f"Only use names from this list:\n{category_list}"
     )
 

@@ -146,6 +146,9 @@ class TestGetPromptVersion:
     def test_returns_string(self):
         assert isinstance(get_prompt_version(), str)
 
+    def test_prompt_version_is_1_2_0(self):
+        assert PROMPT_VERSION == "1.2.0"
+
 
 class _Cat:
     """Minimal _CategoryEntry stand-in for tests."""
@@ -199,3 +202,61 @@ class TestBuildMessagesWithCategories:
         msgs_none = build_messages({"clean_text": "x" * 300}, "", default_settings, enabled_categories=None)
         msgs_empty = build_messages({"clean_text": "x" * 300}, "", default_settings, enabled_categories=[])
         assert msgs_none[0]["content"] == msgs_empty[0]["content"]
+
+
+class TestLowPriorityProfileGuidance:
+    """Regression tests: profiled prompt must carry low-priority/deprioritize guidance."""
+
+    def test_profiled_system_prompt_mentions_deprioritize(self, default_settings):
+        msgs = build_messages({"clean_text": "x" * 300}, "I like AI. Deprioritize sports.", default_settings)
+        system = msgs[0]["content"].lower()
+        assert "deprioritize" in system or "low-priority" in system or "de-prioritize" in system
+
+    def test_profiled_system_prompt_mentions_lower_score_for_negative_signals(self, default_settings):
+        msgs = build_messages({"clean_text": "x" * 300}, "I like AI.", default_settings)
+        system = msgs[0]["content"].lower()
+        assert "lower" in system or "0-30" in system
+
+    def test_neutral_system_prompt_unchanged(self, default_settings):
+        msgs = build_messages({"clean_text": "x" * 300}, "", default_settings)
+        system = msgs[0]["content"].lower()
+        assert "deprioritize" not in system and "low-priority" not in system
+
+    def test_profiled_system_mentions_both_priorities_and_deprioritizations(self, default_settings):
+        msgs = build_messages({"clean_text": "x" * 300}, "I like Python.", default_settings)
+        system = msgs[0]["content"].lower()
+        assert "deprioritize" in system or "de-prioritize" in system or "deprioritization" in system
+
+
+class TestCategoryInstructionStrengthened:
+    """Regression tests: category instruction must enforce clear-match and honor exclusions."""
+
+    def test_instruction_requires_clear_match(self):
+        cats = [_Cat("SoftwareEngineering", "Software engineering news. EXCLUDES video games.")]
+        text = _build_category_instruction(cats)
+        assert "clearly matches" in text.lower() or "clear match" in text.lower()
+
+    def test_instruction_honors_exclusions(self):
+        cats = [_Cat("SoftwareEngineering", "Software engineering news. EXCLUDES video games.")]
+        text = _build_category_instruction(cats)
+        assert "exclusion" in text.lower() or "excludes" in text.lower()
+
+    def test_instruction_permits_zero_categories(self):
+        cats = [_Cat("AI"), _Cat("Science")]
+        text = _build_category_instruction(cats)
+        assert "zero" in text.lower() or "no categor" in text.lower() or "nothing clearly fits" in text.lower()
+
+    def test_instruction_discourages_over_assignment(self):
+        cats = [_Cat("Tech", "Technology articles")]
+        text = _build_category_instruction(cats)
+        assert "over-assign" in text.lower() or "do not over" in text.lower() or "pad" in text.lower()
+
+    def test_instruction_still_uses_exact_names(self):
+        cats = [_Cat("AI")]
+        text = _build_category_instruction(cats)
+        assert "exact name" in text.lower()
+
+    def test_category_with_exclusion_preserved_in_output(self):
+        cats = [_Cat("SoftwareEngineering", "Software engineering. EXCLUDES video games.")]
+        text = _build_category_instruction(cats)
+        assert "EXCLUDES video games" in text
