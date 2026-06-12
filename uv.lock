@@ -5,6 +5,7 @@ requires-python = ">=3.12"
 [manifest]
 members = [
     "aggregator-admin",
+    "aggregator-brief",
     "aggregator-common",
     "aggregator-mcp",
     "aggregator-processor",
@@ -29,6 +30,23 @@ requires-dist = [
     { name = "aggregator-common", editable = "packages/aggregator-common" },
     { name = "rich", specifier = ">=13" },
     { name = "typer", specifier = ">=0.12" },
+]
+
+[[package]]
+name = "aggregator-brief"
+version = "0.1.0"
+source = { editable = "packages/aggregator-brief" }
+dependencies = [
+    { name = "aggregator-common" },
+    { name = "litellm" },
+    { name = "pydantic" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "aggregator-common", editable = "packages/aggregator-common" },
+    { name = "litellm", specifier = ">=1" },
+    { name = "pydantic", specifier = ">=2" },
 ]
 
 [[package]]

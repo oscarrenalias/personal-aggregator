@@ -1,0 +1,84 @@
+{#
+  _today.html — Today's intelligent daily brief.
+  Context:
+    brief     : Brief | None — latest ready brief (None when generating or no brief yet)
+    generating : bool        — True when a brief is pending or being generated
+#}
+
+{% if brief %}
+<div class="today-brief">
+  <div class="today-brief-header">
+    <h1 class="today-brief-headline">{{ brief.headline or "Today's Brief" }}</h1>
+    <form hx-post="/today/refresh" hx-target="#article-list" hx-swap="innerHTML">
+      <button type="submit" class="today-refresh-btn">Refresh</button>
+    </form>
+  </div>
+
+  {% if brief.intro %}
+  <p class="today-brief-intro">{{ brief.intro }}</p>
+  {% endif %}
+
+  <div class="today-topics">
+    {% for topic in brief.topics %}
+    <div class="today-topic">
+      <h2 class="today-topic-headline">{{ topic.headline }}</h2>
+
+      <div class="today-topic-section">
+        <h3>What happened</h3>
+        <p>{{ topic.what_happened }}</p>
+      </div>
+
+      <div class="today-topic-section">
+        <h3>Why it matters</h3>
+        <p>{{ topic.why_it_matters }}</p>
+      </div>
+
+      {% if topic.historical_context %}
+      <div class="today-topic-section">
+        <h3>Background</h3>
+        <p>{{ topic.historical_context }}</p>
+      </div>
+      {% endif %}
+
+      {% if topic.topic_refs %}
+      <div class="today-topic-refs">
+        <h3>Read</h3>
+        <ul>
+          {% for ref in topic.topic_refs %}
+          <li>
+            {% if ref.internal and ref.article_id %}
+            <a hx-get="/article/{{ ref.article_id }}"
+               hx-target="#article-detail"
+               hx-swap="innerHTML">{{ ref.title }}</a>
+            {% elif ref.url %}
+            <a href="{{ ref.url }}" target="_blank" rel="noopener">{{ ref.title }}</a>
+            {% else %}
+            {{ ref.title }}
+            {% endif %}
+          </li>
+          {% endfor %}
+        </ul>
+      </div>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+</div>
+
+{% elif generating %}
+<div class="today-generating"
+     hx-get="/today"
+     hx-target="#article-list"
+     hx-swap="innerHTML"
+     hx-trigger="every 5s">
+  <p>Generating your daily brief&hellip;</p>
+</div>
+
+{% else %}
+<div class="today-empty">
+  <p>No brief yet.</p>
+  <form hx-post="/today/refresh" hx-target="#article-list" hx-swap="innerHTML">
+    <button type="submit" class="today-refresh-btn">Generate Brief</button>
+  </form>
+</div>
+{% endif %}
