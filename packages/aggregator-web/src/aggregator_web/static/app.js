@@ -132,6 +132,25 @@ function articleList() {
       });
     },
 
+    /* n — mark the selected article read then advance to the next article.
+       Captures the next card ID before the async HTMX swap alters the DOM. */
+    markReadAndNext() {
+      if (this._inputFocused()) return;
+      const card = this._selectedCard();
+      if (!card || this.selectedId === null) return;
+      if (!card.classList.contains('is-read')) {
+        htmx.ajax('POST', `/article/${this.selectedId}/read`, {
+          target: card,
+          swap: 'outerHTML',
+        });
+      }
+      const cards = this._cards();
+      const next = Math.min(this._currentIndex() + 1, cards.length - 1);
+      if (next >= 0) {
+        this.select(parseInt(cards[next].dataset.articleId, 10));
+      }
+    },
+
     /* Load the given article into the reader pane via HTMX. */
     _loadReader(id) {
       const pane = document.getElementById('reader-pane');
