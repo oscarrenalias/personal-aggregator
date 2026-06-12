@@ -218,14 +218,25 @@ def retry_article(
 def rerank_article(
     article_id: Optional[int] = typer.Argument(None, help="Article ID to rerank."),
     all_ready: bool = typer.Option(False, "--all", help="Requeue all ready articles for re-ranking."),
+    failed: bool = typer.Option(
+        False,
+        "--failed",
+        help="Requeue all failed_ranking articles back to pending_ranking (recover from mass ranking failures).",
+    ),
     yes: bool = typer.Option(False, "--yes", help="Confirm bulk requeue without prompting."),
 ) -> None:
-    """Queue a ready article (or all ready articles) for re-ranking."""
-    if article_id is not None and all_ready:
-        typer.echo("Error: provide either an article ID or --all, not both.", err=True)
+    """Queue articles for re-ranking.
+
+    Provide an ARTICLE_ID to requeue a single ready article, --all to requeue
+    all ready articles, or --failed to recover articles stuck in failed_ranking
+    back to pending_ranking so summarize-rank can re-claim them.
+    """
+    options_set = sum([article_id is not None, all_ready, failed])
+    if options_set > 1:
+        typer.echo("Error: provide exactly one of ARTICLE_ID, --all, or --failed.", err=True)
         raise typer.Exit(code=1)
-    if article_id is None and not all_ready:
-        typer.echo("Error: provide either an article ID or --all.", err=True)
+    if options_set == 0:
+        typer.echo("Error: provide exactly one of ARTICLE_ID, --all, or --failed.", err=True)
         raise typer.Exit(code=1)
 
     target = ArticleStatus.pending_ranking
@@ -241,6 +252,22 @@ def rerank_article(
                     article.status = target
                     article.claimed_by = None
                     article.claimed_at = None
+                    requeued += 1
+        typer.echo(f"Requeued {requeued} article(s) for re-ranking (→ pending_ranking).")
+    elif failed:
+        confirm(yes=yes, prompt="This will requeue all failed_ranking articles for re-ranking.")
+        requeued = 0
+        with get_session() as session:
+            articles = session.query(Article).filter(Article.status == ArticleStatus.failed_ranking).all()
+            for article in articles:
+                current = ArticleStatus(article.status)
+                if can_transition(current, target):
+                    article.status = target
+                    article.claimed_by = None
+                    article.claimed_at = None
+                    article.retry_count = 0
+                    article.next_retry_at = None
+                    article.last_error = None
                     requeued += 1
         typer.echo(f"Requeued {requeued} article(s) for re-ranking (→ pending_ranking).")
     else:

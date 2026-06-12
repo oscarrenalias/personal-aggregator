@@ -462,3 +462,111 @@ def test_articles_rerank_all_and_id_exits_nonzero(runner, db_session):
 def test_articles_rerank_neither_id_nor_all_exits_nonzero(runner):
     result = runner.invoke(app, ["articles", "rerank"])
     assert result.exit_code == 1
+
+
+# ---------------------------------------------------------------------------
+# articles rerank --failed
+# ---------------------------------------------------------------------------
+
+def test_articles_rerank_failed_requeues_failed_ranking(runner, db_session):
+    """--failed transitions failed_ranking → pending_ranking with claim/retry fields cleared."""
+    from datetime import timezone
+    src = make_source(db_session)
+    claimed_time = datetime(2025, 1, 1, 10, 0, 0, tzinfo=timezone.utc)
+    retry_time = datetime(2025, 1, 1, 11, 0, 0, tzinfo=timezone.utc)
+
+    art1 = make_article(
+        db_session,
+        source_id=src.id,
+        status=ArticleStatus.failed_ranking,
+        dedup_key="fr1",
+        claimed_by="worker-1",
+        claimed_at=claimed_time,
+        retry_count=3,
+        last_error="OPENAI_API_KEY missing",
+    )
+    art2 = make_article(
+        db_session,
+        source_id=src.id,
+        status=ArticleStatus.failed_ranking,
+        dedup_key="fr2",
+        claimed_by="worker-2",
+        claimed_at=claimed_time,
+        retry_count=1,
+    )
+    # Set next_retry_at directly (make_article doesn't expose it)
+    art1.next_retry_at = retry_time
+    art2.next_retry_at = retry_time
+    db_session.commit()
+    db_session.refresh(art1)
+    db_session.refresh(art2)
+
+    art_ready = make_article(db_session, source_id=src.id, status=ArticleStatus.ready, dedup_key="rdy")
+
+    result = runner.invoke(app, ["articles", "rerank", "--failed", "--yes"])
+    assert result.exit_code == 0
+    assert "2" in result.output
+
+    db_session.refresh(art1)
+    db_session.refresh(art2)
+    db_session.refresh(art_ready)
+
+    assert art1.status == ArticleStatus.pending_ranking.value
+    assert art1.claimed_by is None
+    assert art1.claimed_at is None
+    assert art1.retry_count == 0
+    assert art1.next_retry_at is None
+    assert art1.last_error is None
+
+    assert art2.status == ArticleStatus.pending_ranking.value
+    assert art2.claimed_by is None
+    assert art2.claimed_at is None
+    assert art2.retry_count == 0
+    assert art2.next_retry_at is None
+
+    # ready article must be untouched
+    assert art_ready.status == ArticleStatus.ready.value
+
+
+def test_articles_rerank_failed_leaves_ready_untouched(runner, db_session):
+    """--failed does not touch articles that are not in failed_ranking."""
+    src = make_source(db_session)
+    art_ready = make_article(db_session, source_id=src.id, status=ArticleStatus.ready, dedup_key="rdy")
+    art_failed_proc = make_article(db_session, source_id=src.id, status=ArticleStatus.failed_processing, dedup_key="fp")
+    art_pending = make_article(db_session, source_id=src.id, status=ArticleStatus.pending_ranking, dedup_key="pr")
+
+    result = runner.invoke(app, ["articles", "rerank", "--failed", "--yes"])
+    assert result.exit_code == 0
+    assert "0" in result.output
+
+    db_session.refresh(art_ready)
+    db_session.refresh(art_failed_proc)
+    db_session.refresh(art_pending)
+    assert art_ready.status == ArticleStatus.ready.value
+    assert art_failed_proc.status == ArticleStatus.failed_processing.value
+    assert art_pending.status == ArticleStatus.pending_ranking.value
+
+
+def test_articles_rerank_failed_and_all_exits_nonzero(runner, db_session):
+    """--failed combined with --all must error out."""
+    result = runner.invoke(app, ["articles", "rerank", "--failed", "--all", "--yes"])
+    assert result.exit_code == 1
+    assert "exactly one" in result.output
+
+
+def test_articles_rerank_failed_and_id_exits_nonzero(runner, db_session):
+    """--failed combined with an ARTICLE_ID must error out."""
+    src = make_source(db_session)
+    art = make_article(db_session, source_id=src.id, status=ArticleStatus.failed_ranking)
+    result = runner.invoke(app, ["articles", "rerank", str(art.id), "--failed"])
+    assert result.exit_code == 1
+    assert "exactly one" in result.output
+
+
+def test_articles_rerank_failed_no_yes_noninteractive_exits_nonzero(runner, db_session):
+    """--failed without --yes in a non-interactive runner must require confirmation."""
+    src = make_source(db_session)
+    make_article(db_session, source_id=src.id, status=ArticleStatus.failed_ranking)
+    result = runner.invoke(app, ["articles", "rerank", "--failed"])
+    assert result.exit_code == 1
+    assert "non-interactive" in result.output
