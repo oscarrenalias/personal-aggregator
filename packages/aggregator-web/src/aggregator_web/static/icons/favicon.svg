@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Aggregator radar icon">
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="42%" r="75%">
+      <stop offset="0%" stop-color="#1f1f38"/>
+      <stop offset="100%" stop-color="#0f0f1a"/>
+    </radialGradient>
+    <radialGradient id="blip" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#c7d2fe"/>
+      <stop offset="45%" stop-color="#818cf8" stop-opacity="0.55"/>
+      <stop offset="100%" stop-color="#818cf8" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="sweep" x1="256" y1="256" x2="392" y2="120" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#818cf8" stop-opacity="0.7"/>
+      <stop offset="100%" stop-color="#818cf8" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+
+  <!-- full-bleed background (maskable-safe; OS rounds the corners) -->
+  <rect width="512" height="512" fill="url(#bg)"/>
+
+  <g fill="none" stroke="#6366f1" stroke-width="7">
+    <!-- concentric radar rings, fading outward -->
+    <circle cx="256" cy="256" r="70" opacity="0.95"/>
+    <circle cx="256" cy="256" r="126" opacity="0.55"/>
+    <circle cx="256" cy="256" r="182" opacity="0.30"/>
+  </g>
+
+  <!-- crosshair -->
+  <g stroke="#6366f1" stroke-width="4" opacity="0.16" stroke-linecap="round">
+    <line x1="74" y1="256" x2="438" y2="256"/>
+    <line x1="256" y1="74" x2="256" y2="438"/>
+  </g>
+
+  <!-- sweep beam toward the blip (upper-right) -->
+  <path d="M256 256 L392 120 A182 182 0 0 1 415 196 Z" fill="url(#sweep)"/>
+  <line x1="256" y1="256" x2="392" y2="120" stroke="#818cf8" stroke-width="6"
+        stroke-linecap="round" opacity="0.85"/>
+
+  <!-- the blip: glow + bright core, sitting on the middle ring -->
+  <circle cx="345" cy="167" r="34" fill="url(#blip)"/>
+  <circle cx="345" cy="167" r="13" fill="#e0e7ff"/>
+
+  <!-- center node -->
+  <circle cx="256" cy="256" r="9" fill="#818cf8"/>
+</svg>
