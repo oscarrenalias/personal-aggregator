@@ -204,6 +204,10 @@ def rerank(
         article.status = target
         article.claimed_by = None
         article.claimed_at = None
+        if failed_only:
+            article.retry_count = 0
+            article.next_retry_at = None
+            article.last_error = None
         reranked += 1
 
     session.flush()
