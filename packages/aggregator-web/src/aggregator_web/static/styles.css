@@ -887,10 +887,29 @@ button {
   margin-bottom: 12px;
 }
 
+.detail-summary {
+  margin-top: 8px;
+  margin-bottom: 0;
+}
+
+.summary-block {
+  font-size: 0.9em;
+  font-style: italic;
+  color: var(--c-text-2);
+  line-height: 1.6;
+}
+
+.summary-block p {
+  margin: 0 0 0.5em;
+  font-size: inherit;
+  color: inherit;
+  line-height: inherit;
+}
+
 .detail-body {
   border-top: 1px solid var(--c-border);
-  margin-top: 20px;
-  padding-top: 20px;
+  margin-top: 12px;
+  padding-top: 12px;
 }
 
 

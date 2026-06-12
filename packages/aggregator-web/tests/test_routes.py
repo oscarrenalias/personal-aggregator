@@ -858,8 +858,8 @@ def test_article_detail_clean_text_html_is_escaped(db_session, client):
 # ---------------------------------------------------------------------------
 
 
-def test_article_detail_has_article_section_heading(db_session, client):
-    """Detail view with body text must render the 'Article' section heading."""
+def test_article_detail_has_article_text_container(db_session, client):
+    """Detail view with body text must render the .article-text container."""
     src = make_source(db_session)
     article = make_article(
         db_session,
@@ -868,7 +868,39 @@ def test_article_detail_has_article_section_heading(db_session, client):
     )
     response = client.get(f"/article/{article.id}")
     assert response.status_code == 200
-    assert ">Article<" in response.text
+    assert 'class="article-text"' in response.text
+    assert "Body content here." in response.text
+
+
+def test_article_detail_no_section_headings(db_session, client):
+    """Detail view must not render 'Summary' or 'Article' section headings."""
+    src = make_source(db_session)
+    article = make_article(
+        db_session,
+        source_id=src.id,
+        summary="A generated summary.",
+        clean_text="Body content here.",
+    )
+    response = client.get(f"/article/{article.id}")
+    assert response.status_code == 200
+    assert ">Summary<" not in response.text
+    assert ">Article<" not in response.text
+    assert "detail-section-heading" not in response.text
+
+
+def test_article_detail_summary_rendered_without_heading(db_session, client):
+    """Summary section must render .detail-summary and .summary-block without a heading."""
+    src = make_source(db_session)
+    article = make_article(
+        db_session,
+        source_id=src.id,
+        summary="LLM-generated abstract.",
+    )
+    response = client.get(f"/article/{article.id}")
+    assert response.status_code == 200
+    assert 'class="detail-summary"' in response.text
+    assert 'class="summary-block"' in response.text
+    assert "LLM-generated abstract." in response.text
 
 
 # ---------------------------------------------------------------------------
