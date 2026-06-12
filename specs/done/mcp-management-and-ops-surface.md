@@ -5,7 +5,7 @@ description: "Expand the MCP server so agents can manage profile, sources, and c
 dependencies: null
 priority: high
 complexity: null
-status: planned
+status: done
 tags: []
 scope:
   in: null
