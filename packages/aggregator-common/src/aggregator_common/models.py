@@ -1,9 +1,9 @@
 from datetime import datetime
-from typing import Optional
+from typing import List, Optional
 
 from sqlalchemy import BigInteger, Boolean, CheckConstraint, Enum, ForeignKey, Integer, Text, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import JSONB, TIMESTAMP, TSVECTOR
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy.schema import Identity
 
 # Postgres enum type declared here; Python-level enum and state machine live in state.py
@@ -136,3 +136,48 @@ class InterestProfile(Base):
     updated_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
     )
+
+
+class Brief(Base):
+    __tablename__ = "briefs"
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(always=True), primary_key=True)
+    status: Mapped[str] = mapped_column(Text, nullable=False)
+    claimed_by: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    claimed_at: Mapped[Optional[datetime]] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
+    period_start: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), nullable=False)
+    period_end: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), nullable=False)
+    generated_at: Mapped[Optional[datetime]] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
+    model: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    headline: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    intro: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    origin: Mapped[str] = mapped_column(Text, nullable=False, server_default="auto")
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    topics: Mapped[List["BriefTopic"]] = relationship(
+        "BriefTopic", back_populates="brief", cascade="all, delete-orphan", order_by="BriefTopic.position"
+    )
+
+
+class BriefTopic(Base):
+    __tablename__ = "brief_topics"
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(always=True), primary_key=True)
+    brief_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("briefs.id", ondelete="CASCADE"), nullable=False)
+    position: Mapped[int] = mapped_column(Integer, nullable=False)
+    headline: Mapped[str] = mapped_column(Text, nullable=False)
+    what_happened: Mapped[str] = mapped_column(Text, nullable=False)
+    why_it_matters: Mapped[str] = mapped_column(Text, nullable=False)
+    historical_context: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    topic_refs: Mapped[list] = mapped_column("refs", JSONB, nullable=False, server_default="[]")
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    brief: Mapped["Brief"] = relationship("Brief", back_populates="topics")
