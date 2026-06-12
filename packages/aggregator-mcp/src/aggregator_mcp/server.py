@@ -292,3 +292,133 @@ def remove_source(source_id: int) -> dict:
         return {"error": "not_found", "detail": str(exc)}
     except ConflictError as exc:
         return {"error": "conflict", "detail": str(exc)}
+
+
+@mcp.tool()
+def add_category(
+    name: str,
+    description: Optional[str] = None,
+    sort_order: Optional[int] = None,
+    enabled: bool = True,
+) -> dict:
+    """Add a new category to the aggregator.
+
+    Returns the created category fields on success, or an error dict with 'error'
+    and 'detail' keys when a category with the same name already exists (conflict).
+    """
+    try:
+        with get_session() as session:
+            return management.add_category(
+                session,
+                name,
+                description=description,
+                sort_order=sort_order,
+                enabled=enabled,
+            )
+    except NotFoundError as exc:
+        return {"error": "not_found", "detail": str(exc)}
+    except ConflictError as exc:
+        return {"error": "conflict", "detail": str(exc)}
+
+
+@mcp.tool()
+def rename_category(category_id: int, new_name: str) -> dict:
+    """Rename an existing category.
+
+    category_id may be an integer primary key or an exact name string.
+    Returns the updated category id and name on success, or an error dict with
+    'error' and 'detail' keys when the category is not found or the new name
+    is already taken by another category.
+    """
+    try:
+        with get_session() as session:
+            return management.rename_category(session, category_id, new_name)
+    except NotFoundError as exc:
+        return {"error": "not_found", "detail": str(exc)}
+    except ConflictError as exc:
+        return {"error": "conflict", "detail": str(exc)}
+
+
+@mcp.tool()
+def set_category_description(category_id: int, description: Optional[str]) -> dict:
+    """Set or clear the description of a category.
+
+    Pass None to clear the description. Returns the updated category id and
+    description on success, or an error dict with 'error' and 'detail' keys
+    when the category is not found.
+    """
+    try:
+        with get_session() as session:
+            return management.set_category_description(session, category_id, description)
+    except NotFoundError as exc:
+        return {"error": "not_found", "detail": str(exc)}
+    except ConflictError as exc:
+        return {"error": "conflict", "detail": str(exc)}
+
+
+@mcp.tool()
+def set_category_order(category_id: int, sort_order: int) -> dict:
+    """Update the display sort order of a category.
+
+    Returns the updated category id and sort_order on success, or an error dict
+    with 'error' and 'detail' keys when the category is not found.
+    """
+    try:
+        with get_session() as session:
+            return management.set_category_order(session, category_id, sort_order)
+    except NotFoundError as exc:
+        return {"error": "not_found", "detail": str(exc)}
+    except ConflictError as exc:
+        return {"error": "conflict", "detail": str(exc)}
+
+
+@mcp.tool()
+def enable_category(category_id: int) -> dict:
+    """Enable a category so it appears in listings.
+
+    Returns the updated category id and enabled state on success, or an error
+    dict with 'error' and 'detail' keys when the category is not found.
+    """
+    try:
+        with get_session() as session:
+            return management.enable_category(session, category_id)
+    except NotFoundError as exc:
+        return {"error": "not_found", "detail": str(exc)}
+    except ConflictError as exc:
+        return {"error": "conflict", "detail": str(exc)}
+
+
+@mcp.tool()
+def disable_category(category_id: int) -> dict:
+    """Disable a category so it is hidden from listings.
+
+    Returns the updated category id and enabled state on success, or an error
+    dict with 'error' and 'detail' keys when the category is not found.
+    """
+    try:
+        with get_session() as session:
+            return management.disable_category(session, category_id)
+    except NotFoundError as exc:
+        return {"error": "not_found", "detail": str(exc)}
+    except ConflictError as exc:
+        return {"error": "conflict", "detail": str(exc)}
+
+
+@mcp.tool()
+def remove_category(category_id: int) -> dict:
+    """Permanently delete a category.
+
+    WARNING: This operation is irreversible. The category record is permanently
+    deleted and cannot be recovered. Any articles previously assigned to this
+    category will lose their category association.
+
+    Returns {categories_deleted: 1} on success, or an error dict with 'error'
+    and 'detail' keys when the category is not found.
+    """
+    try:
+        with get_session() as session:
+            return management.remove_category(session, category_id)
+    except NotFoundError as exc:
+        return {"error": "not_found", "detail": str(exc)}
+    except ConflictError as exc:
+        return {"error": "conflict", "detail": str(exc)}
