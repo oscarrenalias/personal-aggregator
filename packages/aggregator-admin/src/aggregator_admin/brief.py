@@ -2,15 +2,15 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Optional
 
 import typer
 from sqlalchemy import select
 
 from aggregator_common.db import get_session
-from aggregator_common.models import Brief, BriefTopic
+from aggregator_common.models import Brief
 
-from .output import console, json_default, json_or_table, render_kv_table
+from .output import console, json_default, json_or_table
 
 brief_app = typer.Typer(help="Manage daily briefs.")
 
@@ -70,7 +70,7 @@ def generate_brief() -> None:
 
 @brief_app.command("show")
 def show_brief(
-    brief_id: int = typer.Argument(
+    brief_id: Optional[int] = typer.Argument(
         None,
         help="Brief ID. Defaults to the latest ready brief.",
     ),

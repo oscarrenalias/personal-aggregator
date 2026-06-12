@@ -1,4 +1,5 @@
 import mimetypes
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Generator, List, Optional
 from types import SimpleNamespace
@@ -13,10 +14,10 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import func, select, text
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from aggregator_common.db import SessionFactory, get_session
-from aggregator_common.models import Article, Category, Source
+from aggregator_common.models import Article, Brief, BriefTopic, Category, Source
 from aggregator_common.version import version
 from aggregator_web.config import WebSettings
 from aggregator_web.feeds import (
@@ -476,6 +477,66 @@ def article_unsave(
         raise HTTPException(status_code=404, detail="Article not found")
     _enrich_article(article, db)
     return _render_interaction_response(request, article, hx_target)
+
+
+@app.get("/today")
+def today(
+    request: Request,
+    db: Session = Depends(get_db),
+) -> Response:
+    brief = db.execute(
+        select(Brief)
+        .where(Brief.status == "ready")
+        .order_by(Brief.created_at.desc())
+        .limit(1)
+        .options(selectinload(Brief.topics))
+    ).scalar_one_or_none()
+
+    generating = False
+    if brief is None:
+        pending = db.execute(
+            select(Brief)
+            .where(Brief.status.in_(["pending", "generating"]))
+            .limit(1)
+        ).scalar_one_or_none()
+        generating = pending is not None
+
+    return templates.TemplateResponse(
+        request,
+        "_today.html",
+        {"brief": brief, "generating": generating},
+    )
+
+
+@app.post("/today/refresh")
+def today_refresh(
+    request: Request,
+    db: Session = Depends(get_db),
+) -> Response:
+    today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    today_end = today_start + timedelta(days=1)
+
+    existing = db.execute(
+        select(Brief)
+        .where(Brief.status.in_(["pending", "generating"]))
+        .limit(1)
+    ).scalar_one_or_none()
+
+    if existing is None:
+        new_brief = Brief(
+            status="pending",
+            origin="manual",
+            period_start=today_start,
+            period_end=today_end,
+        )
+        db.add(new_brief)
+        db.flush()
+
+    return templates.TemplateResponse(
+        request,
+        "_today.html",
+        {"brief": None, "generating": True},
+    )
 
 
 @app.get("/search")
