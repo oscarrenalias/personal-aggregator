@@ -35,10 +35,14 @@ class TestGetToday:
         assert resp.status_code == 200
         assert "Big News Today" in resp.text
 
-    def test_ready_brief_intro_in_response(self, client, db_session):
-        make_brief(db_session, status="ready", headline="Headline", intro="The intro text here.")
+    def test_ready_brief_intro_in_detail_response(self, client, db_session):
+        """Under the master-detail layout the intro is served by the brief detail
+        fragment (GET /brief/{id}), not the /today list of cards."""
+        brief = make_brief(
+            db_session, status="ready", headline="Headline", intro="The intro text here."
+        )
 
-        resp = client.get("/today")
+        resp = client.get(f"/brief/{brief.id}")
         assert resp.status_code == 200
         assert "The intro text here." in resp.text
 
