@@ -23,17 +23,20 @@ class Cursor:
       "s" = importance_score (int | null)
       "p" = feed_published_at as ISO-8601 string (str | null)
       "i" = article id (int)
+      "o" = sort order: "relevance" | "newest" (default "relevance" for backward-compat)
     """
 
     importance_score: Optional[int]
     feed_published_at: Optional[datetime]
     id: int
+    sort: str = "relevance"
 
     def encode(self) -> str:
         payload = {
             "s": self.importance_score,
             "p": self.feed_published_at.isoformat() if self.feed_published_at else None,
             "i": self.id,
+            "o": self.sort,
         }
         return base64.urlsafe_b64encode(json.dumps(payload).encode()).decode()
 
@@ -41,7 +44,12 @@ class Cursor:
     def decode(cls, token: str) -> Cursor:
         payload = json.loads(base64.urlsafe_b64decode(token.encode()).decode())
         pub = datetime.fromisoformat(payload["p"]) if payload["p"] else None
-        return cls(importance_score=payload["s"], feed_published_at=pub, id=payload["i"])
+        return cls(
+            importance_score=payload["s"],
+            feed_published_at=pub,
+            id=payload["i"],
+            sort=payload.get("o", "relevance"),
+        )
 
 
 @dataclass
@@ -88,8 +96,25 @@ def _smart_extra_filter(view: SmartViewName, important_threshold: int):
         raise ValueError(f"Unknown smart view: {view!r}")
 
 
+def _cursor_condition_newest(cursor: Cursor):
+    """Keyset WHERE clause for sort order: feed_published_at DESC NULLS LAST, id DESC."""
+    p = Article.feed_published_at
+    id_before = Article.id < cursor.id
+
+    if cursor.feed_published_at is not None:
+        pub_before = or_(p < cursor.feed_published_at, p.is_(None))
+        pub_same = p == cursor.feed_published_at
+        return or_(pub_before, and_(pub_same, id_before))
+    # cursor at NULL pub; only NULL-pub rows with smaller id follow in DESC NULLS LAST
+    return and_(p.is_(None), id_before)
+
+
 def _cursor_condition(cursor: Cursor):
-    """Keyset WHERE clause matching sort order: importance_score DESC NULLS LAST, feed_published_at DESC NULLS LAST, id DESC."""
+    """Keyset WHERE clause — dispatches to the right branch based on cursor.sort."""
+    if cursor.sort == "newest":
+        return _cursor_condition_newest(cursor)
+
+    # relevance order: importance_score DESC NULLS LAST, feed_published_at DESC NULLS LAST, id DESC
     s = Article.importance_score
     p = Article.feed_published_at
 
@@ -115,15 +140,28 @@ def _cursor_condition(cursor: Cursor):
     return and_(s.is_(None), after_pub)
 
 
-def _paginate(session: Session, q, page_size: int, cursor_token: Optional[str]) -> FeedPage:
+def _paginate(
+    session: Session,
+    q,
+    page_size: int,
+    cursor_token: Optional[str],
+    sort: str = "relevance",
+) -> FeedPage:
     if cursor_token:
         q = q.where(_cursor_condition(Cursor.decode(cursor_token)))
 
-    q = q.order_by(
-        Article.importance_score.desc().nulls_last(),
-        Article.feed_published_at.desc().nulls_last(),
-        Article.id.desc(),
-    ).limit(page_size + 1)
+    if sort == "newest":
+        q = q.order_by(
+            Article.feed_published_at.desc().nulls_last(),
+            Article.id.desc(),
+        )
+    else:
+        q = q.order_by(
+            Article.importance_score.desc().nulls_last(),
+            Article.feed_published_at.desc().nulls_last(),
+            Article.id.desc(),
+        )
+    q = q.limit(page_size + 1)
 
     rows = list(session.execute(q).scalars().all())
     next_cursor = None
@@ -134,6 +172,7 @@ def _paginate(session: Session, q, page_size: int, cursor_token: Optional[str]) 
             importance_score=last.importance_score,
             feed_published_at=last.feed_published_at,
             id=last.id,
+            sort=sort,
         ).encode()
 
     return FeedPage(articles=rows, next_cursor=next_cursor)
@@ -146,6 +185,7 @@ def smart_feed(
     important_threshold: int,
     cursor: Optional[str] = None,
     unread_only: bool = False,
+    sort: str = "relevance",
 ) -> FeedPage:
     filters = [_ready_base()]
     extra = _smart_extra_filter(view, important_threshold)
@@ -153,7 +193,7 @@ def smart_feed(
         filters.append(extra)
     if unread_only and view != "unread":
         filters.append(Article.is_read == False)
-    return _paginate(session, select(Article).where(*filters), page_size, cursor)
+    return _paginate(session, select(Article).where(*filters), page_size, cursor, sort)
 
 
 def category_feed(
@@ -162,12 +202,13 @@ def category_feed(
     page_size: int,
     cursor: Optional[str] = None,
     unread_only: bool = False,
+    sort: str = "relevance",
 ) -> FeedPage:
     # JSONB @> operator via .contains(); uses GIN index on categories
     filters = [_ready_base(), Article.categories.contains([name])]
     if unread_only:
         filters.append(Article.is_read == False)
-    return _paginate(session, select(Article).where(*filters), page_size, cursor)
+    return _paginate(session, select(Article).where(*filters), page_size, cursor, sort)
 
 
 def source_feed(
@@ -176,11 +217,12 @@ def source_feed(
     page_size: int,
     cursor: Optional[str] = None,
     unread_only: bool = False,
+    sort: str = "relevance",
 ) -> FeedPage:
     filters = [_ready_base(), Article.source_id == source_id]
     if unread_only:
         filters.append(Article.is_read == False)
-    return _paginate(session, select(Article).where(*filters), page_size, cursor)
+    return _paginate(session, select(Article).where(*filters), page_size, cursor, sort)
 
 
 def smart_feed_count(
