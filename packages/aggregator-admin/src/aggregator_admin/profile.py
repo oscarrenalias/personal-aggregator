@@ -4,10 +4,9 @@ import json
 from typing import Optional
 
 import typer
-from sqlalchemy import func
-from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from aggregator_common.db import get_session
+from aggregator_common.management import set_interest_profile
 from aggregator_common.models import InterestProfile
 from aggregator_admin.output import confirm
 
@@ -39,15 +38,7 @@ def set_profile(
         profile_text = text
 
     with get_session() as session:
-        stmt = (
-            pg_insert(InterestProfile)
-            .values(id=True, profile_text=profile_text)
-            .on_conflict_do_update(
-                index_elements=["id"],
-                set_={"profile_text": profile_text, "updated_at": func.now()},
-            )
-        )
-        session.execute(stmt)
+        set_interest_profile(session, profile_text)
 
     typer.echo(f"Profile set ({len(profile_text)} characters).")
 
