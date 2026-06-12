@@ -59,7 +59,7 @@
          :class="{ 'open': drawerOpen }"
          aria-label="Feed navigation"
          hx-get="/sidebar"
-         hx-trigger="load, refreshSidebar from:body"
+         hx-trigger="load, refreshSidebar from:body, every 60s"
          hx-swap="innerHTML">
     </nav>
 

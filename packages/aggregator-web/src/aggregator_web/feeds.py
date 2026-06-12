@@ -183,6 +183,46 @@ def source_feed(
     return _paginate(session, select(Article).where(*filters), page_size, cursor)
 
 
+def smart_feed_count(
+    view: SmartViewName,
+    session: Session,
+    since: int,
+    important_threshold: int,
+    unread_only: bool = False,
+) -> int:
+    filters = [_ready_base(), Article.id > since]
+    extra = _smart_extra_filter(view, important_threshold)
+    if extra is not None:
+        filters.append(extra)
+    if unread_only and view != "unread":
+        filters.append(Article.is_read == False)
+    return session.execute(select(func.count(Article.id)).where(*filters)).scalar_one()
+
+
+def category_feed_count(
+    name: str,
+    session: Session,
+    since: int,
+    unread_only: bool = False,
+) -> int:
+    filters = [_ready_base(), Article.categories.contains([name]), Article.id > since]
+    if unread_only:
+        filters.append(Article.is_read == False)
+    return session.execute(select(func.count(Article.id)).where(*filters)).scalar_one()
+
+
+def source_feed_count(
+    source_id: int,
+    session: Session,
+    since: int,
+    unread_only: bool = False,
+) -> int:
+    filters = [_ready_base(), Article.source_id == source_id, Article.id > since]
+    if unread_only:
+        filters.append(Article.is_read == False)
+    return session.execute(select(func.count(Article.id)).where(*filters)).scalar_one()
+
+
 def get_sidebar_counts(
     session: Session,
     important_threshold: int,
