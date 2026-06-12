@@ -82,6 +82,8 @@ class ThreadResult:
     source_diversity: Optional[float]
     confidence: Optional[float]
     novelty_label: Optional[str]
+    deltas: Optional[list]
+    source_list: Optional[list]
 
 
 @dataclass
@@ -387,6 +389,8 @@ def _to_thread_result(thread: Thread) -> ThreadResult:
         source_diversity=thread.source_diversity,
         confidence=thread.confidence,
         novelty_label=thread.novelty_label,
+        deltas=thread.deltas,
+        source_list=thread.source_list,
     )
 
 
