@@ -228,8 +228,18 @@ do_install() {
     log "Enabling ${SERVICE_NAME}.service..."
     systemctl enable "${SERVICE_NAME}"
 
-    log "Starting ${SERVICE_NAME}.service..."
-    systemctl start "${SERVICE_NAME}"
+    # Bring the stack up via compose directly, then register the unit as active.
+    # The unit is Type=oneshot + RemainAfterExit=yes: on an upgrade it is already
+    # "active (exited)", and in that state `systemctl start` is a no-op that would
+    # NOT start services newly added to the compose file (e.g. brief/mcp). Running
+    # `up -d` here is idempotent — it starts new/changed services and leaves
+    # unchanged ones running — so upgrades pick up new services without a manual
+    # restart, while a fresh install still starts everything.
+    log "Starting/refreshing the stack (docker compose up -d)..."
+    (cd "${INSTALL_DIR}" && docker compose -f docker-compose.prod.yml up -d)
+
+    log "Marking ${SERVICE_NAME}.service active..."
+    systemctl start "${SERVICE_NAME}" || true
 
     log ""
     log "Installation complete."
