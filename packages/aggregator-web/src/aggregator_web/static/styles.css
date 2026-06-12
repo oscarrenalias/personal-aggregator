@@ -297,17 +297,6 @@ button {
   #reader-content {
     padding: 16px 20px;
   }
-
-  /* Article detail header: remove the desktop padding-right that reserves space
-     for the absolute-positioned toolbar. On mobile the toolbar flows statically. */
-  .detail-header {
-    padding-right: 0;
-  }
-
-  .detail-reader-toolbar {
-    position: static;
-    margin-bottom: 8px;
-  }
 }
 
 
@@ -902,17 +891,25 @@ button {
 
 /* ── Article detail — header, toolbar, chips, body divider ─── */
 .detail-header {
-  position: relative;
-  padding-right: 160px;
+  overflow: auto; /* contain the floated toolbar */
 }
 
 .detail-reader-toolbar {
-  position: absolute;
-  top: 0;
-  right: 0;
+  float: right;
+  margin-left: 8px;
   display: flex;
   gap: 4px;
   align-items: center;
+}
+
+/* On mobile/tablet (<=1023px) the toolbar must flow statically above the title.
+   This block is placed AFTER the base rules so it wins by source order. */
+@media (max-width: 1023px) {
+  .detail-reader-toolbar {
+    float: none;
+    margin-left: 0;
+    margin-bottom: 8px;
+  }
 }
 
 .toolbar-btn {
