@@ -14,7 +14,7 @@ sources → retriever → processor → summarize-rank → web UI
 - **retriever** — polls feeds, stores raw articles.
 - **processor** — cleans/extracts content, header image, search index.
 - **summarize-rank** — LLM summary, topics, categories, importance score (the only service that calls an LLM).
-- **web** — FastAPI + HTMX + Alpine.js reader UI (smart views, category/topic feeds, search, mark read/save, `j`/`k`/`v` shortcuts). Meant to be exposed privately over Tailscale.
+- **web** — FastAPI + HTMX + Alpine.js reader UI (smart views, category/topic feeds, search, mark read/save, `j`/`k`/`v`/`m`/`n` shortcuts). Meant to be exposed privately over Tailscale.
 - **admin** — Rich CLI for managing feeds, categories, the interest profile, and operations.
 
 ## Repository structure

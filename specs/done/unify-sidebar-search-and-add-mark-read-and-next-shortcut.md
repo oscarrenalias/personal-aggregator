@@ -5,7 +5,7 @@ description: "aggregator-web: collapse the confusing two-search-box UX into a si
 dependencies: null
 priority: medium
 complexity: medium
-status: planned
+status: done
 tags:
 - web
 - ui
