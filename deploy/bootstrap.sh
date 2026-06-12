@@ -1,16 +1,16 @@
 #!/usr/bin/env sh
-# Personal Aggregator — one-line bootstrap installer.
-#
-# Fetches the latest release assets, walks you through a tiny onboarding
-# (LLM key + LAN exposure), and runs the installer.
+# Personal Aggregator — one-line install / upgrade.
 #
 #   curl -fsSL https://raw.githubusercontent.com/oscarrenalias/personal-aggregator/main/deploy/bootstrap.sh | sh
 #
-# Non-interactive (CI / re-runs) — provide answers via env vars and skip prompts:
+# Run it for a first install OR to upgrade — it auto-detects an existing install
+# (a configured /opt/personal-aggregator/.env) and, in that case, skips the
+# onboarding prompts and just refreshes files + pulls the latest images, leaving
+# your .env and data untouched.
 #
-#   curl -fsSL .../bootstrap.sh | NONINTERACTIVE=1 OPENAI_API_KEY=sk-... WEB_BIND=0.0.0.0 sh
-#
-# Honoured env vars: OPENAI_API_KEY, ANTHROPIC_API_KEY, WEB_BIND, NONINTERACTIVE.
+# Fresh installs prompt for an LLM key and LAN exposure. To skip those prompts on
+# an unattended fresh install, set NONINTERACTIVE=1 (and optionally OPENAI_API_KEY
+# / ANTHROPIC_API_KEY / WEB_BIND).
 set -eu
 
 REPO="oscarrenalias/personal-aggregator"
@@ -38,6 +38,16 @@ if [ "$(id -u)" -ne 0 ]; then
     SUDO="sudo"
 fi
 
+ENV_FILE="${INSTALL_DIR}/.env"
+
+# ── Detect mode: upgrade if an existing configured install is present ─────────
+if $SUDO test -f "$ENV_FILE" 2>/dev/null; then
+    MODE="upgrade"
+    say "Existing install detected at ${INSTALL_DIR} — upgrading (your .env and data are preserved)."
+else
+    MODE="install"
+fi
+
 # ── Download the latest release assets ───────────────────────────────────────
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
@@ -47,38 +57,39 @@ for a in $ASSETS; do
         || die "could not download '${a}'. Is there a published release yet?"
 done
 chmod +x "${WORK}/install.sh"
-say "Got: ${ASSETS}"
 
-# ── Onboarding ───────────────────────────────────────────────────────────────
-LLM_KEY="${OPENAI_API_KEY:-}"
+# ── Onboarding (fresh install only) ──────────────────────────────────────────
+LLM_KEY=""
 LLM_KEY_NAME="OPENAI_API_KEY"
-if [ -z "$LLM_KEY" ] && [ -n "${ANTHROPIC_API_KEY:-}" ]; then
-    LLM_KEY="$ANTHROPIC_API_KEY"; LLM_KEY_NAME="ANTHROPIC_API_KEY"
-fi
 WEB_BIND_VAL="${WEB_BIND:-0.0.0.0}"
 
-if interactive; then
-    if [ -z "$LLM_KEY" ]; then
-        printf 'LLM API key for article summarization (OpenAI sk-… ; Enter to set later): ' > "$TTY"
-        stty -echo < "$TTY" 2>/dev/null || true
-        read LLM_KEY < "$TTY" || LLM_KEY=""
-        stty echo < "$TTY" 2>/dev/null || true
-        printf '\n' > "$TTY"
+if [ "$MODE" = "install" ]; then
+    LLM_KEY="${OPENAI_API_KEY:-}"
+    if [ -z "$LLM_KEY" ] && [ -n "${ANTHROPIC_API_KEY:-}" ]; then
+        LLM_KEY="$ANTHROPIC_API_KEY"; LLM_KEY_NAME="ANTHROPIC_API_KEY"
     fi
-    printf 'Expose the web UI to your whole home LAN? [Y/n] ' > "$TTY"
-    read _ans < "$TTY" || _ans=""
-    case "$_ans" in
-        [Nn]*) WEB_BIND_VAL="127.0.0.1"; say "UI will be Pi-local only (front it with Tailscale for remote access)." ;;
-        *)     WEB_BIND_VAL="0.0.0.0" ;;
-    esac
+    if interactive; then
+        if [ -z "$LLM_KEY" ]; then
+            printf 'LLM API key for article summarization (OpenAI sk-… ; Enter to set later): ' > "$TTY"
+            stty -echo < "$TTY" 2>/dev/null || true
+            read LLM_KEY < "$TTY" || LLM_KEY=""
+            stty echo < "$TTY" 2>/dev/null || true
+            printf '\n' > "$TTY"
+        fi
+        printf 'Expose the web UI to your whole home LAN? [Y/n] ' > "$TTY"
+        read _ans < "$TTY" || _ans=""
+        case "$_ans" in
+            [Nn]*) WEB_BIND_VAL="127.0.0.1"; say "UI will be Pi-local only (front it with Tailscale for remote access)." ;;
+            *)     WEB_BIND_VAL="0.0.0.0" ;;
+        esac
+    fi
 fi
 
-# ── Install ──────────────────────────────────────────────────────────────────
-say "Installing the stack (you may be prompted for your sudo password)…"
+# ── Install / upgrade (install.sh refreshes files, pulls images, restarts) ────
+say "Running installer (you may be prompted for your sudo password)…"
 ( cd "$WORK" && $SUDO ./install.sh install )
 
-# ── Apply onboarding answers to the installed .env, then restart ─────────────
-ENV_FILE="${INSTALL_DIR}/.env"
+# ── Apply onboarding answers to the new .env (fresh install only) ────────────
 set_env() { # set_env KEY VALUE
     _k="$1"; _v="$2"
     if $SUDO grep -qE "^[# ]*${_k}=" "$ENV_FILE" 2>/dev/null; then
@@ -88,26 +99,36 @@ set_env() { # set_env KEY VALUE
     fi
 }
 
-CHANGED=0
-if [ -n "$LLM_KEY" ]; then set_env "$LLM_KEY_NAME" "$LLM_KEY"; CHANGED=1; say "Wrote ${LLM_KEY_NAME} to ${ENV_FILE}"; fi
-if [ "$WEB_BIND_VAL" != "0.0.0.0" ]; then set_env "WEB_BIND" "$WEB_BIND_VAL"; CHANGED=1; fi
-
-if [ "$CHANGED" -eq 1 ]; then
-    say "Applying configuration…"
-    ( cd "$INSTALL_DIR" && $SUDO docker compose -f docker-compose.prod.yml up -d )
+if [ "$MODE" = "install" ]; then
+    CHANGED=0
+    if [ -n "$LLM_KEY" ]; then set_env "$LLM_KEY_NAME" "$LLM_KEY"; CHANGED=1; say "Wrote ${LLM_KEY_NAME} to ${ENV_FILE}"; fi
+    if [ "$WEB_BIND_VAL" != "0.0.0.0" ]; then set_env "WEB_BIND" "$WEB_BIND_VAL"; CHANGED=1; fi
+    if [ "$CHANGED" -eq 1 ]; then
+        say "Applying configuration…"
+        ( cd "$INSTALL_DIR" && $SUDO docker compose -f docker-compose.prod.yml up -d )
+    fi
+else
+    # Upgrade: read the effective WEB_BIND from the existing .env for the URL hint.
+    _wb="$($SUDO grep -E '^WEB_BIND=' "$ENV_FILE" 2>/dev/null | tail -1 | cut -d= -f2- || true)"
+    [ -n "$_wb" ] && WEB_BIND_VAL="$_wb"
 fi
 
 # ── Done ─────────────────────────────────────────────────────────────────────
 IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
-say "Done. The web UI is starting up."
+if [ "$MODE" = "upgrade" ]; then
+    say "Upgrade complete."
+else
+    say "Done. The web UI is starting up."
+fi
 if [ "$WEB_BIND_VAL" = "0.0.0.0" ] && [ -n "$IP" ]; then
     say "Open it from any device on your network:  http://${IP}:8000/"
 else
     say "Open it on this machine:  http://127.0.0.1:8000/"
 fi
-[ -z "$LLM_KEY" ] && warn "No LLM key set — edit ${ENV_FILE} (OPENAI_API_KEY=…) and run: sudo systemctl restart aggregator"
+if [ "$MODE" = "install" ] && [ -z "$LLM_KEY" ]; then
+    warn "No LLM key set — edit ${ENV_FILE} (OPENAI_API_KEY=…) and run: sudo systemctl restart aggregator"
+fi
 say "Manage it with the bundled CLI at ${INSTALL_DIR}/aggregator, e.g.:"
 say "  sudo ${INSTALL_DIR}/aggregator sources add -n 'BBC News' -u 'http://feeds.bbci.co.uk/news/rss.xml'"
 say "  sudo ${INSTALL_DIR}/aggregator sources import-opml your-feedly.opml   # import from Feedly"
-say "  sudo ${INSTALL_DIR}/aggregator profile set 'My interests…'            # tune ranking"
 say "  sudo ${INSTALL_DIR}/aggregator --help"

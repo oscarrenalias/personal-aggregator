@@ -200,14 +200,15 @@ files (compose, the `aggregator` wrapper) or just newer container images.
 ### Full upgrade (recommended) — re-run the bootstrap
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/oscarrenalias/personal-aggregator/main/deploy/bootstrap.sh | NONINTERACTIVE=1 sh
+curl -fsSL https://raw.githubusercontent.com/oscarrenalias/personal-aggregator/main/deploy/bootstrap.sh | sh
 ```
 
-It's idempotent: refreshes `docker-compose.prod.yml`, `install.sh`, and the `aggregator`
-script from the latest release, **pulls the latest images**, and restarts — while
-**preserving your `.env`** and the Postgres volume. Use this when a release changes deploy
-files (new services/ports, or a new helper like the `aggregator` CLI). `NONINTERACTIVE=1`
-skips the key/LAN prompts since you've already configured `.env`.
+The same one-liner you used to install also upgrades: it **auto-detects** your existing
+install (a configured `/opt/personal-aggregator/.env`), so it **skips the onboarding
+prompts**, refreshes `docker-compose.prod.yml` / `install.sh` / the `aggregator` script
+from the latest release, **pulls the latest images**, and restarts — leaving your `.env`
+and the Postgres volume untouched. Use this when a release changes deploy files (new
+services/ports, or a new helper like the `aggregator` CLI).
 
 ### Lightweight — images only
 
