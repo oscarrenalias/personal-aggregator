@@ -53,13 +53,20 @@ function articleList() {
     sortMode: 'relevance',
     unreadOnly: false,
 
-    /* On init: apply remembered sort preference if it differs from what the server rendered. */
+    /* On init: apply remembered sort and hide-read preferences if they differ from the server. */
     init() {
       if (!this.baseUrl) return;
-      const persisted = localStorage.getItem('feedSort:' + this.baseUrl);
-      if (persisted === 'newest' && this.sortMode !== 'newest') {
-        let url = this.baseUrl + '?sort=newest';
-        if (this.unreadOnly) url += '&unread=1';
+      const persistedSort = localStorage.getItem('feedSort:' + this.baseUrl);
+      const persistedHideRead = localStorage.getItem('feedHideRead:' + this.baseUrl);
+      const wantNewest = persistedSort === 'newest';
+      const wantHideRead = persistedHideRead === 'hide';
+      if ((wantNewest && this.sortMode !== 'newest') || (wantHideRead && !this.unreadOnly)) {
+        const useNewest = wantNewest || this.sortMode === 'newest';
+        const useHideRead = wantHideRead || this.unreadOnly;
+        const params = [];
+        if (useNewest) params.push('sort=newest');
+        if (useHideRead) params.push('unread=1');
+        const url = this.baseUrl + (params.length ? '?' + params.join('&') : '');
         htmx.ajax('GET', url, { target: '#article-list', swap: 'innerHTML' });
       }
     },
@@ -68,6 +75,13 @@ function articleList() {
     setSortMode(mode) {
       if (this.baseUrl) {
         localStorage.setItem('feedSort:' + this.baseUrl, mode);
+      }
+    },
+
+    /* Write hide-read preference to localStorage; called by hide-read toggle buttons. */
+    setHideRead(hide) {
+      if (this.baseUrl) {
+        localStorage.setItem('feedHideRead:' + this.baseUrl, hide ? 'hide' : 'show');
       }
     },
 
