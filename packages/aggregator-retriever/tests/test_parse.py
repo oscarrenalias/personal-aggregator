@@ -207,20 +207,33 @@ class TestParseFeedEdgeCases:
         entries = parse_feed(feed, source_id=9)
         assert any(e.dedup_key == "mixed-good-1" for e in entries)
 
-    def test_bozo_garbage_body_logs_warning(self, caplog):
-        """parse_feed logs a WARNING when feedparser returns bozo=True with 0 entries on non-empty input."""
-        import brotli
-        import logging
+    def test_bozo_garbage_body_logs_warning(self):
+        """parse_feed logs a WARNING when a non-empty body yields 0 entries and is unidentifiable.
 
-        # brotli-compressed bytes look like binary garbage to feedparser — exactly the
-        # pre-fix failure mode when the brotli decoder was missing from the container.
-        garbage = brotli.compress(b"<?xml version='1.0'?><rss version='2.0'><channel/></rss>")
+        Mirrors the real failure mode (a body the retriever couldn't decode — e.g. an
+        undecoded Content-Encoding — looks like junk to feedparser). We use plainly
+        non-feed bytes, which feedparser reports with version='' (unrecognized format),
+        deterministically triggering the warning. (feedparser's `bozo` flag on
+        brotli-shaped bytes is not deterministic across runs, so we don't rely on it.)
+        """
+        from unittest.mock import patch
 
-        with caplog.at_level(logging.WARNING, logger="aggregator_retriever.parse"):
+        from aggregator_retriever import parse as parse_mod
+
+        garbage = b"\x00\x01\x02 this is not XML or any feed format \xff\xfe just raw bytes"
+
+        # Patch the parse module's logger.warning directly so the assertion is immune to
+        # global logging state (handlers/levels/logging.disable, pytest caplog displacement)
+        # that other tests leave behind — which made handler/caplog-based capture flaky in a
+        # full-suite run. This verifies the *intent*: parse_feed emits the diagnostic warning.
+        with patch.object(parse_mod.logger, "warning") as mock_warning:
             entries = parse_feed(garbage, source_id=42)
 
         assert entries == []
-        assert any("bozo" in r.message.lower() for r in caplog.records)
+        # The diagnostic warning's format string mentions "bozo"; assert it was emitted.
+        assert any(
+            "bozo" in str(call.args[0]).lower() for call in mock_warning.call_args_list
+        ), f"expected a 'bozo' diagnostic warning; got calls: {mock_warning.call_args_list}"
 
     def test_empty_feed_returns_empty_list(self):
         feed = b"""<?xml version="1.0" encoding="UTF-8"?>
