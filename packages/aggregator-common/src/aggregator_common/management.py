@@ -8,7 +8,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from aggregator_common.errors import ConflictError, NotFoundError
-from aggregator_common.models import Article, InterestProfile, Source
+from aggregator_common.models import Article, Category, InterestProfile, Source
 
 
 def set_interest_profile(session: Session, text: str) -> dict:
@@ -145,3 +145,68 @@ def refresh_source_now(session: Session, source_id: int) -> dict:
     session.flush()
 
     return {"id": source.id, "next_check_at": source.next_check_at}
+
+
+def _resolve_category(session: Session, category_id: int | str) -> Category:
+    """Resolve a Category by integer primary key or exact name string.
+
+    Raises NotFoundError when no match is found.
+    """
+    if isinstance(category_id, int):
+        category = session.get(Category, category_id)
+    elif str(category_id).isdigit():
+        category = session.get(Category, int(category_id))
+    else:
+        category = session.query(Category).filter(Category.name == category_id).first()
+    if category is None:
+        raise NotFoundError(f"Category '{category_id}' not found.")
+    return category
+
+
+def add_category(
+    session: Session,
+    name: str,
+    *,
+    description: str | None = None,
+    sort_order: int | None = None,
+    enabled: bool = True,
+) -> dict:
+    """Create a new Category row and return its serialised fields.
+
+    Raises ConflictError when a category with the same name already exists.
+    """
+    kwargs: dict = {"name": name, "enabled": enabled}
+    if description is not None:
+        kwargs["description"] = description
+    if sort_order is not None:
+        kwargs["sort_order"] = sort_order
+
+    category = Category(**kwargs)
+    session.add(category)
+    try:
+        session.flush()
+    except IntegrityError:
+        session.rollback()
+        raise ConflictError(f"A category named '{name}' already exists.")
+
+    return {
+        "id": category.id,
+        "name": category.name,
+        "description": category.description,
+        "enabled": category.enabled,
+        "sort_order": category.sort_order,
+        "created_at": category.created_at,
+        "updated_at": category.updated_at,
+    }
+
+
+def remove_category(session: Session, category_id: int | str) -> dict:
+    """Permanently delete a category.
+
+    category_id may be an integer primary key or an exact name string.
+    Raises NotFoundError when the category is absent.
+    """
+    category = _resolve_category(session, category_id)
+    session.delete(category)
+    session.flush()
+    return {"categories_deleted": 1}
