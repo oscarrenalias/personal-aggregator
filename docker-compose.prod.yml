@@ -71,6 +71,20 @@ services:
         condition: service_completed_successfully
     restart: unless-stopped
 
+  clusterer:
+    image: ${IMAGE_PREFIX:-personal-aggregator}/aggregator-clusterer:${APP_VERSION:-dev}
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://aggregator:aggregator@postgres:5432/aggregator
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      summarize-rank:
+        condition: service_started
+    restart: unless-stopped
+
   brief:
     image: ${IMAGE_PREFIX:-personal-aggregator}/aggregator-brief:${APP_VERSION:-dev}
     env_file: .env
