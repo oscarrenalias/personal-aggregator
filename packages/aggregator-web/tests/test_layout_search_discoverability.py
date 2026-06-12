@@ -1,6 +1,6 @@
 """Tests for web-ui-reader-layout-and-search-discoverability changes.
 
-Covers seven areas:
+Covers eight areas:
   1. Search affordance in /sidebar
   2. Article card toolbar (icon-only controls with aria-labels)
   3. Article detail reader — exactly one Open-source control
@@ -8,6 +8,7 @@ Covers seven areas:
   5. styles.css max-width rule for .article-detail
   6. Keyboard shortcuts overlay in GET /
   7. Scroll-reset logic present in app.js
+  8. Sidebar search unification and mark-read-and-next shortcut
 """
 
 from __future__ import annotations
@@ -20,28 +21,28 @@ from conftest import make_article, make_source
 # ---------------------------------------------------------------------------
 
 
-def test_sidebar_search_button_has_accessible_label(db_session, client):
-    """Sidebar must include a button with aria-label for Search."""
+def test_sidebar_has_search_input(db_session, client):
+    """Sidebar must include a real search input with id=sidebar-search-input."""
     make_source(db_session)
     response = client.get("/sidebar")
     assert response.status_code == 200
-    assert 'aria-label="Search articles"' in response.text
+    assert 'id="sidebar-search-input"' in response.text
 
 
-def test_sidebar_search_button_has_focus_search_trigger(db_session, client):
-    """Sidebar search button must wire to focusSearch() via Alpine @click."""
+def test_sidebar_search_input_wires_to_search_route(db_session, client):
+    """Sidebar search input must use hx-get='/search' to trigger live search."""
     make_source(db_session)
     response = client.get("/sidebar")
     assert response.status_code == 200
-    assert 'focusSearch()' in response.text
+    assert 'hx-get="/search"' in response.text
 
 
 def test_sidebar_search_appears_before_smart_views(db_session, client):
-    """Search affordance must appear before the Smart Views section in DOM order."""
+    """Search input must appear before the Smart Views section in DOM order."""
     make_source(db_session)
     response = client.get("/sidebar")
     assert response.status_code == 200
-    search_pos = response.text.find("focusSearch()")
+    search_pos = response.text.find('id="sidebar-search-input"')
     smart_views_pos = response.text.find("Smart Views")
     assert search_pos != -1 and smart_views_pos != -1
     assert search_pos < smart_views_pos
@@ -220,11 +221,11 @@ def test_index_shortcuts_overlay_has_close_button(client):
     assert 'aria-label="Close keyboard shortcuts"' in response.text
 
 
-def test_index_shortcuts_overlay_lists_all_six_keys(client):
-    """Shortcuts overlay must list exactly the six expected shortcut keys."""
+def test_index_shortcuts_overlay_lists_all_shortcut_keys(client):
+    """Shortcuts overlay must list all expected shortcut keys including n."""
     response = client.get("/")
     assert response.status_code == 200
-    for key in ("<kbd>j</kbd>", "<kbd>k</kbd>", "<kbd>v</kbd>", "<kbd>m</kbd>", "<kbd>/</kbd>", "<kbd>?</kbd>"):
+    for key in ("<kbd>j</kbd>", "<kbd>k</kbd>", "<kbd>v</kbd>", "<kbd>m</kbd>", "<kbd>n</kbd>", "<kbd>/</kbd>", "<kbd>?</kbd>"):
         assert key in response.text, f"shortcut key {key!r} not found in shortcuts overlay"
 
 
@@ -247,3 +248,60 @@ def test_app_js_scroll_reset_uses_after_swap_event(client):
     assert response.status_code == 200
     assert "htmx:afterSwap" in response.text
     assert "scrollTop = 0" in response.text
+
+
+# ---------------------------------------------------------------------------
+# 8. Sidebar search unification and mark-read-and-next shortcut
+# ---------------------------------------------------------------------------
+
+
+def test_sidebar_search_input_has_required_htmx_attrs(db_session, client):
+    """Sidebar search input must carry name='q', hx-get, hx-target, and hx-preserve."""
+    make_source(db_session)
+    response = client.get("/sidebar")
+    assert response.status_code == 200
+    html = response.text
+    assert 'id="sidebar-search-input"' in html
+    assert 'name="q"' in html
+    assert 'hx-get="/search"' in html
+    assert 'hx-target="#article-list"' in html
+    assert 'hx-preserve="true"' in html
+
+
+def test_sidebar_has_no_search_button(db_session, client):
+    """Sidebar must not contain the old .sidebar-search-btn button element."""
+    make_source(db_session)
+    response = client.get("/sidebar")
+    assert response.status_code == 200
+    assert "sidebar-search-btn" not in response.text
+
+
+def test_search_with_query_has_no_old_search_form(client):
+    """GET /search?q=<term> must not render id='search-input' or class='search-form'."""
+    response = client.get("/search?q=python")
+    assert response.status_code == 200
+    assert 'id="search-input"' not in response.text
+    assert 'class="search-form"' not in response.text
+
+
+def test_article_list_template_has_keydown_n_shortcut(db_session, client):
+    """Feed page must include @keydown.n.window wired to markReadAndNext()."""
+    src = make_source(db_session)
+    make_article(db_session, source_id=src.id)
+    response = client.get("/feed/smart/all")
+    assert response.status_code == 200
+    assert "@keydown.n.window" in response.text
+
+
+def test_app_js_defines_mark_read_and_next(client):
+    """app.js must define the markReadAndNext function."""
+    response = client.get("/static/app.js")
+    assert response.status_code == 200
+    assert "markReadAndNext" in response.text
+
+
+def test_index_shortcuts_overlay_includes_n_shortcut(client):
+    """Shortcuts overlay must list the n shortcut (mark read and next)."""
+    response = client.get("/")
+    assert response.status_code == 200
+    assert "<kbd>n</kbd>" in response.text

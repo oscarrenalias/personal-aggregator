@@ -523,13 +523,13 @@ def test_source_read_all(db_session, client):
 # ---------------------------------------------------------------------------
 
 
-def test_search_empty_query_returns_form(client):
+def test_search_empty_query_shows_hint(client):
+    """GET /search with no query shows a hint; no article-list and no search form."""
     response = client.get("/search")
     assert response.status_code == 200
-    assert "search-form" in response.text
-    # No results section when query is empty — _article_list.html (id="article-list") is not rendered.
-    # The form itself always contains hx-target="#article-list", so only check for the id attribute.
+    assert "search-hint" in response.text
     assert 'id="article-list"' not in response.text
+    assert "search-form" not in response.text
 
 
 def test_search_with_no_results(client):
