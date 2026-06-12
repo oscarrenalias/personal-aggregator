@@ -13,12 +13,12 @@ def main() -> None:
     # Deferred import: server.py imports db.py which creates the engine at module level,
     # so it must be imported after load_env() sets DATABASE_URL.
     from aggregator_mcp.server import mcp  # noqa: PLC0415
-    mcp.run(
-        transport="streamable-http",
-        host=settings.mcp_host,
-        port=settings.mcp_port,
-        path=settings.mcp_path,
-    )
+    # FastMCP.run() only accepts (transport, mount_path); host/port/path are
+    # configured on the server's settings object, not passed as run() kwargs.
+    mcp.settings.host = settings.mcp_host
+    mcp.settings.port = settings.mcp_port
+    mcp.settings.streamable_http_path = settings.mcp_path
+    mcp.run(transport="streamable-http")
 
 
 if __name__ == "__main__":

@@ -176,6 +176,44 @@ class TestCorrectiveTurn:
                 generate_brief(db_session, brief, _settings())
 
 
+class TestForcedSubmitOnFinalIteration:
+    """Regression: the model must be forced to submit on the last iteration so a
+    brief is always produced instead of failing when it keeps exploring."""
+
+    def test_call_llm_forces_submit_tool_choice(self):
+        with patch("aggregator_brief.generate.litellm.completion") as completion:
+            from aggregator_brief.generate import _call_llm
+
+            _call_llm([{"role": "user", "content": "hi"}], _settings(), force_submit=True)
+            forced_kwargs = completion.call_args.kwargs
+            assert forced_kwargs["tool_choice"] == {
+                "type": "function",
+                "function": {"name": "submit_brief"},
+            }
+
+            _call_llm([{"role": "user", "content": "hi"}], _settings(), force_submit=False)
+            assert completion.call_args.kwargs["tool_choice"] == "auto"
+
+    def test_final_iteration_forces_submit_and_persists(self, db_session):
+        brief = make_brief(db_session, status="generating")
+        max_calls = 3
+        search = _response(tool_calls=[_tool_call("search_articles", {"query": "x"})])
+        submit = _response(tool_calls=[_tool_call("submit_brief", _VALID_SUBMIT, "tcF")])
+
+        seen_force = []
+
+        def fake_call(messages, settings, *, force_submit=False):
+            seen_force.append(force_submit)
+            return submit if force_submit else search
+
+        with patch("aggregator_brief.generate._call_llm", side_effect=fake_call):
+            generate_brief(db_session, brief, _settings(brief_tool_max_calls=max_calls))
+
+        # Forced exactly on the final iteration, and the brief was produced.
+        assert seen_force == [False, False, True]
+        assert brief.headline == _VALID_SUBMIT["headline"]
+
+
 class TestReconcileReferences:
     def test_valid_article_id_becomes_internal(self, db_session):
         src = make_source(db_session)

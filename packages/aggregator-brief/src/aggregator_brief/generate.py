@@ -79,12 +79,21 @@ def _reconcile_references(session: Session, raw_refs: list[dict]) -> list[dict]:
     return out
 
 
-def _call_llm(messages: list[dict], settings: BriefSettings) -> Any:
+def _call_llm(messages: list[dict], settings: BriefSettings, *, force_submit: bool = False) -> Any:
+    # On the final iteration we force submit_brief so the loop always yields a
+    # brief instead of failing when the model keeps exploring with search/get
+    # tools. The seed message already carries the top candidate articles, so the
+    # model has enough context to submit even if it never called a tool.
+    tool_choice: Any = (
+        {"type": "function", "function": {"name": "submit_brief"}}
+        if force_submit
+        else "auto"
+    )
     return litellm.completion(
         model=settings.brief_llm_model,
         messages=messages,
         tools=TOOL_SCHEMAS,
-        tool_choice="auto",
+        tool_choice=tool_choice,
         max_tokens=settings.brief_llm_max_output_tokens,
         temperature=settings.brief_llm_temperature,
         timeout=settings.brief_llm_timeout_seconds,
@@ -122,7 +131,8 @@ def generate_brief(session: Session, brief: Brief, settings: BriefSettings) -> N
     last_response: Any = None
 
     for _iteration in range(settings.brief_tool_max_calls):
-        response = _call_llm(messages, settings)
+        force_submit = _iteration == settings.brief_tool_max_calls - 1
+        response = _call_llm(messages, settings, force_submit=force_submit)
         last_response = response
         assistant_message = response.choices[0].message
         messages.append(_to_assistant_dict(assistant_message))
