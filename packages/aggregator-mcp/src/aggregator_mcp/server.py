@@ -6,8 +6,10 @@ from typing import Optional
 
 from mcp.server.fastmcp import FastMCP
 
+import aggregator_common.management as management
 import aggregator_common.queries as queries
 from aggregator_common.db import get_session
+from aggregator_common.errors import ConflictError, NotFoundError
 from aggregator_mcp.config import McpSettings
 
 # Evaluated at import time, which is after load_env() per __main__.py import ordering.
@@ -60,6 +62,24 @@ def get_article(article_id: int) -> dict:
 def get_interest_profile() -> str:
     with get_session() as session:
         return queries.get_interest_profile(session)
+
+
+@mcp.tool()
+def set_interest_profile(text: str) -> dict:
+    """Update the user's interest profile text used by the ranker.
+
+    Replaces the singleton interest profile with the provided free-text description
+    of the user's topics, sources, and priorities. The new profile takes effect on
+    the next summarize-rank cycle. Returns the saved profile fields on success, or
+    an error dict with 'error' and 'detail' keys on failure.
+    """
+    try:
+        with get_session() as session:
+            return management.set_interest_profile(session, text)
+    except NotFoundError as exc:
+        return {"error": "not_found", "detail": str(exc)}
+    except ConflictError as exc:
+        return {"error": "conflict", "detail": str(exc)}
 
 
 @mcp.tool()
