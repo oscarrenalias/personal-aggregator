@@ -34,19 +34,35 @@
        hx-swap="innerHTML"></div>
   {% endif %}
 
-  <div class="feed-sort-toggle" role="group" aria-label="Sort order">
-    <button class="sort-btn{% if sort != 'newest' %} active{% endif %}"
-            hx-get="{{ base_url }}{% if unread_only %}?unread=1{% endif %}"
-            hx-target="#article-list"
-            hx-swap="innerHTML"
-            @click="setSortMode('relevance')"
-            aria-pressed="{{ 'true' if sort != 'newest' else 'false' }}">Relevance</button>
-    <button class="sort-btn{% if sort == 'newest' %} active{% endif %}"
-            hx-get="{{ base_url }}?sort=newest{% if unread_only %}&amp;unread=1{% endif %}"
-            hx-target="#article-list"
-            hx-swap="innerHTML"
-            @click="setSortMode('newest')"
-            aria-pressed="{{ 'true' if sort == 'newest' else 'false' }}">Newest</button>
+  <div class="feed-controls">
+    <div class="feed-sort-toggle" role="group" aria-label="Sort order">
+      <button class="sort-btn{% if sort != 'newest' %} active{% endif %}"
+              hx-get="{{ base_url }}{% if unread_only %}?unread=1{% endif %}"
+              hx-target="#article-list"
+              hx-swap="innerHTML"
+              @click="setSortMode('relevance')"
+              aria-pressed="{{ 'true' if sort != 'newest' else 'false' }}">Relevance</button>
+      <button class="sort-btn{% if sort == 'newest' %} active{% endif %}"
+              hx-get="{{ base_url }}?sort=newest{% if unread_only %}&amp;unread=1{% endif %}"
+              hx-target="#article-list"
+              hx-swap="innerHTML"
+              @click="setSortMode('newest')"
+              aria-pressed="{{ 'true' if sort == 'newest' else 'false' }}">Newest</button>
+    </div>
+    <div class="feed-hide-read-toggle" role="group" aria-label="Read filter">
+      <button class="sort-btn{% if not unread_only %} active{% endif %}"
+              hx-get="{{ base_url }}{% if sort == 'newest' %}?sort=newest{% endif %}"
+              hx-target="#article-list"
+              hx-swap="innerHTML"
+              @click="setHideRead(false)"
+              aria-pressed="{{ 'true' if not unread_only else 'false' }}">Show all</button>
+      <button class="sort-btn{% if unread_only %} active{% endif %}"
+              hx-get="{{ base_url }}?unread=1{% if sort == 'newest' %}&amp;sort=newest{% endif %}"
+              hx-target="#article-list"
+              hx-swap="innerHTML"
+              @click="setHideRead(true)"
+              aria-pressed="{{ 'true' if unread_only else 'false' }}">Hide read</button>
+    </div>
   </div>
 
   {% for article in articles %}

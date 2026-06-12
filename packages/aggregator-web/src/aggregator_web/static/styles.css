@@ -757,12 +757,25 @@ button {
 }
 
 
-/* ── Feed sort toggle ────────────────────────────────────────── */
+/* ── Feed controls header (sort + hide-read toggles) ─────────── */
+.feed-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--c-border-subtle);
+}
+
 .feed-sort-toggle {
   display: flex;
   gap: 2px;
-  padding: 6px 12px;
-  border-bottom: 1px solid var(--c-border-subtle);
+}
+
+.feed-hide-read-toggle {
+  display: flex;
+  gap: 2px;
+  padding-left: 8px;
+  border-left: 1px solid var(--c-border-subtle);
 }
 
 .sort-btn {
