@@ -180,3 +180,115 @@ def daily_brief() -> str:
         "what happened, why it matters, and any historical context. "
         "Include article links from refs where available."
     )
+
+
+@mcp.tool()
+def add_source(
+    name: str,
+    feed_url: str,
+    refresh_interval_seconds: Optional[int] = None,
+    priority: Optional[int] = None,
+    enabled: bool = True,
+) -> dict:
+    """Add a new RSS/Atom source to the aggregator.
+
+    Returns the created source fields on success, or an error dict with 'error'
+    and 'detail' keys when feed_url already exists (conflict).
+    """
+    try:
+        with get_session() as session:
+            return management.add_source(
+                session,
+                name,
+                feed_url,
+                refresh_interval_seconds=refresh_interval_seconds,
+                priority=priority,
+                enabled=enabled,
+            )
+    except NotFoundError as exc:
+        return {"error": "not_found", "detail": str(exc)}
+    except ConflictError as exc:
+        return {"error": "conflict", "detail": str(exc)}
+
+
+@mcp.tool()
+def enable_source(source_id: int) -> dict:
+    """Enable a source and schedule it for immediate retrieval on the next poll cycle.
+
+    Returns the updated source fields on success, or an error dict with 'error'
+    and 'detail' keys when source_id is not found.
+    """
+    try:
+        with get_session() as session:
+            return management.enable_source(session, source_id)
+    except NotFoundError as exc:
+        return {"error": "not_found", "detail": str(exc)}
+    except ConflictError as exc:
+        return {"error": "conflict", "detail": str(exc)}
+
+
+@mcp.tool()
+def disable_source(source_id: int) -> dict:
+    """Disable a source so the retriever skips it on future poll cycles.
+
+    Returns the updated source fields on success, or an error dict with 'error'
+    and 'detail' keys when source_id is not found.
+    """
+    try:
+        with get_session() as session:
+            return management.disable_source(session, source_id)
+    except NotFoundError as exc:
+        return {"error": "not_found", "detail": str(exc)}
+    except ConflictError as exc:
+        return {"error": "conflict", "detail": str(exc)}
+
+
+@mcp.tool()
+def set_source_interval(source_id: int, seconds: int) -> dict:
+    """Update the polling interval for a source.
+
+    Returns the updated source fields on success, or an error dict with 'error'
+    and 'detail' keys when source_id is not found.
+    """
+    try:
+        with get_session() as session:
+            return management.set_source_interval(session, source_id, seconds)
+    except NotFoundError as exc:
+        return {"error": "not_found", "detail": str(exc)}
+    except ConflictError as exc:
+        return {"error": "conflict", "detail": str(exc)}
+
+
+@mcp.tool()
+def refresh_source_now(source_id: int) -> dict:
+    """Force a source to be polled on the next retriever cycle by resetting its schedule.
+
+    Returns the updated source fields on success, or an error dict with 'error'
+    and 'detail' keys when source_id is not found.
+    """
+    try:
+        with get_session() as session:
+            return management.refresh_source_now(session, source_id)
+    except NotFoundError as exc:
+        return {"error": "not_found", "detail": str(exc)}
+    except ConflictError as exc:
+        return {"error": "conflict", "detail": str(exc)}
+
+
+@mcp.tool()
+def remove_source(source_id: int) -> dict:
+    """Permanently delete a source and all of its articles.
+
+    WARNING: This operation cascade-deletes every article belonging to this source
+    and is irreversible. All associated article data will be lost permanently.
+
+    Returns {sources_deleted, articles_deleted} on success, or an error dict with
+    'error' and 'detail' keys when source_id is not found.
+    """
+    try:
+        with get_session() as session:
+            return management.remove_source(session, source_id)
+    except NotFoundError as exc:
+        return {"error": "not_found", "detail": str(exc)}
+    except ConflictError as exc:
+        return {"error": "conflict", "detail": str(exc)}
