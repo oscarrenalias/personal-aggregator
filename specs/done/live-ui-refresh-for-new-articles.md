@@ -5,7 +5,7 @@ description: "aggregator-web live refresh: sidebar unread counters auto-refresh 
 dependencies: null
 priority: medium
 complexity: medium
-status: planned
+status: done
 tags:
 - web
 - ui
