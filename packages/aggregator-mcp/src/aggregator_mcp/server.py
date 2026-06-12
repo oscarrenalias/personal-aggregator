@@ -126,3 +126,37 @@ def whats_latest(topic: str) -> str:
         f"Search for recent articles about '{topic}' using the search_articles tool. "
         f"Summarize the top results with their titles, key points, and links."
     )
+
+
+@mcp.tool()
+def get_daily_brief() -> dict:
+    with get_session() as session:
+        result = queries.get_latest_brief(session)
+    if result is None:
+        return {"status": "no_brief"}
+    return asdict(result)
+
+
+@mcp.tool()
+def refresh_brief() -> dict:
+    with get_session() as session:
+        return queries.enqueue_brief(session)
+
+
+@mcp.resource("brief://today")
+def brief_today_resource() -> dict:
+    with get_session() as session:
+        result = queries.get_latest_brief(session)
+    if result is None:
+        return {"status": "no_brief"}
+    return asdict(result)
+
+
+@mcp.prompt()
+def daily_brief() -> str:
+    return (
+        "Fetch the daily brief using the brief://today resource or the get_daily_brief tool. "
+        "Present the headline and intro paragraph, then for each topic present: "
+        "what happened, why it matters, and any historical context. "
+        "Include article links from refs where available."
+    )
