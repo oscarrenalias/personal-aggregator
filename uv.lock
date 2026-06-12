@@ -1423,7 +1423,7 @@ wheels = [
 
 [[package]]
 name = "personal-aggregator"
-version = "0.1.11"
+version = "0.1.12"
 source = { virtual = "." }
 
 [package.dev-dependencies]
