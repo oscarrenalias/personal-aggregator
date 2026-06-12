@@ -706,6 +706,15 @@ button {
   font-size: 14px;
 }
 
+/* ── Search hint / empty messages ───────────────────────────── */
+.search-hint,
+.search-empty {
+  padding: 20px 16px;
+  color: var(--c-text-muted);
+  font-size: 14px;
+  margin: 0;
+}
+
 /* ── New-articles pill / banner ─────────────────────────────── */
 /*
  * #new-articles-banner wraps the pill. When empty it must contribute

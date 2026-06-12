@@ -536,6 +536,7 @@ def test_search_with_no_results(client):
     response = client.get("/search?q=xyznonexistent")
     assert response.status_code == 200
     assert "No results" in response.text
+    assert "search-empty" in response.text
 
 
 def test_search_returns_matching_article(db_session, client):
@@ -1042,6 +1043,29 @@ def test_detail_header_css_reserves_toolbar_space(client):
     rule_block = css[rule_start:rule_end]
     assert "padding-right" in rule_block, (
         ".detail-header must have padding-right to reserve space for the toolbar"
+    )
+
+
+def test_search_hint_and_empty_css_rules_have_padding(client):
+    """Regression: .search-hint and .search-empty must have padding rules in styles.css.
+
+    Before the fix, neither class had any CSS rule, so messages rendered flush
+    against the left edge of the middle pane with no spacing.
+    """
+    response = client.get("/static/styles.css")
+    assert response.status_code == 200
+    css = response.text
+
+    # Locate the combined rule block for both classes.
+    rule_start = css.find(".search-hint,")
+    assert rule_start != -1, ".search-hint CSS rule not found in styles.css"
+    rule_end = css.find("}", rule_start)
+    rule_block = css[rule_start:rule_end]
+    assert "padding" in rule_block, (
+        ".search-hint / .search-empty rule must include a padding declaration"
+    )
+    assert ".search-empty" in rule_block, (
+        ".search-empty must share the same CSS rule block as .search-hint"
     )
 
 
