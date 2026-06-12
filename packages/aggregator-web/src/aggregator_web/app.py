@@ -137,12 +137,19 @@ def _render_interaction_response(
     return response
 
 
-def _build_next_url(base: str, next_cursor: Optional[str], unread_only: bool) -> Optional[str]:
+def _build_next_url(
+    base: str,
+    next_cursor: Optional[str],
+    unread_only: bool,
+    sort: str = "relevance",
+) -> Optional[str]:
     if next_cursor is None:
         return None
     params: dict = {"cursor": next_cursor}
     if unread_only:
         params["unread"] = "1"
+    if sort != "relevance":
+        params["sort"] = sort
     return f"{base}?{urlencode(params)}"
 
 
@@ -155,9 +162,10 @@ def _render_feed(
     hx_request: Optional[str],
     cursor: Optional[str],
     newest_id: int = 0,
+    sort: str = "relevance",
 ) -> Response:
     _enrich_articles(page.articles, session)
-    next_url = _build_next_url(base_url, page.next_cursor, unread_only)
+    next_url = _build_next_url(base_url, page.next_cursor, unread_only, sort)
 
     # Pagination (infinite-scroll) request: return card fragments only so HTMX
     # can append them after the last card (hx-swap="afterend").
@@ -181,6 +189,7 @@ def _render_feed(
             "newest_id": newest_id,
             "base_url": base_url,
             "unread_only": unread_only,
+            "sort": sort,
         },
     )
 
@@ -239,16 +248,25 @@ def sidebar(request: Request, db: Session = Depends(get_db)) -> Response:
     )
 
 
+_VALID_SORT_VALUES = {"relevance", "newest"}
+
+
+def _normalize_sort(sort: str) -> str:
+    return sort if sort in _VALID_SORT_VALUES else "relevance"
+
+
 @app.get("/feed/smart/{view}")
 def feed_smart(
     request: Request,
     view: SmartViewName,
     unread: int = 0,
     cursor: Optional[str] = None,
+    sort: str = "relevance",
     hx_request: Optional[str] = Header(None, alias="HX-Request"),
     db: Session = Depends(get_db),
 ) -> Response:
     unread_only = bool(unread)
+    sort = _normalize_sort(sort)
     page = smart_feed(
         view=view,
         session=db,
@@ -256,6 +274,7 @@ def feed_smart(
         important_threshold=settings.web_important_threshold,
         cursor=cursor,
         unread_only=unread_only,
+        sort=sort,
     )
     newest_id = smart_feed_max_id(
         view=view,
@@ -263,7 +282,7 @@ def feed_smart(
         important_threshold=settings.web_important_threshold,
         unread_only=unread_only,
     )
-    return _render_feed(request, page, db, f"/feed/smart/{view}", unread_only, hx_request, cursor, newest_id=newest_id)
+    return _render_feed(request, page, db, f"/feed/smart/{view}", unread_only, hx_request, cursor, newest_id=newest_id, sort=sort)
 
 
 @app.get("/feed/category/{name}")
@@ -272,19 +291,22 @@ def feed_category(
     name: str,
     unread: int = 0,
     cursor: Optional[str] = None,
+    sort: str = "relevance",
     hx_request: Optional[str] = Header(None, alias="HX-Request"),
     db: Session = Depends(get_db),
 ) -> Response:
     unread_only = bool(unread)
+    sort = _normalize_sort(sort)
     page = category_feed(
         name=name,
         session=db,
         page_size=settings.web_page_size,
         cursor=cursor,
         unread_only=unread_only,
+        sort=sort,
     )
     newest_id = category_feed_max_id(name=name, session=db, unread_only=unread_only)
-    return _render_feed(request, page, db, f"/feed/category/{quote(name)}", unread_only, hx_request, cursor, newest_id=newest_id)
+    return _render_feed(request, page, db, f"/feed/category/{quote(name)}", unread_only, hx_request, cursor, newest_id=newest_id, sort=sort)
 
 
 @app.get("/feed/source/{source_id}")
@@ -293,19 +315,22 @@ def feed_source(
     source_id: int,
     unread: int = 0,
     cursor: Optional[str] = None,
+    sort: str = "relevance",
     hx_request: Optional[str] = Header(None, alias="HX-Request"),
     db: Session = Depends(get_db),
 ) -> Response:
     unread_only = bool(unread)
+    sort = _normalize_sort(sort)
     page = source_feed(
         source_id=source_id,
         session=db,
         page_size=settings.web_page_size,
         cursor=cursor,
         unread_only=unread_only,
+        sort=sort,
     )
     newest_id = source_feed_max_id(source_id=source_id, session=db, unread_only=unread_only)
-    return _render_feed(request, page, db, f"/feed/source/{source_id}", unread_only, hx_request, cursor, newest_id=newest_id)
+    return _render_feed(request, page, db, f"/feed/source/{source_id}", unread_only, hx_request, cursor, newest_id=newest_id, sort=sort)
 
 
 @app.post("/feed/smart/{view}/read-all", status_code=200)
@@ -341,9 +366,11 @@ def smart_feed_updates(
     view: SmartViewName,
     since: int,
     unread: int = 0,
+    sort: str = "relevance",
     db: Session = Depends(get_db),
 ) -> Response:
     unread_only = bool(unread)
+    sort = _normalize_sort(sort)
     count = smart_feed_count(
         view=view,
         session=db,
@@ -354,7 +381,7 @@ def smart_feed_updates(
     return templates.TemplateResponse(
         request,
         "_new_articles_pill.html",
-        {"count": count, "base_url": f"/feed/smart/{view}", "unread_only": unread_only},
+        {"count": count, "base_url": f"/feed/smart/{view}", "unread_only": unread_only, "sort": sort},
     )
 
 
@@ -364,9 +391,11 @@ def category_feed_updates(
     name: str,
     since: int,
     unread: int = 0,
+    sort: str = "relevance",
     db: Session = Depends(get_db),
 ) -> Response:
     unread_only = bool(unread)
+    sort = _normalize_sort(sort)
     count = category_feed_count(
         name=name,
         session=db,
@@ -376,7 +405,7 @@ def category_feed_updates(
     return templates.TemplateResponse(
         request,
         "_new_articles_pill.html",
-        {"count": count, "base_url": f"/feed/category/{name}", "unread_only": unread_only},
+        {"count": count, "base_url": f"/feed/category/{name}", "unread_only": unread_only, "sort": sort},
     )
 
 
@@ -386,9 +415,11 @@ def source_feed_updates(
     source_id: int,
     since: int,
     unread: int = 0,
+    sort: str = "relevance",
     db: Session = Depends(get_db),
 ) -> Response:
     unread_only = bool(unread)
+    sort = _normalize_sort(sort)
     count = source_feed_count(
         source_id=source_id,
         session=db,
@@ -398,7 +429,7 @@ def source_feed_updates(
     return templates.TemplateResponse(
         request,
         "_new_articles_pill.html",
-        {"count": count, "base_url": f"/feed/source/{source_id}", "unread_only": unread_only},
+        {"count": count, "base_url": f"/feed/source/{source_id}", "unread_only": unread_only, "sort": sort},
     )
 
 

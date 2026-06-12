@@ -6,6 +6,9 @@
                 attribute added by the route before rendering.
     next_url  : str | None — pre-built URL (keyset cursor + active filter params)
                 for the next page; None when there are no more pages.
+    base_url  : str — base path for this feed (e.g. /feed/smart/all)
+    unread_only: bool — whether the unread filter is active
+    sort      : str — active sort mode: "relevance" | "newest"
 
   Infinite scroll contract:
     The last card carries hx-get / hx-trigger="revealed" / hx-swap="afterend".
@@ -15,7 +18,7 @@
     next_url trigger (or omit it when the final page is reached).
 #}
 <div id="article-list"
-     x-data="articleList"
+     x-data="{ ...articleList(), baseUrl: '{{ base_url }}', sortMode: '{{ sort }}', unreadOnly: {{ 'true' if unread_only else 'false' }} }"
      @keydown.j.window="selectNext()"
      @keydown.k.window="selectPrev()"
      @keydown.v.window="openSelected()"
@@ -26,10 +29,25 @@
 
   {% if newest_id is defined %}
   <div id="new-articles-banner"
-       hx-get="{{ base_url }}/updates?since={{ newest_id }}{% if unread_only %}&amp;unread=1{% endif %}"
+       hx-get="{{ base_url }}/updates?since={{ newest_id }}{% if unread_only %}&amp;unread=1{% endif %}{% if sort is defined and sort != 'relevance' %}&amp;sort={{ sort }}{% endif %}"
        hx-trigger="every 60s"
        hx-swap="innerHTML"></div>
   {% endif %}
+
+  <div class="feed-sort-toggle" role="group" aria-label="Sort order">
+    <button class="sort-btn{% if sort != 'newest' %} active{% endif %}"
+            hx-get="{{ base_url }}{% if unread_only %}?unread=1{% endif %}"
+            hx-target="#article-list"
+            hx-swap="innerHTML"
+            @click="setSortMode('relevance')"
+            aria-pressed="{{ 'true' if sort != 'newest' else 'false' }}">Relevance</button>
+    <button class="sort-btn{% if sort == 'newest' %} active{% endif %}"
+            hx-get="{{ base_url }}?sort=newest{% if unread_only %}&amp;unread=1{% endif %}"
+            hx-target="#article-list"
+            hx-swap="innerHTML"
+            @click="setSortMode('newest')"
+            aria-pressed="{{ 'true' if sort == 'newest' else 'false' }}">Newest</button>
+  </div>
 
   {% for article in articles %}
     {% set is_last = loop.last %}

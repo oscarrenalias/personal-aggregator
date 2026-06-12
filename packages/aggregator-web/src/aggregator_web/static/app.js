@@ -40,12 +40,36 @@ function aggregatorApp() {
 
 
 /* ── Article list component (bound to the article list div in _article_list.html)
-   Manages: keyboard selection, reader loading, read-toggle, external link open.
+   Manages: keyboard selection, reader loading, read-toggle, external link open,
+   and per-feed sort preference (localStorage keyed by baseUrl).
    ─────────────────────────────────────────────────────────────────────────────── */
 function articleList() {
   return {
     /* ID of the currently selected article (null = no selection). */
     selectedId: null,
+
+    /* Set by the template via x-data spread; defaults keep the factory self-contained. */
+    baseUrl: null,
+    sortMode: 'relevance',
+    unreadOnly: false,
+
+    /* On init: apply remembered sort preference if it differs from what the server rendered. */
+    init() {
+      if (!this.baseUrl) return;
+      const persisted = localStorage.getItem('feedSort:' + this.baseUrl);
+      if (persisted === 'newest' && this.sortMode !== 'newest') {
+        let url = this.baseUrl + '?sort=newest';
+        if (this.unreadOnly) url += '&unread=1';
+        htmx.ajax('GET', url, { target: '#article-list', swap: 'innerHTML' });
+      }
+    },
+
+    /* Write sort preference to localStorage; called by sort toggle buttons. */
+    setSortMode(mode) {
+      if (this.baseUrl) {
+        localStorage.setItem('feedSort:' + this.baseUrl, mode);
+      }
+    },
 
     /* Return all article card elements within this component's root element. */
     _cards() {

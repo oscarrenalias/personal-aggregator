@@ -757,6 +757,38 @@ button {
 }
 
 
+/* ── Feed sort toggle ────────────────────────────────────────── */
+.feed-sort-toggle {
+  display: flex;
+  gap: 2px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--c-border-subtle);
+}
+
+.sort-btn {
+  padding: 3px 10px;
+  font-size: 12px;
+  font-weight: 500;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--c-text-muted);
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: background var(--t-fast), color var(--t-fast), border-color var(--t-fast);
+}
+
+.sort-btn:hover {
+  background: var(--c-surface-2);
+  color: var(--c-text-2);
+}
+
+.sort-btn.active {
+  background: rgba(99, 102, 241, 0.15);
+  color: var(--c-accent-light);
+  border-color: rgba(99, 102, 241, 0.30);
+}
+
+
 /* ================================================================
    READER PANE — prose content styles
    (content is populated by app routes; these are baseline styles)

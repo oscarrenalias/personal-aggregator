@@ -1,3 +1,6 @@
 {% if count > 0 %}
-<button class="new-articles-pill" hx-get="{{ base_url }}{% if unread_only %}?unread=1{% endif %}" hx-target="#article-list" hx-swap="innerHTML">{{ count }} new article{{ '' if count == 1 else 's' }} ↑</button>
+<button class="new-articles-pill"
+        hx-get="{{ base_url }}{% if unread_only %}?unread=1{% endif %}{% if sort is defined and sort != 'relevance' %}{% if unread_only %}&amp;{% else %}?{% endif %}sort={{ sort }}{% endif %}"
+        hx-target="#article-list"
+        hx-swap="innerHTML">{{ count }} new article{{ '' if count == 1 else 's' }} ↑</button>
 {% endif %}

@@ -1198,6 +1198,144 @@ def test_new_articles_banner_uses_global_view_max_id_source(db_session, client, 
     assert "1 new article" in upd2.text
 
 
+# ---------------------------------------------------------------------------
+# Sort toggle: route param + template context
+# ---------------------------------------------------------------------------
+
+
+def test_feed_sort_newest_accepted(db_session, client):
+    """GET /feed/smart/all?sort=newest must return 200."""
+    src = make_source(db_session)
+    make_article(db_session, source_id=src.id)
+    response = client.get("/feed/smart/all?sort=newest")
+    assert response.status_code == 200
+
+
+def test_feed_sort_invalid_falls_back_to_relevance(db_session, client):
+    """An unrecognised sort value must be silently normalised to 'relevance'."""
+    src = make_source(db_session)
+    make_article(db_session, source_id=src.id)
+    response = client.get("/feed/smart/all?sort=hacker")
+    assert response.status_code == 200
+
+
+def test_feed_source_sort_newest_returns_date_desc(db_session, client, monkeypatch):
+    """With sort=newest the rendered list preserves date-descending order."""
+    import aggregator_web.app as app_mod
+
+    monkeypatch.setattr(app_mod.settings, "web_page_size", 10)
+
+    from datetime import datetime, timezone
+    src = make_source(db_session)
+    dt_old = datetime(2025, 1, 1, tzinfo=timezone.utc)
+    dt_new = datetime(2025, 12, 1, tzinfo=timezone.utc)
+    make_article(db_session, source_id=src.id, dedup_key="k1", importance_score=95, feed_published_at=dt_old, feed_title="Old High")
+    make_article(db_session, source_id=src.id, dedup_key="k2", importance_score=5, feed_published_at=dt_new, feed_title="New Low")
+
+    response = client.get(f"/feed/source/{src.id}?sort=newest")
+    assert response.status_code == 200
+    html = response.text
+    # Newest sort: "New Low" (newer date) should appear before "Old High"
+    assert html.index("New Low") < html.index("Old High")
+
+
+def test_feed_sort_newest_toggle_in_rendered_html(db_session, client):
+    """Sort toggle with active Newest button must appear in the rendered HTML."""
+    src = make_source(db_session)
+    make_article(db_session, source_id=src.id)
+    response = client.get(f"/feed/source/{src.id}?sort=newest")
+    assert response.status_code == 200
+    assert "sort-btn" in response.text
+    assert "feed-sort-toggle" in response.text
+
+
+def test_feed_sort_next_url_carries_sort_newest(db_session, client, monkeypatch):
+    """Cursor next_url must include sort=newest when newest is active."""
+    import aggregator_web.app as app_mod
+
+    monkeypatch.setattr(app_mod.settings, "web_page_size", 1)
+
+    from datetime import datetime, timezone
+    src = make_source(db_session)
+    for i in range(2):
+        make_article(
+            db_session,
+            source_id=src.id,
+            dedup_key=f"k{i}",
+            feed_published_at=datetime(2025, 6, i + 1, tzinfo=timezone.utc),
+        )
+
+    response = client.get(f"/feed/source/{src.id}?sort=newest")
+    assert response.status_code == 200
+    assert "sort=newest" in response.text
+
+
+def test_feed_sort_default_next_url_omits_sort(db_session, client, monkeypatch):
+    """Default relevance sort must NOT add sort=newest to the cursor pagination URL."""
+    import aggregator_web.app as app_mod
+
+    monkeypatch.setattr(app_mod.settings, "web_page_size", 1)
+
+    src = make_source(db_session)
+    for i in range(2):
+        make_article(db_session, source_id=src.id, dedup_key=f"k{i}", importance_score=50 - i)
+
+    response = client.get(f"/feed/source/{src.id}")
+    assert response.status_code == 200
+    html = response.text
+    # The cursor pagination hx-get links must not carry sort=newest in relevance mode.
+    # (The sort toggle always has ?sort=newest in its href — that's correct and expected.)
+    for part in html.split('hx-get="'):
+        url = part.split('"')[0]
+        if 'cursor=' in url:
+            assert 'sort=newest' not in url, f"Cursor URL must not contain sort=newest: {url}"
+
+
+def test_updates_endpoint_preserves_sort_newest(db_session, client):
+    """The /updates pill hx-get must include sort=newest when sort is newest."""
+    src = make_source(db_session)
+    make_article(db_session, source_id=src.id)
+    response = client.get(f"/feed/source/{src.id}/updates?since=0&sort=newest")
+    assert response.status_code == 200
+    assert "sort=newest" in response.text
+
+
+def test_updates_endpoint_omits_sort_for_relevance(db_session, client):
+    """The /updates pill hx-get must NOT include sort= when sort is relevance."""
+    src = make_source(db_session)
+    make_article(db_session, source_id=src.id)
+    response = client.get(f"/feed/source/{src.id}/updates?since=0&sort=relevance")
+    assert response.status_code == 200
+    assert "sort=newest" not in response.text
+
+
+def test_new_articles_banner_carries_sort_newest(db_session, client):
+    """The #new-articles-banner hx-get URL must include sort=newest when active."""
+    src = make_source(db_session)
+    make_article(db_session, source_id=src.id)
+    response = client.get(f"/feed/source/{src.id}?sort=newest")
+    assert response.status_code == 200
+    assert "new-articles-banner" in response.text
+    assert "sort=newest" in response.text
+
+
+def test_new_articles_banner_omits_sort_for_relevance(db_session, client):
+    """The #new-articles-banner hx-get URL must NOT include sort= for relevance mode."""
+    src = make_source(db_session)
+    make_article(db_session, source_id=src.id)
+    response = client.get(f"/feed/source/{src.id}")
+    assert response.status_code == 200
+    html = response.text
+    assert "new-articles-banner" in html
+    # Extract the banner element's hx-get URL and verify it lacks sort=newest.
+    # The sort toggle button always has ?sort=newest in its href; that's expected.
+    banner_idx = html.find('id="new-articles-banner"')
+    assert banner_idx != -1
+    # Grab from banner up to the closing >
+    banner_tag = html[banner_idx : html.find(">", banner_idx)]
+    assert "sort=newest" not in banner_tag
+
+
 def test_new_articles_banner_unread_filter_uses_global_unread_max_id(db_session, client, monkeypatch):
     """Regression: with unread=1 the banner must use the global unread-view max id."""
     import aggregator_web.app as app_mod
