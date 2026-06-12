@@ -226,6 +226,49 @@ def source_feed_count(
     return session.execute(select(func.count(Article.id)).where(*filters)).scalar_one()
 
 
+def smart_feed_max_id(
+    view: SmartViewName,
+    session: Session,
+    important_threshold: int,
+    unread_only: bool = False,
+) -> int:
+    """Return the maximum article id visible in the smart view; 0 when the view is empty."""
+    filters = [_ready_base()]
+    extra = _smart_extra_filter(view, important_threshold)
+    if extra is not None:
+        filters.append(extra)
+    if unread_only and view != "unread":
+        filters.append(Article.is_read == False)
+    result = session.execute(select(func.max(Article.id)).where(*filters)).scalar_one()
+    return result if result is not None else 0
+
+
+def category_feed_max_id(
+    name: str,
+    session: Session,
+    unread_only: bool = False,
+) -> int:
+    """Return the maximum article id in the given category view; 0 when empty."""
+    filters = [_ready_base(), Article.categories.contains([name])]
+    if unread_only:
+        filters.append(Article.is_read == False)
+    result = session.execute(select(func.max(Article.id)).where(*filters)).scalar_one()
+    return result if result is not None else 0
+
+
+def source_feed_max_id(
+    source_id: int,
+    session: Session,
+    unread_only: bool = False,
+) -> int:
+    """Return the maximum article id from the given source view; 0 when empty."""
+    filters = [_ready_base(), Article.source_id == source_id]
+    if unread_only:
+        filters.append(Article.is_read == False)
+    result = session.execute(select(func.max(Article.id)).where(*filters)).scalar_one()
+    return result if result is not None else 0
+
+
 def get_sidebar_counts(
     session: Session,
     important_threshold: int,

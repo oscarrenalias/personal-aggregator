@@ -24,11 +24,14 @@ from aggregator_web.feeds import (
     SmartViewName,
     category_feed,
     category_feed_count,
+    category_feed_max_id,
     get_sidebar_counts,
     smart_feed,
     smart_feed_count,
+    smart_feed_max_id,
     source_feed,
     source_feed_count,
+    source_feed_max_id,
 )
 from aggregator_web.reader import (
     ArticleNotFoundError,
@@ -150,6 +153,7 @@ def _render_feed(
     unread_only: bool,
     hx_request: Optional[str],
     cursor: Optional[str],
+    newest_id: int = 0,
 ) -> Response:
     _enrich_articles(page.articles, session)
     next_url = _build_next_url(base_url, page.next_cursor, unread_only)
@@ -167,8 +171,6 @@ def _render_feed(
         )
         return HTMLResponse(rendered)
 
-    # newest_id seeds the /updates poller; only set on the full render path, not pagination requests.
-    newest_id = max((a.id for a in page.articles), default=0)
     return templates.TemplateResponse(
         request,
         "_article_list.html",
@@ -254,7 +256,13 @@ def feed_smart(
         cursor=cursor,
         unread_only=unread_only,
     )
-    return _render_feed(request, page, db, f"/feed/smart/{view}", unread_only, hx_request, cursor)
+    newest_id = smart_feed_max_id(
+        view=view,
+        session=db,
+        important_threshold=settings.web_important_threshold,
+        unread_only=unread_only,
+    )
+    return _render_feed(request, page, db, f"/feed/smart/{view}", unread_only, hx_request, cursor, newest_id=newest_id)
 
 
 @app.get("/feed/category/{name}")
@@ -274,7 +282,8 @@ def feed_category(
         cursor=cursor,
         unread_only=unread_only,
     )
-    return _render_feed(request, page, db, f"/feed/category/{quote(name)}", unread_only, hx_request, cursor)
+    newest_id = category_feed_max_id(name=name, session=db, unread_only=unread_only)
+    return _render_feed(request, page, db, f"/feed/category/{quote(name)}", unread_only, hx_request, cursor, newest_id=newest_id)
 
 
 @app.get("/feed/source/{source_id}")
@@ -294,7 +303,8 @@ def feed_source(
         cursor=cursor,
         unread_only=unread_only,
     )
-    return _render_feed(request, page, db, f"/feed/source/{source_id}", unread_only, hx_request, cursor)
+    newest_id = source_feed_max_id(source_id=source_id, session=db, unread_only=unread_only)
+    return _render_feed(request, page, db, f"/feed/source/{source_id}", unread_only, hx_request, cursor, newest_id=newest_id)
 
 
 @app.post("/feed/smart/{view}/read-all", status_code=200)

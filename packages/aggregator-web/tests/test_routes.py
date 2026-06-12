@@ -1043,3 +1043,125 @@ def test_detail_header_css_reserves_toolbar_space(client):
     assert "padding-right" in rule_block, (
         ".detail-header must have padding-right to reserve space for the toolbar"
     )
+
+
+# ---------------------------------------------------------------------------
+# Regression: newest_id uses global view max id, not page-1 max
+# (live-refresh pill shows spurious count when ordering is not by id)
+# ---------------------------------------------------------------------------
+
+
+def test_new_articles_banner_uses_global_view_max_id_smart(db_session, client, monkeypatch):
+    """Regression: with importance-based ordering a high-id article with low importance
+    sorts to page 2, but the banner's since marker must be the global view max id.
+
+    Pre-fix behaviour: page-1-max was used, so /updates?since=<page1-max> immediately
+    counted the page-2 article as 'new', giving a spurious pill that never cleared.
+    """
+    import aggregator_web.app as app_mod
+
+    monkeypatch.setattr(app_mod.settings, "web_page_size", 1)
+
+    src = make_source(db_session)
+    # Lower id, high importance → lands on page 1 (importance DESC ordering)
+    a_page1 = make_article(db_session, source_id=src.id, dedup_key="k1", importance_score=90)
+    # Higher id, low importance → pushed to page 2 by importance DESC ordering
+    a_page2 = make_article(db_session, source_id=src.id, dedup_key="k2", importance_score=10)
+    assert a_page2.id > a_page1.id, "sanity: second article must have a higher id"
+
+    response = client.get("/feed/smart/all")
+    assert response.status_code == 200
+    # Banner must reference the global max (a_page2.id), not the page-1 max (a_page1.id)
+    assert f"since={a_page2.id}" in response.text
+
+    # /updates with the correct marker returns no pill (nothing new yet)
+    upd = client.get(f"/feed/smart/all/updates?since={a_page2.id}")
+    assert "new-articles-pill" not in upd.text
+
+    # A genuinely new article (id > global max) must produce exactly one pill entry
+    a_new = make_article(db_session, source_id=src.id, dedup_key="k3", importance_score=50)
+    assert a_new.id > a_page2.id
+    upd2 = client.get(f"/feed/smart/all/updates?since={a_page2.id}")
+    assert "new-articles-pill" in upd2.text
+    assert "1 new article" in upd2.text
+
+
+def test_new_articles_banner_uses_global_view_max_id_category(db_session, client, monkeypatch):
+    """Regression: category feed banner must use the global category-view max id."""
+    import aggregator_web.app as app_mod
+
+    monkeypatch.setattr(app_mod.settings, "web_page_size", 1)
+
+    src = make_source(db_session)
+    a_page1 = make_article(
+        db_session, source_id=src.id, dedup_key="k1", importance_score=90, categories=["tech"]
+    )
+    a_page2 = make_article(
+        db_session, source_id=src.id, dedup_key="k2", importance_score=10, categories=["tech"]
+    )
+    assert a_page2.id > a_page1.id
+
+    response = client.get("/feed/category/tech")
+    assert response.status_code == 200
+    assert f"since={a_page2.id}" in response.text
+
+    upd = client.get(f"/feed/category/tech/updates?since={a_page2.id}")
+    assert "new-articles-pill" not in upd.text
+
+    a_new = make_article(
+        db_session, source_id=src.id, dedup_key="k3", importance_score=50, categories=["tech"]
+    )
+    assert a_new.id > a_page2.id
+    upd2 = client.get(f"/feed/category/tech/updates?since={a_page2.id}")
+    assert "new-articles-pill" in upd2.text
+    assert "1 new article" in upd2.text
+
+
+def test_new_articles_banner_uses_global_view_max_id_source(db_session, client, monkeypatch):
+    """Regression: source feed banner must use the global source-view max id."""
+    import aggregator_web.app as app_mod
+
+    monkeypatch.setattr(app_mod.settings, "web_page_size", 1)
+
+    src = make_source(db_session)
+    a_page1 = make_article(db_session, source_id=src.id, dedup_key="k1", importance_score=90)
+    a_page2 = make_article(db_session, source_id=src.id, dedup_key="k2", importance_score=10)
+    assert a_page2.id > a_page1.id
+
+    response = client.get(f"/feed/source/{src.id}")
+    assert response.status_code == 200
+    assert f"since={a_page2.id}" in response.text
+
+    upd = client.get(f"/feed/source/{src.id}/updates?since={a_page2.id}")
+    assert "new-articles-pill" not in upd.text
+
+    a_new = make_article(db_session, source_id=src.id, dedup_key="k3", importance_score=50)
+    assert a_new.id > a_page2.id
+    upd2 = client.get(f"/feed/source/{src.id}/updates?since={a_page2.id}")
+    assert "new-articles-pill" in upd2.text
+    assert "1 new article" in upd2.text
+
+
+def test_new_articles_banner_unread_filter_uses_global_unread_max_id(db_session, client, monkeypatch):
+    """Regression: with unread=1 the banner must use the global unread-view max id."""
+    import aggregator_web.app as app_mod
+
+    monkeypatch.setattr(app_mod.settings, "web_page_size", 1)
+
+    src = make_source(db_session)
+    # High importance, lower id, unread → page 1
+    a_page1 = make_article(
+        db_session, source_id=src.id, dedup_key="k1", importance_score=90, is_read=False
+    )
+    # Low importance, higher id, unread → page 2
+    a_page2 = make_article(
+        db_session, source_id=src.id, dedup_key="k2", importance_score=10, is_read=False
+    )
+    assert a_page2.id > a_page1.id
+
+    response = client.get("/feed/smart/all?unread=1")
+    assert response.status_code == 200
+    assert f"since={a_page2.id}" in response.text
+
+    upd = client.get(f"/feed/smart/all/updates?since={a_page2.id}&unread=1")
+    assert "new-articles-pill" not in upd.text
