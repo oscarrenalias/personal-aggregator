@@ -8,6 +8,10 @@ from mcp.server.fastmcp import FastMCP
 
 import aggregator_common.queries as queries
 from aggregator_common.db import get_session
+from aggregator_mcp.config import McpSettings
+
+# Evaluated at import time, which is after load_env() per __main__.py import ordering.
+_settings = McpSettings()
 
 mcp = FastMCP("aggregator-mcp")
 
@@ -15,11 +19,12 @@ mcp = FastMCP("aggregator-mcp")
 @mcp.tool()
 def search_articles(
     query: str,
-    limit: int = 20,
+    limit: int = _settings.mcp_default_limit,
     since: Optional[str] = None,
     category: Optional[str] = None,
     source_id: Optional[int] = None,
 ) -> list:
+    limit = min(limit, _settings.mcp_max_limit)
     since_dt = datetime.fromisoformat(since) if since is not None else None
     with get_session() as session:
         results = queries.search_articles(
@@ -34,8 +39,9 @@ def list_articles(
     category: Optional[str] = None,
     source_id: Optional[int] = None,
     unread_only: bool = False,
-    limit: int = 20,
+    limit: int = _settings.mcp_default_limit,
 ) -> list:
+    limit = min(limit, _settings.mcp_max_limit)
     with get_session() as session:
         results = queries.list_articles(
             session, view, category=category, source_id=source_id, unread_only=unread_only, limit=limit

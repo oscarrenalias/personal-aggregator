@@ -101,7 +101,7 @@ services:
     restart: unless-stopped
 
   mcp:
-    image: ${IMAGE_PREFIX:-personal-aggregator}/aggregator-mcp:${APP_VERSION:-latest}
+    image: ${IMAGE_PREFIX:-personal-aggregator}/aggregator-mcp:${APP_VERSION:-dev}
     env_file: .env
     environment:
       DATABASE_URL: postgresql://aggregator:aggregator@postgres:5432/aggregator
