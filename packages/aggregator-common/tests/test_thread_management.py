@@ -14,8 +14,10 @@ from aggregator_common.management import (
     assign_article_to_thread,
     create_thread,
     enqueue_recluster,
+    merge_threads,
     update_thread,
 )
+from aggregator_common.errors import NotFoundError
 from aggregator_common.models import Article, ClusterState, Source, Thread, ThreadMembership
 
 _NOW = datetime(2025, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
@@ -242,3 +244,145 @@ def test_migration_downgrade_removes_threads(migration_engine):
     tables = set(inspector.get_table_names())
     assert "threads" not in tables
     assert "thread_memberships" not in tables
+
+
+# ---------------------------------------------------------------------------
+# merge_threads
+# ---------------------------------------------------------------------------
+
+
+class TestMergeThreads:
+    def _make_thread(self, session: Session, *, title: str, source_list=None, known_facts=None) -> Thread:
+        thread = Thread(
+            representative_title=title,
+            first_seen=_NOW,
+            last_updated=_NOW,
+            status="active",
+            source_list=source_list or [],
+            known_facts=known_facts or [],
+            deltas=[],
+        )
+        session.add(thread)
+        session.flush()
+        return thread
+
+    def _make_article(self, session: Session, source_id: int, dedup_key: str) -> Article:
+        src = Source(name=f"Src {dedup_key}", feed_url=f"https://merge-{dedup_key}.test/feed.xml")
+        session.add(src)
+        session.flush()
+        article = Article(
+            source_id=source_id if source_id else src.id,
+            dedup_key=dedup_key,
+            status="ready",
+            raw_payload={},
+            retrieved_at=_NOW,
+        )
+        session.add(article)
+        session.flush()
+        return article
+
+    def _make_src_and_article(self, session: Session, suffix: str):
+        src = Source(name=f"Source {suffix}", feed_url=f"https://mt-{suffix}.test/feed.xml")
+        session.add(src)
+        session.flush()
+        article = Article(
+            source_id=src.id,
+            dedup_key=f"mt-{suffix}",
+            status="ready",
+            raw_payload={},
+            retrieved_at=_NOW,
+        )
+        session.add(article)
+        session.flush()
+        return src, article
+
+    def test_membership_reassigned_from_absorbed_to_kept(self, session: Session):
+        keep = self._make_thread(session, title="Keep Thread")
+        absorb = self._make_thread(session, title="Absorb Thread")
+        src, article = self._make_src_and_article(session, "reassign")
+
+        # Article assigned to absorb thread
+        membership = ThreadMembership(
+            thread_id=absorb.id,
+            article_id=article.id,
+            suppressed=False,
+            assigned_at=_NOW,
+        )
+        session.add(membership)
+        session.flush()
+
+        merge_threads(session, keep.id, absorb.id)
+        session.flush()
+
+        updated_membership = session.query(ThreadMembership).filter(
+            ThreadMembership.article_id == article.id
+        ).first()
+        assert updated_membership is not None
+        assert updated_membership.thread_id == keep.id
+
+    def test_source_list_union_deduplicated(self, session: Session):
+        keep = self._make_thread(session, title="Keep", source_list=["src-a", "src-b"])
+        absorb = self._make_thread(session, title="Absorb", source_list=["src-b", "src-c"])
+
+        merge_threads(session, keep.id, absorb.id)
+        session.flush()
+        session.refresh(keep)
+
+        assert set(keep.source_list) == {"src-a", "src-b", "src-c"}
+
+    def test_known_facts_union_deduplicated(self, session: Session):
+        keep = self._make_thread(session, title="Keep", known_facts=[{"fact": "A"}])
+        absorb = self._make_thread(session, title="Absorb", known_facts=[{"fact": "A"}, {"fact": "B"}])
+
+        merge_threads(session, keep.id, absorb.id)
+        session.flush()
+        session.refresh(keep)
+
+        facts = keep.known_facts
+        assert len(facts) == 2
+        fact_keys = {f.get("fact") for f in facts}
+        assert fact_keys == {"A", "B"}
+
+    def test_absorbed_thread_deleted(self, session: Session):
+        keep = self._make_thread(session, title="Keep")
+        absorb = self._make_thread(session, title="Absorb")
+        absorb_id = absorb.id
+
+        merge_threads(session, keep.id, absorb.id)
+        session.flush()
+
+        deleted = session.get(Thread, absorb_id)
+        assert deleted is None
+
+    def test_idempotent_second_call_returns_keep_unchanged(self, session: Session):
+        """Calling merge_threads again when absorb_id is gone returns keep without error."""
+        keep = self._make_thread(session, title="Keep")
+        absorb = self._make_thread(session, title="Absorb")
+        absorb_id = absorb.id
+
+        first = merge_threads(session, keep.id, absorb.id)
+        session.flush()
+
+        second = merge_threads(session, keep.id, absorb_id)
+        session.flush()
+
+        assert second.id == keep.id
+
+    def test_keep_not_found_raises_not_found_error(self, session: Session):
+        with pytest.raises(NotFoundError):
+            merge_threads(session, 999_999_998, 999_999_999)
+
+    def test_deltas_append_merge_entry(self, session: Session):
+        keep = self._make_thread(session, title="Keep")
+        absorb = self._make_thread(session, title="Absorb")
+        absorb_id = absorb.id
+
+        result = merge_threads(session, keep.id, absorb.id)
+        session.flush()
+        session.refresh(result)
+
+        assert result.deltas is not None
+        assert len(result.deltas) >= 1
+        last_delta = result.deltas[-1]
+        assert last_delta["type"] == "merge"
+        assert last_delta["absorbed_id"] == absorb_id
