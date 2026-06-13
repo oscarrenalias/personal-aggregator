@@ -20,6 +20,11 @@ _TIME_PEAK_HOURS = 6.0
 _TIME_FLOOR_HOURS = 72.0
 
 
+def _source_diversity(distinct_sources: int, settings: ClustererSettings) -> float:
+    n = settings.clusterer_diversity_saturation_n
+    return min(1.0, (distinct_sources - 1) / max(1, n - 1))
+
+
 def _time_sensitivity(last_updated: datetime) -> float:
     now = datetime.now(tz=timezone.utc)
     age_hours = (now - last_updated).total_seconds() / 3600.0
@@ -114,8 +119,9 @@ def score_and_tier(
         else 0.0
     )
 
-    # diversity and confidence come directly from the thread row (already 0-1)
-    diversity = thread.source_diversity or 0.0
+    # diversity: singleton threads score 0.0; rises with distinct sources, saturates at N
+    source_count = len(set(thread.source_list or []))
+    diversity = _source_diversity(source_count, settings)
     confidence = thread.confidence or 0.0
 
     # time_sensitivity: 1.0 under 6 h, linear decay to 0 at 72 h
@@ -147,7 +153,6 @@ def score_and_tier(
     else:
         tier = "low_noise"
 
-    source_count = len(set(thread.source_list or []))
     tier_reason = _build_tier_reason(tier, importance, novelty, ts, source_count, len(articles))
 
     update_thread_scores(
