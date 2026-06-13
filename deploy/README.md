@@ -6,6 +6,18 @@ The **clusterer** groups ranked articles into threads; it depends on summarize-r
 having completed scoring before articles are clustered. No separate operational
 actions are needed — it starts automatically with the rest of the stack.
 
+After each normal clustering cycle the clusterer runs a **consolidation pass** that
+performs three sub-steps in order: (1) a **merge pass** — near-duplicate active threads
+whose composite entity/topic/FTS similarity meets `CLUSTERER_MERGE_SIMILARITY_FLOOR` are
+confirmed by the LLM and absorbed into a single thread (up to `CLUSTERER_MAX_MERGE_CHECKS`
+LLM calls per cycle); (2) a **curation pass** — every active thread is re-scored, an
+optional relevance gate (`CLUSTERER_RELEVANCE_GATE_ENABLED`) demotes off-interest threads
+to `low_noise`, and tier caps (`CLUSTERER_MUST_KNOW_MAX`, `CLUSTERER_WORTH_TRACKING_MAX`)
+demote overflow threads to `deep_read`; (3) a **retention prune** — threads whose
+`last_updated` is older than `CLUSTERER_THREAD_RETENTION_DAYS` days are permanently
+deleted (article rows are not affected). The pass is idempotent: re-running it on an
+already-curated set produces no further changes.
+
 ---
 
 ## Prerequisites
