@@ -127,17 +127,16 @@ def score_and_tier(
     # time_sensitivity: 1.0 under 6 h, linear decay to 0 at 72 h
     ts = _time_sensitivity(thread.last_updated)
 
-    # composite weighted sum, normalized by weight total
-    w_r = settings.clusterer_weight_relevance
+    # composite weighted sum across 5 dimensions; relevance is excluded from scoring
+    # but is still persisted on the thread for display purposes
     w_n = settings.clusterer_weight_novelty
     w_i = settings.clusterer_weight_importance
     w_d = settings.clusterer_weight_diversity
     w_c = settings.clusterer_weight_confidence
     w_t = settings.clusterer_weight_time_sensitivity
-    weight_sum = w_r + w_n + w_i + w_d + w_c + w_t
+    weight_sum = w_n + w_i + w_d + w_c + w_t
     composite = (
-        w_r * relevance
-        + w_n * novelty
+        w_n * novelty
         + w_i * importance
         + w_d * diversity
         + w_c * confidence
