@@ -168,14 +168,28 @@ def migration_engine():
         raw_url = postgres.get_connection_url()
         db_url = raw_url.replace("postgresql+psycopg2://", "postgresql+psycopg://")
 
-        alembic_cfg = Config(str(_ALEMBIC_INI))
-        alembic_cfg.set_main_option("script_location", str(_MIGRATIONS_DIR))
-        alembic_cfg.set_main_option("sqlalchemy.url", db_url)
-        command.upgrade(alembic_cfg, "head")
+        # Alembic's env.py injects DATABASE_URL from the environment and ignores
+        # alembic_cfg's sqlalchemy.url, so point DATABASE_URL at this testcontainer.
+        # Without this the migration ran against the dev DB (:5432) — failing when
+        # it's down and mutating it when it's up.
+        prev_db_url = os.environ.get("DATABASE_URL")
+        os.environ["DATABASE_URL"] = db_url
+        try:
+            alembic_cfg = Config(str(_ALEMBIC_INI))
+            alembic_cfg.set_main_option("script_location", str(_MIGRATIONS_DIR))
+            alembic_cfg.set_main_option("sqlalchemy.url", db_url)
+            command.upgrade(alembic_cfg, "head")
 
-        engine = create_engine(db_url, pool_pre_ping=True)
-        yield engine, alembic_cfg
-        engine.dispose()
+            engine = create_engine(db_url, pool_pre_ping=True)
+            try:
+                yield engine, alembic_cfg
+            finally:
+                engine.dispose()
+        finally:
+            if prev_db_url is None:
+                os.environ.pop("DATABASE_URL", None)
+            else:
+                os.environ["DATABASE_URL"] = prev_db_url
 
 
 def test_migration_threads_table_created(migration_engine):
