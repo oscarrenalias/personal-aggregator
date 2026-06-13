@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 
 from sqlalchemy import delete, func
@@ -460,3 +461,92 @@ def enqueue_recluster(session: Session) -> None:
     )
     session.execute(stmt)
     session.flush()
+
+
+def merge_threads(session: Session, keep_id: int, absorb_id: int) -> Thread:
+    """Merge absorb_id into keep_id and return the kept thread.
+
+    Idempotent: if absorb_id no longer exists, returns the kept thread unchanged.
+    No internal commit — caller owns the transaction.
+
+    Steps:
+    1. Reassign ThreadMembership rows from absorb_id to keep_id (skip duplicates).
+    2. Union source_list and known_facts onto the kept thread.
+    3. Retain the representative_title and rolling_summary from whichever thread
+       has the higher composite score.
+    4. Append a merge entry to the kept thread's deltas list.
+    5. Delete the absorbed thread row.
+    """
+    keep = session.get(Thread, keep_id)
+    if keep is None:
+        raise NotFoundError(f"Thread {keep_id} not found.")
+
+    absorb = session.get(Thread, absorb_id)
+    if absorb is None:
+        return keep
+
+    # Composite proxy from stored dimension scores using default config weights.
+    # Relevance is intentionally excluded (matches scoring.py behaviour).
+    def _composite(t: Thread) -> float:
+        return (
+            0.15 * (t.novelty_score or 0.0)
+            + 0.30 * (t.importance_score or 0.0)
+            + 0.05 * (t.diversity_score or 0.0)
+            + 0.10 * (t.confidence or 0.0)
+            + 0.15 * (t.time_sensitivity_score or 0.0)
+        )
+
+    if _composite(absorb) > _composite(keep):
+        keep.representative_title = absorb.representative_title
+        keep.rolling_summary = absorb.rolling_summary
+
+    # Union source_list (order-preserving dedup)
+    merged_sources: list = list(keep.source_list or [])
+    seen_sources: set = set(merged_sources)
+    for s in absorb.source_list or []:
+        if s not in seen_sources:
+            merged_sources.append(s)
+            seen_sources.add(s)
+    keep.source_list = merged_sources
+
+    # Union known_facts (dedup by JSON fingerprint to handle dict/list items)
+    merged_facts: list = list(keep.known_facts or [])
+    seen_facts: set = {json.dumps(f, sort_keys=True) for f in merged_facts}
+    for fact in absorb.known_facts or []:
+        key = json.dumps(fact, sort_keys=True)
+        if key not in seen_facts:
+            merged_facts.append(fact)
+            seen_facts.add(key)
+    keep.known_facts = merged_facts
+
+    # Reassign memberships; delete exact duplicates (same article_id already in keep)
+    keep_article_ids = {
+        m.article_id
+        for m in session.query(ThreadMembership)
+        .filter(ThreadMembership.thread_id == keep_id)
+        .all()
+    }
+    for membership in list(
+        session.query(ThreadMembership)
+        .filter(ThreadMembership.thread_id == absorb_id)
+        .all()
+    ):
+        if membership.article_id not in keep_article_ids:
+            membership.thread_id = keep_id
+        else:
+            session.delete(membership)
+
+    # Append merge entry to deltas
+    now = datetime.now(timezone.utc)
+    deltas: list = list(keep.deltas or [])
+    deltas.append({"type": "merge", "absorbed_id": absorb_id, "timestamp": now.isoformat()})
+    keep.deltas = deltas
+    keep.last_updated = now
+
+    # Flush membership changes before deleting the absorbed thread so that the
+    # DB-level FK cascade finds no remaining rows to remove.
+    session.flush()
+    session.delete(absorb)
+    session.flush()
+
+    return keep

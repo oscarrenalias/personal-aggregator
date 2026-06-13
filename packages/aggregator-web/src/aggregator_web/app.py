@@ -650,7 +650,7 @@ def threads_index(
     hx_request: Optional[str] = Header(None, alias="HX-Request"),
     db: Session = Depends(get_db),
 ) -> Response:
-    threads = list_threads(db, tier=tier)
+    threads = list_threads(db, tier=tier, max_age_days=settings.clusterer_thread_view_max_age_days)
     suppressed_today = count_suppressed_today(db)
     ctx = {"threads": threads, "suppressed_today": suppressed_today, "tier": tier}
     if hx_request:

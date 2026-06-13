@@ -20,6 +20,11 @@ _TIME_PEAK_HOURS = 6.0
 _TIME_FLOOR_HOURS = 72.0
 
 
+def _source_diversity(distinct_sources: int, settings: ClustererSettings) -> float:
+    n = settings.clusterer_diversity_saturation_n
+    return min(1.0, (distinct_sources - 1) / max(1, n - 1))
+
+
 def _time_sensitivity(last_updated: datetime) -> float:
     now = datetime.now(tz=timezone.utc)
     age_hours = (now - last_updated).total_seconds() / 3600.0
@@ -38,6 +43,7 @@ def _build_tier_reason(
     time_sensitivity: float,
     source_count: int,
     member_count: int,
+    gate_fired: bool = False,
 ) -> str:
     if importance >= 0.7:
         headline = "High importance"
@@ -58,6 +64,8 @@ def _build_tier_reason(
 
     parts = [headline, coverage] + addons
     parts.append(f"({member_count} article{'s' if member_count != 1 else ''})")
+    if gate_fired:
+        parts.append("[single-source gate: capped below must_know]")
     return " ".join(parts)
 
 
@@ -114,24 +122,24 @@ def score_and_tier(
         else 0.0
     )
 
-    # diversity and confidence come directly from the thread row (already 0-1)
-    diversity = thread.source_diversity or 0.0
+    # diversity: singleton threads score 0.0; rises with distinct sources, saturates at N
+    source_count = len(set(thread.source_list or []))
+    diversity = _source_diversity(source_count, settings)
     confidence = thread.confidence or 0.0
 
     # time_sensitivity: 1.0 under 6 h, linear decay to 0 at 72 h
     ts = _time_sensitivity(thread.last_updated)
 
-    # composite weighted sum, normalized by weight total
-    w_r = settings.clusterer_weight_relevance
+    # composite weighted sum across 5 dimensions; relevance is excluded from scoring
+    # but is still persisted on the thread for display purposes
     w_n = settings.clusterer_weight_novelty
     w_i = settings.clusterer_weight_importance
     w_d = settings.clusterer_weight_diversity
     w_c = settings.clusterer_weight_confidence
     w_t = settings.clusterer_weight_time_sensitivity
-    weight_sum = w_r + w_n + w_i + w_d + w_c + w_t
+    weight_sum = w_n + w_i + w_d + w_c + w_t
     composite = (
-        w_r * relevance
-        + w_n * novelty
+        w_n * novelty
         + w_i * importance
         + w_d * diversity
         + w_c * confidence
@@ -147,8 +155,23 @@ def score_and_tier(
     else:
         tier = "low_noise"
 
-    source_count = len(set(thread.source_list or []))
-    tier_reason = _build_tier_reason(tier, importance, novelty, ts, source_count, len(articles))
+    # Post-composite gate: single-source or single-member threads may not reach must_know.
+    # If the gate fires, cap at worth_tracking when importance is high enough (using the
+    # must_know threshold as the high bar); otherwise fall through to deep_read / low_noise.
+    gate_fired = False
+    if (
+        source_count < settings.clusterer_min_sources_for_must_know
+        or len(articles) < settings.clusterer_min_members_for_must_know
+    ) and tier == "must_know":
+        gate_fired = True
+        if importance >= settings.clusterer_tier_must_know_threshold:
+            tier = "worth_tracking"
+        elif composite >= settings.clusterer_tier_deep_read_threshold:
+            tier = "deep_read"
+        else:
+            tier = "low_noise"
+
+    tier_reason = _build_tier_reason(tier, importance, novelty, ts, source_count, len(articles), gate_fired=gate_fired)
 
     update_thread_scores(
         thread,

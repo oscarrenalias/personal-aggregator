@@ -4,7 +4,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 
 from aggregator_clusterer.config import ClustererSettings
-from aggregator_clusterer.scoring import _time_sensitivity, score_and_tier, update_thread_scores
+from aggregator_clusterer.scoring import _source_diversity, _time_sensitivity, score_and_tier, update_thread_scores
 from aggregator_common.models import ClassificationLabel, Thread, ThreadMembership
 
 from .conftest import make_article, make_source, make_thread
@@ -69,25 +69,26 @@ class TestUpdateThreadScores:
 
 class TestScoreAndTier:
     def _make_high_score_thread(self, db_session):
-        src = make_source(db_session, url="https://score-hi.test/feed.xml")
+        # Two sources and two articles so the single-source gate does not fire.
+        src1 = make_source(db_session, url="https://score-hi-a.test/feed.xml")
+        src2 = make_source(db_session, url="https://score-hi-b.test/feed.xml")
         thread = make_thread(
             db_session,
             last_updated=datetime.now(tz=timezone.utc),
             confidence=1.0,
             source_diversity=1.0,
-            source_list=[src.id],
+            source_list=[src1.feed_url, src2.feed_url],
         )
-        article = make_article(
-            db_session, source_id=src.id, dedup_key="k1",
-            importance_score=100,
-        )
-        db_session.add(ThreadMembership(
-            thread_id=thread.id,
-            article_id=article.id,
-            classification_label=ClassificationLabel.same_thread_new_fact.value,
-            suppressed=False,
-            assigned_at=datetime.now(tz=timezone.utc),
-        ))
+        art1 = make_article(db_session, source_id=src1.id, dedup_key="hi-k1", importance_score=100)
+        art2 = make_article(db_session, source_id=src2.id, dedup_key="hi-k2", importance_score=100)
+        for art in (art1, art2):
+            db_session.add(ThreadMembership(
+                thread_id=thread.id,
+                article_id=art.id,
+                classification_label=ClassificationLabel.same_thread_new_fact.value,
+                suppressed=False,
+                assigned_at=datetime.now(tz=timezone.utc),
+            ))
         db_session.commit()
         db_session.refresh(thread)
         return thread
@@ -165,3 +166,105 @@ class TestScoreAndTier:
         thread = make_thread(db_session, last_updated=recent, status="active")
         score_and_tier(db_session, thread, _SETTINGS)
         assert thread.status == "active"
+
+
+class TestSourceDiversity:
+    def test_singleton_returns_zero(self):
+        assert _source_diversity(1, _SETTINGS) == 0.0
+
+    def test_saturated_returns_one(self):
+        assert _source_diversity(4, _SETTINGS) == 1.0
+
+    def test_intermediate_two_sources(self):
+        val = _source_diversity(2, _SETTINGS)
+        assert abs(val - 1 / 3) < 0.001
+
+    def test_above_saturation_clamped_to_one(self):
+        assert _source_diversity(10, _SETTINGS) == 1.0
+
+
+class TestSingleSourceGate:
+    def test_single_source_high_importance_capped_to_worth_tracking(self, db_session):
+        """Gate fires on 1-source thread with composite >= must_know; high importance → worth_tracking."""
+        src = make_source(db_session, url="https://gate-sshi.test/feed.xml")
+        thread = make_thread(
+            db_session,
+            last_updated=datetime.now(tz=timezone.utc),
+            confidence=1.0,
+            source_list=[src.feed_url],
+        )
+        article = make_article(
+            db_session, source_id=src.id, dedup_key="gate-sshi-k1",
+            importance_score=100,
+        )
+        db_session.add(ThreadMembership(
+            thread_id=thread.id,
+            article_id=article.id,
+            classification_label=ClassificationLabel.same_thread_new_fact.value,
+            suppressed=False,
+            assigned_at=datetime.now(tz=timezone.utc),
+        ))
+        db_session.commit()
+        db_session.refresh(thread)
+        score_and_tier(db_session, thread, _SETTINGS)
+        assert thread.tier == "worth_tracking"
+        assert "[single-source gate" in (thread.tier_reason or "")
+
+    def test_single_member_low_importance_capped_to_deep_read(self, db_session):
+        """Gate fires on 1-member thread; importance < threshold → deep_read."""
+        src1 = make_source(db_session, url="https://gate-smlo-a.test/feed.xml")
+        src2 = make_source(db_session, url="https://gate-smlo-b.test/feed.xml")
+        src3 = make_source(db_session, url="https://gate-smlo-c.test/feed.xml")
+        src4 = make_source(db_session, url="https://gate-smlo-d.test/feed.xml")
+        # 4 sources → source_count=4 >= 2, so source gate won't fire
+        # 1 article → len(articles)=1 < 2, so member gate fires
+        thread = make_thread(
+            db_session,
+            last_updated=datetime.now(tz=timezone.utc),
+            confidence=1.0,
+            source_list=[src1.feed_url, src2.feed_url, src3.feed_url, src4.feed_url],
+        )
+        # importance_score=74 → importance=0.74 < must_know_threshold=0.75
+        # novelty=1.0, diversity=1.0, ts=1.0 → composite ≈ 0.896 → must_know before gate
+        article = make_article(
+            db_session, source_id=src1.id, dedup_key="gate-smlo-k1",
+            importance_score=74,
+        )
+        db_session.add(ThreadMembership(
+            thread_id=thread.id,
+            article_id=article.id,
+            classification_label=ClassificationLabel.same_thread_new_fact.value,
+            suppressed=False,
+            assigned_at=datetime.now(tz=timezone.utc),
+        ))
+        db_session.commit()
+        db_session.refresh(thread)
+        score_and_tier(db_session, thread, _SETTINGS)
+        assert thread.tier in ("deep_read", "low_noise")
+        assert "[single-source gate" in (thread.tier_reason or "")
+
+    def test_two_source_two_member_thread_reaches_must_know(self, db_session):
+        """2-source, 2-member thread with high composite → must_know with no gate note."""
+        src1 = make_source(db_session, url="https://gate-2s2m-a.test/feed.xml")
+        src2 = make_source(db_session, url="https://gate-2s2m-b.test/feed.xml")
+        thread = make_thread(
+            db_session,
+            last_updated=datetime.now(tz=timezone.utc),
+            confidence=1.0,
+            source_list=[src1.feed_url, src2.feed_url],
+        )
+        art1 = make_article(db_session, source_id=src1.id, dedup_key="gate-2s2m-k1", importance_score=100)
+        art2 = make_article(db_session, source_id=src2.id, dedup_key="gate-2s2m-k2", importance_score=100)
+        for art in (art1, art2):
+            db_session.add(ThreadMembership(
+                thread_id=thread.id,
+                article_id=art.id,
+                classification_label=ClassificationLabel.same_thread_new_fact.value,
+                suppressed=False,
+                assigned_at=datetime.now(tz=timezone.utc),
+            ))
+        db_session.commit()
+        db_session.refresh(thread)
+        score_and_tier(db_session, thread, _SETTINGS)
+        assert thread.tier == "must_know"
+        assert "[single-source gate" not in (thread.tier_reason or "")

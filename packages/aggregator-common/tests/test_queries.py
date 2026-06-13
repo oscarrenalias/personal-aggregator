@@ -635,3 +635,57 @@ class TestListThreads:
 
         assert thread.id in ids
         assert ids[thread.id].member_count == 3
+
+    def test_max_age_days_excludes_thread_older_than_cutoff(self, session: Session):
+        old_time = datetime.now(tz=timezone.utc) - timedelta(days=8)
+        old_thread = Thread(
+            representative_title="Old Thread",
+            first_seen=old_time,
+            last_updated=old_time,
+            status="active",
+            known_facts=[],
+            deltas=[],
+        )
+        session.add(old_thread)
+        session.flush()
+
+        results = queries.list_threads(session, max_age_days=7)
+        ids = {r.id for r in results}
+
+        assert old_thread.id not in ids
+
+    def test_max_age_days_includes_thread_within_cutoff(self, session: Session):
+        recent_time = datetime.now(tz=timezone.utc) - timedelta(days=6)
+        recent_thread = Thread(
+            representative_title="Recent Thread",
+            first_seen=recent_time,
+            last_updated=recent_time,
+            status="active",
+            known_facts=[],
+            deltas=[],
+        )
+        session.add(recent_thread)
+        session.flush()
+
+        results = queries.list_threads(session, max_age_days=7)
+        ids = {r.id for r in results}
+
+        assert recent_thread.id in ids
+
+    def test_max_age_days_none_returns_all_threads(self, session: Session):
+        old_time = datetime.now(tz=timezone.utc) - timedelta(days=60)
+        old_thread = Thread(
+            representative_title="Very Old Thread",
+            first_seen=old_time,
+            last_updated=old_time,
+            status="active",
+            known_facts=[],
+            deltas=[],
+        )
+        session.add(old_thread)
+        session.flush()
+
+        results = queries.list_threads(session, max_age_days=None)
+        ids = {r.id for r in results}
+
+        assert old_thread.id in ids

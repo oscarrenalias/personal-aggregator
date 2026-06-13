@@ -10,3 +10,4 @@ class WebSettings(BaseSettings):
     web_page_size: int = Field(50, description="Number of articles per page (WEB_PAGE_SIZE)")
     # 70: midpoint calibrated against the LLM's 0-100 importance_score range
     web_important_threshold: int = Field(70, description="Minimum importance score to highlight articles (WEB_IMPORTANT_THRESHOLD)")
+    clusterer_thread_view_max_age_days: int = Field(7, description="Maximum age in days for threads shown in the Threads view (CLUSTERER_THREAD_VIEW_MAX_AGE_DAYS)")

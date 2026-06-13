@@ -15,6 +15,46 @@ from aggregator_clusterer.config import ClustererSettings
 
 logger = logging.getLogger(__name__)
 
+
+def is_section_title_blocked(article: Article, settings: "ClustererSettings") -> bool:
+    """Return True if the article title is a generic section/index heading.
+
+    Checks exact match against the configured blocklist, then a heuristic for
+    very short titles whose every word appears in a blocklist phrase.  Articles
+    that match should not seed or join a thread.
+    """
+    raw = article.clean_title or article.feed_title or ""
+    normalized = raw.lower().strip()
+    if not normalized:
+        return False
+
+    blocked_phrases = {entry.lower().strip() for entry in settings.clusterer_section_title_blocklist}
+
+    if normalized in blocked_phrases:
+        logger.debug(
+            "Section-title guard fired (exact match) article_id=%s title=%r",
+            article.id,
+            raw,
+        )
+        return True
+
+    # Heuristic: short titles (≤ 3 words) where every word appears in a blocked phrase.
+    words = normalized.split()
+    if 1 <= len(words) <= 3:
+        blocklist_words: set[str] = set()
+        for phrase in blocked_phrases:
+            blocklist_words.update(phrase.split())
+        if all(w in blocklist_words for w in words):
+            logger.debug(
+                "Section-title guard fired (heuristic) article_id=%s title=%r",
+                article.id,
+                raw,
+            )
+            return True
+
+    return False
+
+
 _LABEL_VALUES = ", ".join(f'"{lbl.value}"' for lbl in ClassificationLabel)
 
 _SYSTEM_PROMPT = """\

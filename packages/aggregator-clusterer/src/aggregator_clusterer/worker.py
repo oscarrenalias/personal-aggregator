@@ -1,10 +1,13 @@
+import json
 import logging
 import os
 import signal
 import socket
 import threading
 from datetime import datetime, timedelta, timezone
+from typing import Callable
 
+import litellm
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
@@ -12,8 +15,9 @@ from aggregator_common.db import SessionFactory as _DefaultSessionFactory
 from aggregator_common.models import Article, Thread, ThreadMembership
 from aggregator_common.queries import list_unassigned_ready_articles
 from aggregator_clusterer.candidates import get_candidates
-from aggregator_clusterer.classification import classify_article
+from aggregator_clusterer.classification import classify_article, is_section_title_blocked
 from aggregator_clusterer.config import ClustererSettings
+from aggregator_clusterer.consolidate import run_consolidation_pass
 from aggregator_clusterer.dedup import check_duplicate
 from aggregator_clusterer.scoring import score_and_tier
 from aggregator_clusterer.upsert import process_classification
@@ -22,6 +26,116 @@ logger = logging.getLogger(__name__)
 
 # Stable advisory lock key for the clusterer daemon ('CRLS' hex → 1129855059)
 _ADVISORY_LOCK_KEY = 1129855059
+
+
+def _make_llm_merge_fn(settings: ClustererSettings) -> Callable[[Thread, Thread], bool]:
+    """Return a litellm-backed same-story decider.
+
+    Fail-open: returns False (don't merge) on any LLM or parse error so a bad
+    response never crashes the consolidation pass.
+    """
+
+    def llm_merge_fn(keep: Thread, absorb: Thread) -> bool:
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "You are a news editor deciding whether two thread summaries cover the "
+                    "same story. Reply with a JSON object only — no markdown: "
+                    '{"same_story": true|false, "reason": "..."}. '
+                    "Be conservative: only answer true when both threads are unambiguously "
+                    "about the same event or ongoing story."
+                ),
+            },
+            {
+                "role": "user",
+                "content": (
+                    f"Thread A:\nTitle: {keep.representative_title or '(no title)'}\n"
+                    f"Summary: {keep.rolling_summary or '(no summary)'}\n\n"
+                    f"Thread B:\nTitle: {absorb.representative_title or '(no title)'}\n"
+                    f"Summary: {absorb.rolling_summary or '(no summary)'}\n\n"
+                    "Are these the same story?"
+                ),
+            },
+        ]
+        try:
+            response = litellm.completion(
+                model=settings.clusterer_llm_model,
+                messages=messages,
+                max_tokens=128,
+                temperature=0.0,
+                timeout=settings.clusterer_llm_timeout_seconds,
+            )
+            content = response.choices[0].message.content or ""
+            data = json.loads(content)
+            return bool(data.get("same_story", False))
+        except Exception:
+            logger.exception(
+                "LLM merge check failed for threads %s/%s; skip merge (fail-open)",
+                keep.id,
+                absorb.id,
+            )
+            return False
+
+    return llm_merge_fn
+
+
+def _make_relevance_gate_fn(
+    settings: ClustererSettings,
+) -> Callable[[str, Thread], tuple[bool, str]]:
+    """Return a litellm-backed relevance gate.
+
+    Fail-open: returns (True, '') on any LLM or parse error so the thread keeps
+    its current tier rather than being incorrectly gated.
+    """
+
+    def relevance_gate_fn(interest_profile_text: str, thread: Thread) -> tuple[bool, str]:
+        if not settings.clusterer_relevance_gate_enabled:
+            return True, ""
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "You are a relevance filter for a personal news reader. "
+                    "Given a reader's interest profile and a news thread, decide whether "
+                    "the thread is relevant to the reader's interests. "
+                    "Reply with a JSON object only — no markdown: "
+                    '{"relevant": true|false, "reason": "..."}. '
+                    "Be permissive: only mark not relevant when the thread is clearly "
+                    "off-topic or of no interest to this reader."
+                ),
+            },
+            {
+                "role": "user",
+                "content": (
+                    f"Reader interest profile:\n{interest_profile_text or '(not specified)'}\n\n"
+                    f"Thread:\nTitle: {thread.representative_title or '(no title)'}\n"
+                    f"Summary: {thread.rolling_summary or '(no summary)'}\n\n"
+                    "Is this thread relevant to the reader's interests?"
+                ),
+            },
+        ]
+        try:
+            response = litellm.completion(
+                model=settings.clusterer_llm_model,
+                messages=messages,
+                max_tokens=128,
+                temperature=0.0,
+                timeout=settings.clusterer_llm_timeout_seconds,
+            )
+            content = response.choices[0].message.content or ""
+            data = json.loads(content)
+            relevant = bool(data.get("relevant", True))
+            reason = str(data.get("reason", ""))
+            return relevant, reason
+        except Exception:
+            logger.exception(
+                "LLM relevance gate failed for thread %s; skip gate (fail-open)",
+                thread.id,
+            )
+            return True, ""
+
+    return relevance_gate_fn
 
 
 def _try_acquire_advisory_lock(session: Session) -> bool:
@@ -105,6 +219,10 @@ def _run_one_cycle(
                     work_session.commit()
                     continue
 
+                if is_section_title_blocked(art, settings):
+                    work_session.commit()
+                    continue
+
                 dedup = check_duplicate(work_session, art, settings)
                 if dedup is not None:
                     logger.debug(
@@ -151,17 +269,49 @@ def _run_one_cycle(
                 score_session.close()
 
         # Atomically check and clear the recluster flag
+        recluster_triggered = False
         flag_session = session_factory()
         try:
-            triggered = _check_and_clear_recluster_flag(flag_session)
+            recluster_triggered = _check_and_clear_recluster_flag(flag_session)
             flag_session.commit()
-            if triggered:
+            if recluster_triggered:
                 logger.info("recluster flag detected and reset; immediate cycle was triggered")
         except Exception:
             flag_session.rollback()
             logger.exception("Error checking recluster flag")
         finally:
             flag_session.close()
+
+        # Run consolidation pass when the corpus is fully drained (no articles
+        # remained unassigned at the start of this cycle) or an explicit
+        # recluster was requested.  Do NOT run when articles are still being
+        # processed (full_drain is False and no recluster flag).
+        full_drain = not article_ids
+        should_consolidate = (full_drain or recluster_triggered) and not stop_event.is_set()
+        if should_consolidate:
+            trigger = "full-drain" if full_drain else "recluster-request"
+            logger.info("Starting consolidation pass (trigger=%s)", trigger)
+            consol_session = session_factory()
+            try:
+                result = run_consolidation_pass(
+                    consol_session,
+                    settings,
+                    _make_llm_merge_fn(settings),
+                    _make_relevance_gate_fn(settings),
+                )
+                consol_session.commit()
+                logger.info(
+                    "Consolidation pass complete (trigger=%s): merges=%d curated=%d pruned=%d",
+                    trigger,
+                    result.merges,
+                    result.curated,
+                    result.pruned,
+                )
+            except Exception:
+                consol_session.rollback()
+                logger.exception("Consolidation pass failed; skipping")
+            finally:
+                consol_session.close()
 
     finally:
         if lock_acquired:

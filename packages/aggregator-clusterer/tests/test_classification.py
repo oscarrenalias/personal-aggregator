@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 from unittest.mock import MagicMock, patch
 
-from aggregator_clusterer.classification import ClassificationResult, classify_article
+from aggregator_clusterer.classification import ClassificationResult, classify_article, is_section_title_blocked
 from aggregator_clusterer.config import ClustererSettings
 from aggregator_common.models import ClassificationLabel
 
@@ -137,3 +137,80 @@ class TestClassifyArticle:
             result = classify_article(article, [], db_session, _SETTINGS)
 
         assert result.confidence == 0.0
+
+
+class TestIsSectionTitleBlocked:
+    def _article(self, *, clean_title=None, feed_title=None):
+        from datetime import datetime, timezone
+        from aggregator_common.models import Article
+        return Article(
+            source_id=1,
+            dedup_key="stb-dummy",
+            status="ready",
+            raw_payload={},
+            retrieved_at=datetime.now(tz=timezone.utc),
+            clean_title=clean_title,
+            feed_title=feed_title,
+        )
+
+    def test_exact_match_top_stories_returns_true(self):
+        article = self._article(feed_title="top stories")
+        assert is_section_title_blocked(article, _SETTINGS) is True
+
+    def test_case_insensitive_match_returns_true(self):
+        article = self._article(feed_title="Top Stories")
+        assert is_section_title_blocked(article, _SETTINGS) is True
+
+    def test_homepage_exact_match_returns_true(self):
+        article = self._article(feed_title="homepage")
+        assert is_section_title_blocked(article, _SETTINGS) is True
+
+    def test_breaking_news_exact_match_returns_true(self):
+        article = self._article(feed_title="breaking news")
+        assert is_section_title_blocked(article, _SETTINGS) is True
+
+    def test_heuristic_match_single_word_in_blocklist_returns_true(self):
+        # "latest" is a single-word blocked phrase; heuristic also fires for short titles
+        article = self._article(feed_title="latest")
+        assert is_section_title_blocked(article, _SETTINGS) is True
+
+    def test_real_headline_not_blocked(self):
+        article = self._article(feed_title="Scientists Discover New Alzheimer's Treatment")
+        assert is_section_title_blocked(article, _SETTINGS) is False
+
+    def test_clean_title_checked_before_feed_title(self):
+        # clean_title="top stories" fires even though feed_title is a real headline
+        article = self._article(
+            clean_title="top stories",
+            feed_title="Scientists Discover New Treatment",
+        )
+        assert is_section_title_blocked(article, _SETTINGS) is True
+
+    def test_custom_blocklist_used(self):
+        from aggregator_clusterer.config import ClustererSettings as CS
+        custom = CS(clusterer_section_title_blocklist=["custom section"])
+        article = self._article(feed_title="custom section")
+        assert is_section_title_blocked(article, custom) is True
+        assert is_section_title_blocked(article, _SETTINGS) is False
+
+    def test_empty_title_not_blocked(self):
+        article = self._article(feed_title=None, clean_title=None)
+        assert is_section_title_blocked(article, _SETTINGS) is False
+
+    def test_section_title_article_has_no_thread_membership(self, db_session):
+        """Guard returning True means no ThreadMembership is created for the article."""
+        src = make_source(db_session, url="https://stb-db.test/feed.xml")
+        article = make_article(
+            db_session,
+            source_id=src.id,
+            dedup_key="stb-db-ts1",
+            feed_title="Top Stories",
+        )
+        assert is_section_title_blocked(article, _SETTINGS) is True
+        from aggregator_common.models import ThreadMembership
+        membership = (
+            db_session.query(ThreadMembership)
+            .filter(ThreadMembership.article_id == article.id)
+            .first()
+        )
+        assert membership is None
