@@ -409,15 +409,19 @@ def list_threads(
     *,
     tier: Optional[str] = None,
     status: Optional[str] = None,
+    max_age_days: Optional[int] = None,
     limit: int = _DEFAULT_LIMIT,
     offset: int = 0,
 ) -> List[ThreadResult]:
-    """List threads with optional tier/status filters, ordered by last_updated desc."""
+    """List threads with optional tier/status/recency filters, ordered by last_updated desc."""
     filters = []
     if tier is not None:
         filters.append(Thread.tier == tier)
     if status is not None:
         filters.append(Thread.status == status)
+    if max_age_days is not None:
+        cutoff = datetime.now(tz=timezone.utc) - timedelta(days=max_age_days)
+        filters.append(Thread.last_updated >= cutoff)
     q = select(Thread)
     if filters:
         q = q.where(*filters)
