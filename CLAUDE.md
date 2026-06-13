@@ -185,25 +185,13 @@ At process startup, every service calls `aggregator_common.load_env()` (python-d
 | `CLUSTERER_CLAIM_LEASE_SECONDS` | `600` | Work-claim lease duration for clusterer jobs in seconds |
 | `CLUSTERER_DORMANT_AGE_DAYS` | `7` | Days of inactivity before a thread is considered dormant |
 | `CLUSTERER_ARCHIVE_AGE_DAYS` | `30` | Days of dormancy before a thread is archived |
-| `CLUSTERER_TIER_MUST_KNOW_THRESHOLD` | `0.75` | Minimum composite score for must-know tier |
-| `CLUSTERER_TIER_WORTH_TRACKING_THRESHOLD` | `0.5` | Minimum composite score for worth-tracking tier |
-| `CLUSTERER_TIER_DEEP_READ_THRESHOLD` | `0.25` | Minimum composite score for deep-read tier |
 | `CLUSTERER_BATCH_SIZE` | `20` | Maximum articles processed per clustering cycle |
 | `CLUSTERER_TITLE_JACCARD_THRESHOLD` | `0.7` | Minimum token Jaccard similarity for near-duplicate title detection |
-| `CLUSTERER_WEIGHT_RELEVANCE` | `0.25` | Composite score weight for relevance dimension |
-| `CLUSTERER_WEIGHT_NOVELTY` | `0.15` | Composite score weight for novelty dimension |
-| `CLUSTERER_WEIGHT_IMPORTANCE` | `0.30` | Composite score weight for importance dimension |
-| `CLUSTERER_WEIGHT_DIVERSITY` | `0.05` | Composite score weight for source diversity dimension |
-| `CLUSTERER_WEIGHT_CONFIDENCE` | `0.10` | Composite score weight for clustering confidence dimension |
-| `CLUSTERER_WEIGHT_TIME_SENSITIVITY` | `0.15` | Composite score weight for time sensitivity dimension |
-| `CLUSTERER_DIVERSITY_SATURATION_N` | `4` | Source count at which diversity score saturates (diminishing returns beyond this) |
-| `CLUSTERER_MIN_SOURCES_FOR_MUST_KNOW` | `2` | Minimum distinct sources required to qualify a thread for must-know tier |
-| `CLUSTERER_MIN_MEMBERS_FOR_MUST_KNOW` | `2` | Minimum article members required to qualify a thread for must-know tier |
-| `CLUSTERER_MUST_KNOW_MAX` | `5` | Maximum threads that can be assigned the must-know tier per consolidation cycle |
-| `CLUSTERER_WORTH_TRACKING_MAX` | `10` | Maximum threads that can be assigned the worth-tracking tier per consolidation cycle |
+| `CLUSTERER_SURFACE_MIN_GRADE` | `66` | Minimum grade (0–100) a thread must reach to be surfaced in the thread view |
+| `CLUSTERER_SURFACE_MIN_SOURCES` | `2` | Minimum distinct source count required to surface a thread |
+| `CLUSTERER_SURFACE_MIN_MEMBERS` | `3` | Minimum article member count required to surface a thread |
 | `CLUSTERER_MERGE_SIMILARITY_FLOOR` | `0.35` | Minimum composite similarity score required to consider merging two threads |
 | `CLUSTERER_MAX_MERGE_CHECKS` | `20` | Maximum candidate thread pairs checked for merging per consolidation cycle |
-| `CLUSTERER_RELEVANCE_GATE_ENABLED` | `true` | When true, articles below the relevance threshold are excluded from thread assignment |
 | `CLUSTERER_THREAD_VIEW_MAX_AGE_DAYS` | `7` | Maximum age in days for threads shown in the default thread view |
 | `CLUSTERER_THREAD_RETENTION_DAYS` | `30` | Days to retain archived threads before permanent deletion |
 | `CLUSTERER_SECTION_TITLE_BLOCKLIST` | `["top stories","home",…]` | JSON array of RSS section/category titles too generic to use as thread titles |
