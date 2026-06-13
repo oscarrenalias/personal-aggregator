@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -26,6 +27,12 @@ class ConsolidationResult:
 _ENTITY_W = 0.40
 _TOPIC_W = 0.30
 _FTS_W = 0.30
+
+
+def _thread_relevance_hash(thread: Thread) -> str:
+    """SHA-256 of representative_title + rolling_summary; used to cache gate results."""
+    content = (thread.representative_title or "") + "\x00" + (thread.rolling_summary or "")
+    return hashlib.sha256(content.encode()).hexdigest()
 
 
 def _to_set(value: object) -> frozenset:
@@ -254,13 +261,28 @@ def run_curation_pass(
         score_and_tier(session, thread, settings)
 
     # Step 2: relevance gate — off-interest threads are forced to low_noise.
+    # Cache gate results by content hash to avoid redundant LLM calls when the
+    # thread's representative_title + rolling_summary hasn't changed since last run.
     for thread in threads:
         try:
-            relevant, reason = relevance_gate_fn(interest_profile_text, thread)
-            if not relevant:
-                thread.tier = "low_noise"
-                thread.tier_reason = reason
-                curated_count += 1
+            current_hash = _thread_relevance_hash(thread)
+            if thread.relevance_gate_hash == current_hash and thread.relevance_gate_pass is not None:
+                # Cache hit: reuse stored decision, skip LLM call entirely.
+                relevant = thread.relevance_gate_pass
+                logger.debug(
+                    "relevance gate cache hit for thread %s (relevant=%s)", thread.id, relevant
+                )
+                if not relevant:
+                    thread.tier = "low_noise"
+                    curated_count += 1
+            else:
+                relevant, reason = relevance_gate_fn(interest_profile_text, thread)
+                thread.relevance_gate_hash = current_hash
+                thread.relevance_gate_pass = relevant
+                if not relevant:
+                    thread.tier = "low_noise"
+                    thread.tier_reason = reason
+                    curated_count += 1
         except Exception:
             logger.exception(
                 "relevance_gate_fn raised for thread %s; skipping (fail-open)",

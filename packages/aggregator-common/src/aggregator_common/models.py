@@ -253,6 +253,8 @@ class Thread(Base):
     diversity_score: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     time_sensitivity_score: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     deltas: Mapped[Optional[list]] = mapped_column(JSONB, nullable=True)
+    relevance_gate_hash: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    relevance_gate_pass: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
 
     members: Mapped[List["ThreadMembership"]] = relationship(
         "ThreadMembership", back_populates="thread", cascade="all, delete-orphan"
@@ -300,3 +302,5 @@ class ClusterState(Base):
     id: Mapped[bool] = mapped_column(Boolean, primary_key=True, server_default="true")
     recluster_requested: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
     requested_at: Mapped[Optional[datetime]] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
+    dirty: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
+    last_consolidated_at: Mapped[Optional[datetime]] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
