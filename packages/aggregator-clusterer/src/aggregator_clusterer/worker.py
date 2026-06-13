@@ -164,6 +164,41 @@ def _check_and_clear_recluster_flag(session: Session) -> bool:
     return result.rowcount > 0
 
 
+def _set_dirty_flag(session: Session) -> None:
+    """Set dirty=true on cluster_state, creating the singleton row if absent."""
+    session.execute(
+        text(
+            "INSERT INTO cluster_state (id, recluster_requested, dirty) "
+            "VALUES (true, false, true) "
+            "ON CONFLICT (id) DO UPDATE SET dirty = true"
+        )
+    )
+
+
+def _check_should_consolidate(session: Session, settings: ClustererSettings) -> bool:
+    """Return True if dirty=true and enough time has passed since last consolidation."""
+    row = session.execute(
+        text("SELECT dirty, last_consolidated_at FROM cluster_state WHERE id = true")
+    ).one_or_none()
+    if row is None or not row.dirty:
+        return False
+    min_interval = timedelta(minutes=settings.clusterer_consolidation_min_interval_minutes)
+    epoch = datetime.fromtimestamp(0, tz=timezone.utc)
+    elapsed = datetime.now(tz=timezone.utc) - (row.last_consolidated_at or epoch)
+    return elapsed >= min_interval
+
+
+def _mark_consolidation_done(session: Session) -> None:
+    """Clear dirty flag and record last_consolidated_at = now."""
+    session.execute(
+        text(
+            "UPDATE cluster_state "
+            "SET dirty = false, last_consolidated_at = now() "
+            "WHERE id = true"
+        )
+    )
+
+
 def _run_one_cycle(
     settings: ClustererSettings,
     session_factory,
@@ -205,12 +240,14 @@ def _run_one_cycle(
             logger.info("Clustering %d unassigned article(s)", len(article_ids))
 
         touched_thread_ids: set[int] = set()
+        any_article_assigned = False
 
         for article_id in article_ids:
             if stop_event.is_set():
                 logger.info("Stop requested; halting between articles for clean shutdown")
                 break
 
+            assigned_this_article = False
             work_session = session_factory()
             try:
                 art = work_session.get(Article, article_id)
@@ -244,13 +281,18 @@ def _run_one_cycle(
                 ).scalar_one_or_none()
                 if tm is not None:
                     touched_thread_ids.add(tm.thread_id)
+                    assigned_this_article = True
 
                 work_session.commit()
             except Exception:
                 work_session.rollback()
                 logger.exception("Error clustering article %d; skipping", article_id)
+                assigned_this_article = False
             finally:
                 work_session.close()
+
+            if assigned_this_article:
+                any_article_assigned = True
 
         # Score and tier all threads touched during this cycle
         for thread_id in touched_thread_ids:
@@ -268,6 +310,19 @@ def _run_one_cycle(
             finally:
                 score_session.close()
 
+        # Mark cluster_state dirty when at least one article was newly assigned.
+        # Do NOT set dirty from consolidation's own re-scoring to avoid self-triggering.
+        if any_article_assigned:
+            dirty_session = session_factory()
+            try:
+                _set_dirty_flag(dirty_session)
+                dirty_session.commit()
+            except Exception:
+                dirty_session.rollback()
+                logger.exception("Error setting dirty flag on cluster_state")
+            finally:
+                dirty_session.close()
+
         # Atomically check and clear the recluster flag
         recluster_triggered = False
         flag_session = session_factory()
@@ -282,15 +337,25 @@ def _run_one_cycle(
         finally:
             flag_session.close()
 
-        # Run consolidation pass when the corpus is fully drained (no articles
-        # remained unassigned at the start of this cycle) or an explicit
-        # recluster was requested.  Do NOT run when articles are still being
-        # processed (full_drain is False and no recluster flag).
-        full_drain = not article_ids
-        should_consolidate = (full_drain or recluster_triggered) and not stop_event.is_set()
-        if should_consolidate:
-            trigger = "full-drain" if full_drain else "recluster-request"
-            logger.info("Starting consolidation pass (trigger=%s)", trigger)
+        # Determine consolidation trigger:
+        # - Explicit recluster bypasses the interval floor and runs immediately.
+        # - Otherwise, only consolidate if dirty=true AND elapsed >= MIN_INTERVAL.
+        # An idle clusterer (no new articles, dirty never set) makes zero LLM calls.
+        consolidate_trigger: str | None = None
+        if recluster_triggered:
+            consolidate_trigger = "recluster-request"
+        elif not stop_event.is_set():
+            check_session = session_factory()
+            try:
+                if _check_should_consolidate(check_session, settings):
+                    consolidate_trigger = "dirty-threshold"
+            except Exception:
+                logger.exception("Error checking consolidation eligibility")
+            finally:
+                check_session.close()
+
+        if consolidate_trigger is not None and not stop_event.is_set():
+            logger.info("Starting consolidation pass (trigger=%s)", consolidate_trigger)
             consol_session = session_factory()
             try:
                 result = run_consolidation_pass(
@@ -299,10 +364,11 @@ def _run_one_cycle(
                     _make_llm_merge_fn(settings),
                     _make_relevance_gate_fn(settings),
                 )
+                _mark_consolidation_done(consol_session)
                 consol_session.commit()
                 logger.info(
                     "Consolidation pass complete (trigger=%s): merges=%d curated=%d pruned=%d",
-                    trigger,
+                    consolidate_trigger,
                     result.merges,
                     result.curated,
                     result.pruned,

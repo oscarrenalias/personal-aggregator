@@ -207,6 +207,7 @@ At process startup, every service calls `aggregator_common.load_env()` (python-d
 | `CLUSTERER_THREAD_VIEW_MAX_AGE_DAYS` | `7` | Maximum age in days for threads shown in the default thread view |
 | `CLUSTERER_THREAD_RETENTION_DAYS` | `30` | Days to retain archived threads before permanent deletion |
 | `CLUSTERER_SECTION_TITLE_BLOCKLIST` | `["top stories","home",…]` | JSON array of RSS section/category titles too generic to use as thread titles |
+| `CLUSTERER_CONSOLIDATION_MIN_INTERVAL_MINUTES` | `10` | Minimum minutes between consolidation passes; explicit recluster bypasses this floor |
 
 **Per-service config convention:** Each service subclasses `aggregator_common.config.Settings` and adds its own fields using a `<SERVICE>_` prefix (e.g., `PROCESSOR_BATCH_SIZE`, `RETRIEVER_POLL_INTERVAL_SECONDS`). Shared fields live in the base class; service-specific fields never bleed into other services' namespaces.
 

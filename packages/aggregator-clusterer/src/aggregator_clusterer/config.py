@@ -46,6 +46,12 @@ class ClustererSettings(BaseSettings):
     # Relevance gate settings
     clusterer_relevance_gate_enabled: bool = Field(True, description="When True, articles below the relevance threshold are excluded from thread assignment")
 
+    # Consolidation throttle
+    clusterer_consolidation_min_interval_minutes: int = Field(
+        10,
+        description="Minimum minutes between consolidation passes; explicit recluster bypasses this floor",
+    )
+
     # Thread lifecycle settings
     clusterer_thread_view_max_age_days: int = Field(7, description="Maximum age in days for threads shown in the default thread view")
     clusterer_thread_retention_days: int = Field(30, description="Days to retain archived threads before permanent deletion")

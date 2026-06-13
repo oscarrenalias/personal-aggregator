@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from aggregator_clusterer.config import ClustererSettings
 from aggregator_clusterer.consolidate import (
     ConsolidationResult,
+    _thread_relevance_hash,
     find_merge_candidates,
     run_consolidation_pass,
     run_curation_pass,
@@ -265,6 +266,86 @@ class TestRunCurationPass:
 
         worth_tracking_count = sum(1 for t in threads if t.tier == "worth_tracking")
         assert worth_tracking_count <= 1
+
+    def test_relevance_gate_cache_hit_skips_llm_call(self, db_session):
+        """When hash matches stored hash, the gate fn is NOT called (LLM skip)."""
+        gate_calls = []
+
+        def _counting_gate(profile, thread):
+            gate_calls.append(thread.id)
+            return True, ""
+
+        thread = _make_must_know_thread(
+            db_session,
+            src_url_a="https://cache-hit-a.test/feed.xml",
+            src_url_b="https://cache-hit-b.test/feed.xml",
+            key_prefix="cache-hit",
+        )
+        # Prime the cache: set hash + pass on the thread to simulate a prior run.
+        current_hash = _thread_relevance_hash(thread)
+        thread.relevance_gate_hash = current_hash
+        thread.relevance_gate_pass = True
+        db_session.flush()
+
+        gate_calls.clear()
+        run_curation_pass(db_session, _SETTINGS, _counting_gate)
+
+        # Gate fn must NOT have been called for the cached thread.
+        assert thread.id not in gate_calls
+
+    def test_relevance_gate_cache_miss_calls_llm_and_stores_hash(self, db_session):
+        """When hash is absent or stale, the gate fn IS called and hash+pass are stored."""
+        gate_calls = []
+
+        def _counting_gate(profile, thread):
+            gate_calls.append(thread.id)
+            return True, ""
+
+        thread = _make_must_know_thread(
+            db_session,
+            src_url_a="https://cache-miss-a.test/feed.xml",
+            src_url_b="https://cache-miss-b.test/feed.xml",
+            key_prefix="cache-miss",
+        )
+        # Thread has no cached hash — must trigger LLM call.
+        assert thread.relevance_gate_hash is None
+
+        run_curation_pass(db_session, _SETTINGS, _counting_gate)
+        db_session.flush()
+        db_session.refresh(thread)
+
+        assert thread.id in gate_calls
+        assert thread.relevance_gate_hash == _thread_relevance_hash(thread)
+        assert thread.relevance_gate_pass is True
+
+    def test_relevance_gate_cache_stale_hash_calls_llm(self, db_session):
+        """A thread whose content changed since caching triggers a fresh LLM call."""
+        gate_calls = []
+
+        def _counting_gate(profile, thread):
+            gate_calls.append(thread.id)
+            return False, "off-topic"
+
+        thread = _make_must_know_thread(
+            db_session,
+            src_url_a="https://cache-stale-a.test/feed.xml",
+            src_url_b="https://cache-stale-b.test/feed.xml",
+            key_prefix="cache-stale",
+        )
+        # Store a stale hash (different from current content).
+        thread.relevance_gate_hash = "0" * 64
+        thread.relevance_gate_pass = True  # cached as relevant
+        db_session.flush()
+
+        run_curation_pass(db_session, _SETTINGS, _counting_gate)
+        db_session.flush()
+        db_session.refresh(thread)
+
+        # Fresh call must have been made; thread should now be low_noise.
+        assert thread.id in gate_calls
+        assert thread.tier == "low_noise"
+        assert thread.relevance_gate_hash == _thread_relevance_hash(thread)
+        assert thread.relevance_gate_pass is False
 
     def test_idempotent_second_call_leaves_tiers_unchanged(self, db_session):
         """Running curation pass twice produces no further tier changes on the second run."""

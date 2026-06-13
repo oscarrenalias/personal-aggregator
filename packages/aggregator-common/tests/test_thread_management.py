@@ -226,8 +226,11 @@ def test_migration_downgrade_removes_cluster_state(migration_engine):
     from alembic import command
 
     engine, alembic_cfg = migration_engine
-    # Downgrade -1: removes f7a8b9c0d1e2 (cluster_state)
-    command.downgrade(alembic_cfg, "-1")
+    # Re-establish head, then downgrade to the threads migration: removes
+    # cluster_state (and anything above it) but leaves threads. Explicit revision
+    # target so the test is robust to new migrations added on top.
+    command.upgrade(alembic_cfg, "head")
+    command.downgrade(alembic_cfg, "e6f7a8b9c0d1")
     inspector = inspect(engine)
     tables = set(inspector.get_table_names())
     assert "cluster_state" not in tables
@@ -238,8 +241,10 @@ def test_migration_downgrade_removes_threads(migration_engine):
     from alembic import command
 
     engine, alembic_cfg = migration_engine
-    # Downgrade another -1: removes e6f7a8b9c0d1 (threads + thread_memberships)
-    command.downgrade(alembic_cfg, "-1")
+    # Re-establish head, then downgrade below the threads migration so threads +
+    # thread_memberships are removed. Explicit target → robust to added migrations.
+    command.upgrade(alembic_cfg, "head")
+    command.downgrade(alembic_cfg, "d5e6f7a8b9c0")
     inspector = inspect(engine)
     tables = set(inspector.get_table_names())
     assert "threads" not in tables
