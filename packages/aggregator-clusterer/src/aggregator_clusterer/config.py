@@ -11,7 +11,7 @@ class ClustererSettings(BaseSettings):
     clusterer_entity_overlap_threshold: float = Field(0.2, description="Minimum entity overlap ratio to consider articles related")
     clusterer_topic_overlap_threshold: float = Field(0.2, description="Minimum topic overlap ratio to consider articles related")
     clusterer_fts_similarity_threshold: float = Field(0.1, description="Minimum FTS similarity score to consider articles related")
-    clusterer_llm_model: str = Field("gpt-4.1-mini", description="LLM model for cluster reasoning")
+    clusterer_llm_model: str = Field("gpt-4.1", description="LLM model for cluster reasoning")
     clusterer_llm_max_output_tokens: int = Field(512, description="Maximum output tokens for LLM calls")
     clusterer_llm_temperature: float = Field(0.0, description="LLM sampling temperature")
     clusterer_llm_timeout_seconds: int = Field(30, description="LLM call timeout in seconds")

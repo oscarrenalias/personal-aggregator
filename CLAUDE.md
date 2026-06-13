@@ -178,7 +178,7 @@ At process startup, every service calls `aggregator_common.load_env()` (python-d
 | `CLUSTERER_ENTITY_OVERLAP_THRESHOLD` | `0.2` | Minimum entity overlap ratio to consider articles related |
 | `CLUSTERER_TOPIC_OVERLAP_THRESHOLD` | `0.2` | Minimum topic overlap ratio to consider articles related |
 | `CLUSTERER_FTS_SIMILARITY_THRESHOLD` | `0.1` | Minimum FTS similarity score to consider articles related |
-| `CLUSTERER_LLM_MODEL` | `gpt-4.1-mini` | LLM model for cluster classification reasoning |
+| `CLUSTERER_LLM_MODEL` | `gpt-4.1` | LLM model for cluster classification reasoning |
 | `CLUSTERER_LLM_MAX_OUTPUT_TOKENS` | `512` | Maximum output tokens for LLM calls |
 | `CLUSTERER_LLM_TEMPERATURE` | `0.0` | LLM sampling temperature (0 = deterministic) |
 | `CLUSTERER_LLM_TIMEOUT_SECONDS` | `30` | LLM call timeout in seconds |
