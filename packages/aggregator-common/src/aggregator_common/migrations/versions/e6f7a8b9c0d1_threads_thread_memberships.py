@@ -9,7 +9,7 @@ from typing import Sequence, Union
 
 from alembic import op
 import sqlalchemy as sa
-from sqlalchemy.dialects.postgresql import JSONB, TIMESTAMP
+from sqlalchemy.dialects.postgresql import ENUM, JSONB, TIMESTAMP
 
 # revision identifiers, used by Alembic.
 revision: str = "e6f7a8b9c0d1"
@@ -17,9 +17,15 @@ down_revision: Union[str, None] = "d5e6f7a8b9c0"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
-thread_status = sa.Enum("active", "dormant", "archived", name="thread_status")
-thread_tier = sa.Enum("must_know", "worth_tracking", "deep_read", "low_noise", name="thread_tier")
-classification_label = sa.Enum(
+# create_type=False: the types are created once explicitly in upgrade() via
+# .create(checkfirst=True); reusing these same objects in the columns prevents
+# create_table from emitting a second CREATE TYPE (generic sa.Enum ignores
+# create_type, which caused a DuplicateObject on a fresh DB).
+thread_status = ENUM("active", "dormant", "archived", name="thread_status", create_type=False)
+thread_tier = ENUM(
+    "must_know", "worth_tracking", "deep_read", "low_noise", name="thread_tier", create_type=False
+)
+classification_label = ENUM(
     "new_thread",
     "same_thread_new_fact",
     "same_thread_new_angle",
@@ -29,6 +35,7 @@ classification_label = sa.Enum(
     "related_new_thread",
     "irrelevant_or_low_value",
     name="classification_label",
+    create_type=False,
 )
 
 
@@ -47,7 +54,7 @@ def upgrade() -> None:
         sa.Column("last_updated", TIMESTAMP(timezone=True), nullable=False),
         sa.Column(
             "status",
-            sa.Enum("active", "dormant", "archived", name="thread_status", create_type=False),
+            thread_status,
             nullable=False,
             server_default="active",
         ),
@@ -57,7 +64,7 @@ def upgrade() -> None:
         sa.Column("novelty_label", sa.Text(), nullable=True),
         sa.Column(
             "tier",
-            sa.Enum("must_know", "worth_tracking", "deep_read", "low_noise", name="thread_tier", create_type=False),
+            thread_tier,
             nullable=True,
         ),
         sa.Column("tier_reason", sa.Text(), nullable=True),
@@ -90,18 +97,7 @@ def upgrade() -> None:
         ),
         sa.Column(
             "classification_label",
-            sa.Enum(
-                "new_thread",
-                "same_thread_new_fact",
-                "same_thread_new_angle",
-                "same_thread_duplicate",
-                "same_thread_background_only",
-                "correction_or_clarification",
-                "related_new_thread",
-                "irrelevant_or_low_value",
-                name="classification_label",
-                create_type=False,
-            ),
+            classification_label,
             nullable=True,
         ),
         sa.Column("new_facts", JSONB(), nullable=True),
