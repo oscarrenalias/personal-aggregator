@@ -77,11 +77,13 @@ def _run_one_cycle(
                 since=since,
                 limit=settings.clusterer_batch_size,
             )
+            # Capture ids while the session is still open — the Article instances
+            # become detached after close() and attribute access would raise
+            # DetachedInstanceError.
+            article_ids = [a.id for a in articles]
             fetch_session.commit()
         finally:
             fetch_session.close()
-
-        article_ids = [a.id for a in articles]
 
         if not article_ids:
             logger.debug("No unassigned articles to cluster")
