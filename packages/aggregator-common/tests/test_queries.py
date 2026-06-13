@@ -8,7 +8,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 import aggregator_common.queries as queries
-from aggregator_common.models import Article, Brief, BriefTopic, Category, InterestProfile, Source
+from aggregator_common.models import Article, Brief, BriefTopic, Category, InterestProfile, Source, Thread, ThreadMembership
 from aggregator_common.state import ArticleStatus
 
 _NOW = datetime.now(tz=timezone.utc)
@@ -536,3 +536,102 @@ class TestBriefQueries:
 
         result = queries.enqueue_brief(session)
         assert result == {"status": "already_pending"}
+
+
+def _make_thread(
+    session: Session,
+    *,
+    title: str = "Test Thread",
+    source_list: list | None = None,
+) -> Thread:
+    now = _NOW
+    thread = Thread(
+        representative_title=title,
+        first_seen=now,
+        last_updated=now,
+        status="active",
+        source_list=source_list,
+        known_facts=[],
+        deltas=[],
+    )
+    session.add(thread)
+    session.flush()
+    return thread
+
+
+def _make_thread_membership(
+    session: Session,
+    thread_id: int,
+    article_id: int,
+    *,
+    suppressed: bool = False,
+) -> ThreadMembership:
+    tm = ThreadMembership(
+        thread_id=thread_id,
+        article_id=article_id,
+        suppressed=suppressed,
+        assigned_at=_NOW,
+    )
+    session.add(tm)
+    session.flush()
+    return tm
+
+
+class TestListThreads:
+    def test_source_count_matches_source_list_length(self, session: Session):
+        thread = _make_thread(
+            session,
+            title="Thread With Sources",
+            source_list=["Source A", "Source B", "Source C"],
+        )
+
+        results = queries.list_threads(session)
+        ids = {r.id: r for r in results}
+
+        assert thread.id in ids
+        assert ids[thread.id].source_count == 3
+
+    def test_source_count_is_zero_when_source_list_is_none(self, session: Session):
+        thread = _make_thread(session, title="Thread No Sources", source_list=None)
+
+        results = queries.list_threads(session)
+        ids = {r.id: r for r in results}
+
+        assert thread.id in ids
+        assert ids[thread.id].source_count == 0
+
+    def test_member_count_excludes_suppressed_rows(self, session: Session):
+        src = _make_source(session, "-tlt2")
+        thread = _make_thread(session, title="Thread With Members")
+        article_active = _make_ready_article(session, src.id, "tlt2-active")
+        article_suppressed = _make_ready_article(session, src.id, "tlt2-suppressed")
+        _make_thread_membership(session, thread.id, article_active.id, suppressed=False)
+        _make_thread_membership(session, thread.id, article_suppressed.id, suppressed=True)
+
+        results = queries.list_threads(session)
+        ids = {r.id: r for r in results}
+
+        assert thread.id in ids
+        assert ids[thread.id].member_count == 1
+
+    def test_member_count_is_zero_when_no_memberships(self, session: Session):
+        thread = _make_thread(session, title="Thread No Members")
+
+        results = queries.list_threads(session)
+        ids = {r.id: r for r in results}
+
+        assert thread.id in ids
+        assert ids[thread.id].member_count == 0
+
+    def test_member_count_counts_all_active_members(self, session: Session):
+        src = _make_source(session, "-tlt3")
+        thread = _make_thread(session, title="Thread Multi Members")
+        for i in range(3):
+            article = _make_ready_article(session, src.id, f"tlt3-art{i}")
+            _make_thread_membership(session, thread.id, article.id, suppressed=False)
+
+        results = queries.list_threads(session)
+        ids = {r.id: r for r in results}
+
+        assert thread.id in ids
+        assert ids[thread.id].member_count == 3

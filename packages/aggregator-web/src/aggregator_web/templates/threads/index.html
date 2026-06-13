@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+
+  <!-- Favicon -->
+  <link rel="icon" type="image/svg+xml" href="/static/icons/favicon.svg">
+  <link rel="icon" type="image/png" sizes="32x32" href="/static/icons/favicon-32.png">
+  <link rel="icon" href="/static/icons/favicon.ico" sizes="any">
+
+  <!-- PWA -->
+  <link rel="manifest" href="/static/manifest.webmanifest">
+  <meta name="theme-color" content="#1a1a2e">
+
+  <!-- iOS PWA -->
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Aggregator">
+  <link rel="apple-touch-icon" href="/static/icons/icon-192.png">
+
+  <title>Threads — Personal Aggregator</title>
+
+  <link rel="stylesheet" href="/static/styles.css">
+
+  <script src="/static/app.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.1/dist/cdn.min.js"></script>
+  <script src="https://unpkg.com/htmx.org@1.9.12" defer></script>
+</head>
+<body x-data="aggregatorApp" @keydown.window="handleKey($event)" @reader:close.window="closeReader()">
+
+  <!-- Mobile header (hidden on desktop via CSS) -->
+  <header class="mobile-header" role="banner">
+    <button class="hamburger"
+            type="button"
+            @click="toggleDrawer()"
+            :aria-expanded="drawerOpen.toString()"
+            :aria-label="drawerOpen ? 'Close menu' : 'Open menu'">
+      <span></span>
+      <span></span>
+      <span></span>
+    </button>
+    <span class="mobile-title">Threads</span>
+    <a class="mobile-search-btn"
+       href="#search-input"
+       @click.prevent="focusSearch()"
+       aria-label="Search">&#x2315;</a>
+  </header>
+
+  <!-- Three-pane app shell grid -->
+  <div class="app-shell">
+
+    <!-- Tap-away overlay for mobile drawer -->
+    <div class="sidebar-overlay"
+         x-show="drawerOpen"
+         x-cloak
+         @click="drawerOpen = false"
+         aria-hidden="true"></div>
+
+    <!-- Left: sidebar / feed nav -->
+    <nav class="sidebar"
+         id="sidebar"
+         :class="{ 'open': drawerOpen }"
+         aria-label="Feed navigation"
+         hx-get="/sidebar"
+         hx-trigger="load, refreshSidebar from:body, every 60s"
+         hx-swap="innerHTML">
+    </nav>
+
+    <!-- Centre: article list pane — pre-populated with thread list -->
+    <main class="article-list-pane" id="article-list">
+      {% include "_thread_list.html" %}
+    </main>
+
+    <!-- Right: reader pane (desktop, swapped by thread links) -->
+    <aside class="reader-pane"
+           id="reader-pane"
+           aria-label="Thread reader">
+      <button class="reader-close-btn"
+              type="button"
+              @click="closeReader()"
+              aria-label="Back to thread list">&#8592; Back</button>
+      <div id="reader-content">
+        <div class="reader-empty">
+          <p>Select a thread to read.</p>
+        </div>
+      </div>
+    </aside>
+
+  </div>
+
+  <!-- Keyboard shortcuts help overlay -->
+  <div class="shortcuts-overlay"
+       x-show="showHelp"
+       x-cloak
+       @click.self="showHelp = false"
+       role="dialog"
+       aria-modal="true"
+       aria-label="Keyboard shortcuts">
+    <div class="shortcuts-panel">
+      <div class="shortcuts-header">
+        <h2 class="shortcuts-title">Keyboard shortcuts</h2>
+        <button class="shortcuts-close"
+                type="button"
+                @click="showHelp = false"
+                aria-label="Close keyboard shortcuts">&#x2715;</button>
+      </div>
+      <table class="shortcuts-table">
+        <tbody>
+          <tr><td><kbd>/</kbd></td><td>Focus search</td></tr>
+          <tr><td><kbd>?</kbd></td><td>Toggle this help</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <script>
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/static/sw.js');
+    }
+  </script>
+</body>
+</html>

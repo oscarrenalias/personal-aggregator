@@ -1,7 +1,10 @@
 # Personal Aggregator — Raspberry Pi Deployment
 
 Runs the headless aggregator stack (postgres → migrate → retriever → processor →
-summarize-rank) as a systemd-managed Docker Compose service.
+summarize-rank → clusterer) as a systemd-managed Docker Compose service.
+The **clusterer** groups ranked articles into threads; it depends on summarize-rank
+having completed scoring before articles are clustered. No separate operational
+actions are needed — it starts automatically with the rest of the stack.
 
 ---
 

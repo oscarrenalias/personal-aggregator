@@ -1,16 +1,7 @@
-"""Shared fixtures for aggregator-admin CLI tests.
-
-Sets a placeholder DATABASE_URL at module load time so aggregator_common.db can be
-imported during pytest collection without a live database. The session-scoped
-db_engine fixture starts a real Postgres container and patches
-aggregator_common.db.SessionFactory so every subsequent get_session() call uses
-the test database.
-"""
-
+"""Shared fixtures for aggregator-clusterer tests."""
 from __future__ import annotations
 
 import os
-from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Generator
@@ -21,12 +12,13 @@ from alembic.config import Config
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session, sessionmaker
 
-# Must be set before any import of aggregator_common.db triggers Settings() at module level.
+# Set placeholder before any aggregator_common.db import triggers Settings() at module level.
 os.environ.setdefault("DATABASE_URL", "postgresql://placeholder:placeholder@localhost/placeholder")
 
 _COMMON_ROOT = Path(__file__).parent.parent.parent / "aggregator-common"
 _ALEMBIC_INI = _COMMON_ROOT / "alembic.ini"
 _MIGRATIONS_DIR = _COMMON_ROOT / "src" / "aggregator_common" / "migrations"
+_NOW = datetime(2025, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
 
 
 def _ensure_docker_host() -> None:
@@ -63,11 +55,9 @@ def db_engine():
 
         engine = create_engine(db_url, pool_pre_ping=True)
 
-        # Patch the module-level SessionFactory. get_session() resolves SessionFactory
-        # from the module globals at call time, so this patch is sufficient for all
-        # code paths that imported get_session from aggregator_common.db.
         import aggregator_common.db as db_mod
         db_mod.SessionFactory = sessionmaker(bind=engine, autocommit=False, autoflush=False)
+        db_mod.engine = engine
 
         yield engine
         engine.dispose()
@@ -75,14 +65,14 @@ def db_engine():
 
 @pytest.fixture
 def clean_db(db_engine):
-    """Truncate all data tables before each test for isolation."""
     with db_engine.connect() as conn:
         conn.execute(
             text(
-                "TRUNCATE TABLE threads, articles, sources, categories, interest_profile"
+                "TRUNCATE TABLE thread_memberships, threads, articles, sources, categories"
                 " RESTART IDENTITY CASCADE"
             )
         )
+        conn.execute(text("DELETE FROM interest_profile"))
         conn.execute(text("DELETE FROM cluster_state"))
         conn.commit()
     yield
@@ -90,7 +80,6 @@ def clean_db(db_engine):
 
 @pytest.fixture
 def db_session(db_engine, clean_db) -> Generator[Session, None, None]:
-    """Per-test session for direct DB setup and inspection."""
     factory = sessionmaker(bind=db_engine, autocommit=False, autoflush=False)
     s = factory()
     try:
@@ -103,21 +92,8 @@ def db_session(db_engine, clean_db) -> Generator[Session, None, None]:
         s.close()
 
 
-@pytest.fixture
-def runner():
-    from typer.testing import CliRunner
-
-    return CliRunner()
-
-
-# ---------------------------------------------------------------------------
-# Helper constructors
-# ---------------------------------------------------------------------------
-
-from aggregator_common.models import Article, Source  # noqa: E402
+from aggregator_common.models import Article, Source, Thread  # noqa: E402
 from aggregator_common.state import ArticleStatus  # noqa: E402
-
-_NOW = datetime(2025, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
 
 
 def make_source(
@@ -140,30 +116,65 @@ def make_article(
     *,
     source_id: int,
     dedup_key: str = "key-1",
-    status: ArticleStatus = ArticleStatus.pending_processing,
-    feed_title: str = "Test Article",
+    status: ArticleStatus = ArticleStatus.ready,
+    feed_title: str | None = "Test Article",
+    clean_title: str | None = None,
+    summary: str | None = None,
+    topics: list | dict | None = None,
+    entities: list | dict | None = None,
+    feed_published_at: datetime | None = None,
+    raw_payload: dict | None = None,
     retrieved_at: datetime = _NOW,
-    claimed_by: str | None = None,
-    claimed_at: datetime | None = None,
-    last_error: str | None = None,
-    retry_count: int = 0,
-    header_image_url: str | None = None,
+    importance_score: int | None = None,
 ) -> Article:
     article = Article(
         source_id=source_id,
         dedup_key=dedup_key,
         status=status,
         feed_title=feed_title,
-        raw_payload={},
+        clean_title=clean_title,
+        summary=summary,
+        topics=topics,
+        entities=entities,
+        feed_published_at=feed_published_at or _NOW,
+        raw_payload=raw_payload or {},
         retrieved_at=retrieved_at,
-        claimed_by=claimed_by,
-        claimed_at=claimed_at,
-        last_error=last_error,
-        retry_count=retry_count,
-        header_image_url=header_image_url,
+        importance_score=importance_score,
     )
     session.add(article)
     session.flush()
     session.commit()
     session.refresh(article)
     return article
+
+
+def make_thread(
+    session: Session,
+    *,
+    title: str = "Test Thread",
+    last_updated: datetime | None = None,
+    status: str = "active",
+    tier: str | None = None,
+    source_diversity: float | None = None,
+    confidence: float | None = None,
+    source_list: list | None = None,
+    known_facts: list | None = None,
+) -> Thread:
+    now = last_updated or datetime.now(tz=timezone.utc)
+    thread = Thread(
+        representative_title=title,
+        first_seen=now,
+        last_updated=now,
+        status=status,
+        tier=tier,
+        source_diversity=source_diversity,
+        confidence=confidence,
+        source_list=source_list or [],
+        known_facts=known_facts or [],
+        deltas=[],
+    )
+    session.add(thread)
+    session.flush()
+    session.commit()
+    session.refresh(thread)
+    return thread

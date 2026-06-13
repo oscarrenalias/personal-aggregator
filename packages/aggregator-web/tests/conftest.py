@@ -84,11 +84,12 @@ def clean_db(db_engine):
     with db_engine.connect() as conn:
         conn.execute(
             text(
-                "TRUNCATE TABLE articles, sources, categories, briefs"
+                "TRUNCATE TABLE threads, articles, sources, categories, briefs"
                 " RESTART IDENTITY CASCADE"
             )
         )
         conn.execute(text("DELETE FROM interest_profile"))
+        conn.execute(text("DELETE FROM cluster_state"))
         conn.commit()
     yield
 

@@ -4,17 +4,18 @@ Personal RSS reader and news aggregator. Periodically retrieves articles from co
 
 ## Architecture
 
-Seven services communicating **only through shared Postgres state** (no synchronous service-to-service calls). Articles move through a durable state machine; each service finds its pending work by claiming rows.
+Eight services communicating **only through shared Postgres state** (no synchronous service-to-service calls). Articles move through a durable state machine; each service finds its pending work by claiming rows.
 
 ```
-sources → retriever → processor → summarize-rank → web UI
-                                                  → brief
-                                                  → aggregator-mcp (agent interface)
+sources → retriever → processor → summarize-rank → clusterer → web UI
+                                                              → brief
+                                                              → aggregator-mcp (agent interface)
 ```
 
 - **retriever** — polls feeds, persists raw articles, marks them pending processing.
 - **processor** — cleans/extracts article content, header image, search index; marks ready for ranking.
 - **summarize-rank** — LLM summary, topics, importance score + reason (the only service that calls the LLM).
+- **clusterer** — groups `ready` articles into threads using entity/topic overlap and LLM classification; scores and tiers threads; runs after summarize-rank. Uses a Postgres advisory lock (`pg_try_advisory_lock`) to prevent concurrent instances from racing on the same batch. Thread-membership assignment is idempotent: `assign_article_to_thread` is a no-op if the article already has a `ThreadMembership` row.
 - **web** — FastAPI + HTMX + Alpine.js read/UI surface + reader operations (mark read, save, search). Served as a PWA; exposed privately over Tailscale (binds `127.0.0.1` by default).
 - **brief** — scheduled LLM service that reads ranked articles, generates a structured daily brief (headline + topics + summaries), and persists it to Postgres. Runs once per day at a configurable hour; the web service serves the brief on the Today view.
 - **aggregator-mcp** — FastMCP server exposing the aggregator over the MCP/Streamable HTTP interface for agent integration. Provides tools for searching, listing, and mutating articles; source and category management tools (add/enable/disable/remove — `remove_source` and `remove_category` are destructive); ops/diagnostic tools (`pipeline_status`, `list_stuck`, `list_failures`, `reap_stale_claims`, `retry_failed`, `rerank`); brief tools (`get_daily_brief`, `refresh_brief`); resources including `status://pipeline` for a quick health snapshot; and prompts including `troubleshoot` for step-by-step pipeline diagnosis.
@@ -45,6 +46,7 @@ packages/
   aggregator-retriever/
   aggregator-processor/
   aggregator-summarize-rank/
+  aggregator-clusterer/         # thread clustering and scoring daemon
   aggregator-web/               # FastAPI + HTMX + Alpine.js PWA web UI
   aggregator-brief/             # scheduled daily brief generator
   aggregator-mcp/               # FastMCP server — MCP/Streamable HTTP agent interface
@@ -72,17 +74,17 @@ src/aggregator_common/
 ## Containers & tests
 
 - **Runtime:** OrbStack provides the Docker engine. Note it does **not** create `/var/run/docker.sock`; its socket is `~/.orbstack/run/docker.sock`. The `docker` CLI finds it via the active context, but headless test runs must resolve it explicitly (see below).
-- **Dev:** the root `docker-compose.yml` runs the **full stack built from source** (`docker compose up -d --build`): `postgres → migrate → retriever → processor → summarize-rank → web → brief`. It keeps the `postgres_data` volume and the host `5432` port so data persists and host tooling (admin CLI, `uv run`) can reach it; the web container binds `127.0.0.1:8000` with `WEB_HOST=0.0.0.0`. This is the dev counterpart to `docker-compose.prod.yml` (which **pulls** released GHCR images instead of building). For fast iteration on a single service, run it on the **host** via `uv run` (e.g. `uv run --all-packages python -m aggregator_web`); takt workers always run on the host.
+- **Dev:** the root `docker-compose.yml` runs the **full stack built from source** (`docker compose up -d --build`): `postgres → migrate → retriever → processor → summarize-rank → clusterer → web → brief`. It keeps the `postgres_data` volume and the host `5432` port so data persists and host tooling (admin CLI, `uv run`) can reach it; the web container binds `127.0.0.1:8000` with `WEB_HOST=0.0.0.0`. This is the dev counterpart to `docker-compose.prod.yml` (which **pulls** released GHCR images instead of building). For fast iteration on a single service, run it on the **host** via `uv run` (e.g. `uv run --all-packages python -m aggregator_web`); takt workers always run on the host.
 - **Tests:** `pytest` with **testcontainers** — each test session spins up an ephemeral Postgres on a random port. This isolates concurrent takt workers running in parallel worktrees; never assume a shared/fixed test database. The test harness resolves the Docker socket in this order: `DOCKER_HOST` env → `/var/run/docker.sock` → `~/.orbstack/run/docker.sock`, setting `DOCKER_HOST` for testcontainers when it falls through. This makes `pytest`/`takt merge` work for every worker without per-worker env setup.
 - **Deploy:** per-service Dockerfiles + compose. No devcontainers.
 
 ### Production compose (headless backend)
 
-The full production stack (`postgres → migrate → retriever → processor → summarize-rank → web → brief`) is managed via `Makefile` targets that wrap `docker-compose.prod.yml`:
+The full production stack (`postgres → migrate → retriever → processor → summarize-rank → clusterer → web → brief`) is managed via `Makefile` targets that wrap `docker-compose.prod.yml`:
 
 | Command | Effect |
 |---|---|
-| `make build` | Builds all six arm64 service images (calls `scripts/build-images.sh`) |
+| `make build` | Builds all seven arm64 service images (calls `scripts/build-images.sh`) |
 | `make up` | `docker compose -f docker-compose.prod.yml up -d` |
 | `make down` | `docker compose -f docker-compose.prod.yml down` |
 | `make logs` | `docker compose -f docker-compose.prod.yml logs -f` |
@@ -169,6 +171,31 @@ At process startup, every service calls `aggregator_common.load_env()` (python-d
 | `BRIEF_POLL_INTERVAL_SECONDS` | `60` | Seconds between scheduler poll cycles |
 | `BRIEF_CLAIM_LEASE_SECONDS` | `600` | Work-claim lease duration for brief jobs in seconds |
 | `BRIEF_RETENTION_DAYS` | `30` | Days to retain completed briefs before pruning |
+| `CLUSTERER_POLL_INTERVAL_SECONDS` | `60` | Seconds between clusterer poll cycles |
+| `CLUSTERER_CANDIDATE_WINDOW_HOURS_FAST` | `48` | Hours of history for fast-path candidate selection |
+| `CLUSTERER_CANDIDATE_WINDOW_DAYS_SLOW` | `7` | Days of history for slow-path candidate selection |
+| `CLUSTERER_MAX_CANDIDATE_THREADS` | `10` | Maximum candidate threads evaluated per article per run |
+| `CLUSTERER_ENTITY_OVERLAP_THRESHOLD` | `0.2` | Minimum entity overlap ratio to consider articles related |
+| `CLUSTERER_TOPIC_OVERLAP_THRESHOLD` | `0.2` | Minimum topic overlap ratio to consider articles related |
+| `CLUSTERER_FTS_SIMILARITY_THRESHOLD` | `0.1` | Minimum FTS similarity score to consider articles related |
+| `CLUSTERER_LLM_MODEL` | `gpt-4.1-mini` | LLM model for cluster classification reasoning |
+| `CLUSTERER_LLM_MAX_OUTPUT_TOKENS` | `512` | Maximum output tokens for LLM calls |
+| `CLUSTERER_LLM_TEMPERATURE` | `0.0` | LLM sampling temperature (0 = deterministic) |
+| `CLUSTERER_LLM_TIMEOUT_SECONDS` | `30` | LLM call timeout in seconds |
+| `CLUSTERER_CLAIM_LEASE_SECONDS` | `600` | Work-claim lease duration for clusterer jobs in seconds |
+| `CLUSTERER_DORMANT_AGE_DAYS` | `7` | Days of inactivity before a thread is considered dormant |
+| `CLUSTERER_ARCHIVE_AGE_DAYS` | `30` | Days of dormancy before a thread is archived |
+| `CLUSTERER_TIER_MUST_KNOW_THRESHOLD` | `0.75` | Minimum composite score for must-know tier |
+| `CLUSTERER_TIER_WORTH_TRACKING_THRESHOLD` | `0.5` | Minimum composite score for worth-tracking tier |
+| `CLUSTERER_TIER_DEEP_READ_THRESHOLD` | `0.25` | Minimum composite score for deep-read tier |
+| `CLUSTERER_BATCH_SIZE` | `20` | Maximum articles processed per clustering cycle |
+| `CLUSTERER_TITLE_JACCARD_THRESHOLD` | `0.7` | Minimum token Jaccard similarity for near-duplicate title detection |
+| `CLUSTERER_WEIGHT_RELEVANCE` | `0.25` | Composite score weight for relevance dimension |
+| `CLUSTERER_WEIGHT_NOVELTY` | `0.15` | Composite score weight for novelty dimension |
+| `CLUSTERER_WEIGHT_IMPORTANCE` | `0.30` | Composite score weight for importance dimension |
+| `CLUSTERER_WEIGHT_DIVERSITY` | `0.05` | Composite score weight for source diversity dimension |
+| `CLUSTERER_WEIGHT_CONFIDENCE` | `0.10` | Composite score weight for clustering confidence dimension |
+| `CLUSTERER_WEIGHT_TIME_SENSITIVITY` | `0.15` | Composite score weight for time sensitivity dimension |
 
 **Per-service config convention:** Each service subclasses `aggregator_common.config.Settings` and adds its own fields using a `<SERVICE>_` prefix (e.g., `PROCESSOR_BATCH_SIZE`, `RETRIEVER_POLL_INTERVAL_SECONDS`). Shared fields live in the base class; service-specific fields never bleed into other services' namespaces.
 
@@ -207,7 +234,7 @@ Versioning and image publishing run entirely in CI — do not bump the version m
 
 **GHCR image paths:**
 
-Images are pushed to `ghcr.io/oscarrenalias/personal-aggregator/aggregator-<service>` for each service (`retriever`, `processor`, `summarize-rank`, `admin`, `web`, `brief`). Three tags are applied on every successful build:
+Images are pushed to `ghcr.io/oscarrenalias/personal-aggregator/aggregator-<service>` for each service (`retriever`, `processor`, `summarize-rank`, `clusterer`, `admin`, `web`, `brief`). Three tags are applied on every successful build:
 
 | Tag | When to use |
 |---|---|

@@ -36,6 +36,17 @@
           Today
         </a>
       </li>
+      <li>
+        <a class="sidebar-link"
+           :class="{ 'is-active': window.location.pathname.startsWith('/threads') }"
+           :aria-current="window.location.pathname.startsWith('/threads') ? 'page' : undefined"
+           hx-get="/threads"
+           hx-target="#article-list"
+           hx-swap="innerHTML"
+           hx-push-url="true">
+          Threads
+        </a>
+      </li>
     </ul>
   </section>
 

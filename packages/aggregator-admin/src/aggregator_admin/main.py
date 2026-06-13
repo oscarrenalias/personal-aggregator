@@ -9,6 +9,7 @@ from aggregator_common.logging_setup import configure_logging
 from .articles import articles_app
 from .brief import brief_app
 from .categories import categories_app
+from .clusters import clusters_app
 from .ops import ops_app
 from .profile import profile_app
 from .sources import sources_app
@@ -21,6 +22,7 @@ app.add_typer(ops_app, name="ops")
 app.add_typer(profile_app, name="profile")
 app.add_typer(categories_app, name="categories")
 app.add_typer(brief_app, name="brief")
+app.add_typer(clusters_app, name="clusters")
 
 
 @app.callback()

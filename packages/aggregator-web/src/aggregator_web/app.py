@@ -17,7 +17,14 @@ from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session, selectinload
 
 from aggregator_common.db import SessionFactory, get_session
+from aggregator_common.management import enqueue_recluster
 from aggregator_common.models import Article, Brief, BriefTopic, Category, Source
+from aggregator_common.queries import (
+    count_suppressed_today,
+    get_thread,
+    get_thread_members,
+    list_threads,
+)
 from aggregator_common.version import version
 from aggregator_web.config import WebSettings
 from aggregator_web.feeds import (
@@ -66,7 +73,32 @@ def _paragraphs_filter(text: str) -> Markup:
     return Markup("".join(f"<p>{line}</p>" for line in lines))
 
 
+def _timeago_filter(dt_str: str) -> str:
+    """Convert an ISO datetime string to a human-relative string (e.g. '3h ago')."""
+    try:
+        dt = datetime.fromisoformat(str(dt_str).replace("Z", "+00:00"))
+        delta = datetime.now(timezone.utc) - dt.astimezone(timezone.utc)
+        s = int(delta.total_seconds())
+        if s < 60:
+            return "just now"
+        if s < 3600:
+            m = s // 60
+            return f"{m}m ago"
+        if s < 86400:
+            h = s // 3600
+            return f"{h}h ago"
+        d = s // 86400
+        if d == 1:
+            return "yesterday"
+        if d < 7:
+            return f"{d}d ago"
+        return dt.strftime("%-d %b %Y")
+    except (ValueError, AttributeError):
+        return str(dt_str)[:10] if dt_str else ""
+
+
 templates.env.filters["paragraphs"] = _paragraphs_filter
+templates.env.filters["timeago"] = _timeago_filter
 
 
 def get_db() -> Generator[Session, None, None]:
@@ -609,6 +641,51 @@ def brief_detail_view(
         "_brief_detail.html",
         {"brief": brief},
     )
+
+
+@app.get("/threads")
+def threads_index(
+    request: Request,
+    tier: Optional[str] = None,
+    hx_request: Optional[str] = Header(None, alias="HX-Request"),
+    db: Session = Depends(get_db),
+) -> Response:
+    threads = list_threads(db, tier=tier)
+    suppressed_today = count_suppressed_today(db)
+    ctx = {"threads": threads, "suppressed_today": suppressed_today, "tier": tier}
+    if hx_request:
+        return templates.TemplateResponse(request, "_thread_list.html", ctx)
+    return templates.TemplateResponse(request, "threads/index.html", ctx)
+
+
+@app.get("/threads/{thread_id}")
+def thread_detail(
+    request: Request,
+    thread_id: int,
+    hx_request: Optional[str] = Header(None, alias="HX-Request"),
+    db: Session = Depends(get_db),
+) -> Response:
+    thread = get_thread(db, thread_id)
+    if thread is None:
+        raise HTTPException(status_code=404, detail="Thread not found")
+    members = get_thread_members(db, thread_id)
+    ctx = {"thread": thread, "members": members}
+    if hx_request:
+        return templates.TemplateResponse(request, "_thread_detail.html", ctx)
+    initial_content = Markup(
+        templates.get_template("_thread_detail.html").render(**ctx)
+    )
+    return templates.TemplateResponse(
+        request,
+        "shell.html",
+        {"initial_reader_content": initial_content, "initial_reader_open": True},
+    )
+
+
+@app.post("/threads/recluster", status_code=202)
+def threads_recluster(db: Session = Depends(get_db)) -> Response:
+    enqueue_recluster(db)
+    return Response(status_code=202, headers={"HX-Trigger": "reclustered"})
 
 
 @app.get("/search")

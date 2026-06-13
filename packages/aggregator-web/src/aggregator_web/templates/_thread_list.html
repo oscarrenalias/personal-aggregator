@@ -1,0 +1,91 @@
+{#
+  _thread_list.html — Thread clustering view (HTMX partial).
+
+  Context:
+    threads          : list[ThreadResult] — all threads from list_threads()
+    suppressed_today : int — count of articles suppressed today
+    tier             : str | None — active tier filter (informational only)
+#}
+{% set tier_order = [
+  ("must_know",      "Must Know"),
+  ("worth_tracking", "Worth Tracking"),
+  ("deep_read",      "Deep Read"),
+  ("low_noise",      "Low Noise"),
+] %}
+
+<div id="article-list" class="thread-list-pane"
+     x-data="{ ...threadList(), activeTier: '{{ tier or 'all' }}' }">
+
+  <div class="feed-controls" role="group" aria-label="Filter threads by tier">
+    <div class="feed-sort-toggle">
+      <button class="sort-btn"
+              :class="{ 'active': activeTier === 'all' }"
+              @click="setTierFilter('all')"
+              :aria-pressed="(activeTier === 'all').toString()">All</button>
+      <button class="sort-btn"
+              :class="{ 'active': activeTier === 'must_know' }"
+              @click="setTierFilter('must_know')"
+              :aria-pressed="(activeTier === 'must_know').toString()">Must Know</button>
+      <button class="sort-btn"
+              :class="{ 'active': activeTier === 'worth_tracking' }"
+              @click="setTierFilter('worth_tracking')"
+              :aria-pressed="(activeTier === 'worth_tracking').toString()">Worth</button>
+      <button class="sort-btn"
+              :class="{ 'active': activeTier === 'deep_read' }"
+              @click="setTierFilter('deep_read')"
+              :aria-pressed="(activeTier === 'deep_read').toString()">Deep</button>
+      <button class="sort-btn"
+              :class="{ 'active': activeTier === 'low_noise' }"
+              @click="setTierFilter('low_noise')"
+              :aria-pressed="(activeTier === 'low_noise').toString()">Low Noise</button>
+    </div>
+  </div>
+
+  <div class="feed-controls thread-controls">
+    <p class="suppressed-summary">
+      {% if suppressed_today %}
+      {{ suppressed_today }} article{{ 's' if suppressed_today != 1 else '' }} suppressed today
+      {% else %}
+      No articles suppressed today
+      {% endif %}
+    </p>
+    <button class="btn-recluster"
+            @click="startRecluster()"
+            hx-post="/threads/recluster"
+            hx-swap="none"
+            :disabled="reclustering">
+      <span x-show="!reclustering">Re-cluster now</span>
+      <span x-show="reclustering" x-cloak aria-live="polite">Clustering…</span>
+    </button>
+  </div>
+
+  {% if not threads %}
+  <p class="empty-state">No threads yet. Articles will be grouped into threads by the clusterer service.</p>
+  {% else %}
+
+  {% for tier_key, tier_label in tier_order %}
+    {% set tier_threads = threads | selectattr("tier", "equalto", tier_key) | list %}
+    {% if tier_threads %}
+    <section class="thread-tier-group" aria-labelledby="tier-{{ tier_key }}-heading">
+      <h2 class="thread-tier-heading" id="tier-{{ tier_key }}-heading">{{ tier_label }}</h2>
+      {% for thread in tier_threads %}
+        {% include "_thread_card.html" %}
+      {% endfor %}
+    </section>
+    {% endif %}
+  {% endfor %}
+
+  {# Threads with no tier assigned #}
+  {% set untiered = threads | rejectattr("tier") | list %}
+  {% if untiered %}
+  <section class="thread-tier-group" aria-labelledby="tier-other-heading">
+    <h2 class="thread-tier-heading" id="tier-other-heading">Other</h2>
+    {% for thread in untiered %}
+      {% include "_thread_card.html" %}
+    {% endfor %}
+  </section>
+  {% endif %}
+
+  {% endif %}
+
+</div>
