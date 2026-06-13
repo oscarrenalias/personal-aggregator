@@ -56,10 +56,14 @@ version = "0.1.0"
 source = { editable = "packages/aggregator-clusterer" }
 dependencies = [
     { name = "aggregator-common" },
+    { name = "litellm" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "aggregator-common", editable = "packages/aggregator-common" }]
+requires-dist = [
+    { name = "aggregator-common", editable = "packages/aggregator-common" },
+    { name = "litellm", specifier = ">=1" },
+]
 
 [[package]]
 name = "aggregator-common"
