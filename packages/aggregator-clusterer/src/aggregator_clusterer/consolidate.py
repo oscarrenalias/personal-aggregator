@@ -7,8 +7,9 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from aggregator_common.management import merge_threads
-from aggregator_common.models import Article, Thread, ThreadMembership
+from aggregator_common.models import Article, InterestProfile, Thread, ThreadMembership
 from aggregator_clusterer.config import ClustererSettings
+from aggregator_clusterer.scoring import score_and_tier
 
 logger = logging.getLogger(__name__)
 
@@ -191,3 +192,94 @@ def run_merge_pass(
             logger.info("merged thread %s into %s", absorb_id, keep_id)
 
     return merge_count
+
+
+def _composite_from_stored(thread: Thread, settings: ClustererSettings) -> float:
+    """Recompute the composite score from a thread's already-persisted dimension scores."""
+    w_n = settings.clusterer_weight_novelty
+    w_i = settings.clusterer_weight_importance
+    w_d = settings.clusterer_weight_diversity
+    w_c = settings.clusterer_weight_confidence
+    w_t = settings.clusterer_weight_time_sensitivity
+    weight_sum = w_n + w_i + w_d + w_c + w_t
+    return (
+        w_n * (thread.novelty_score or 0.0)
+        + w_i * (thread.importance_score or 0.0)
+        + w_d * (thread.diversity_score or 0.0)
+        + w_c * (thread.confidence or 0.0)
+        + w_t * (thread.time_sensitivity_score or 0.0)
+    ) / (weight_sum or 1.0)
+
+
+def run_curation_pass(
+    session: Session,
+    settings: ClustererSettings,
+    relevance_gate_fn: Callable[[str, Thread], tuple[bool, str]],
+) -> None:
+    """Re-score all active threads and apply curation gates and tier caps.
+
+    Steps:
+    1. Re-score every active thread via score_and_tier().
+    2. Apply relevance gate (fail-open: exceptions skip that thread).
+    3. Apply single-source gate (already enforced inside score_and_tier).
+    4. Enforce tier caps: top-N by composite stay in must_know/worth_tracking;
+       overflow is demoted to deep_read.
+
+    The function is idempotent: re-running it on an already-curated set
+    produces no further changes.
+    """
+    profile = session.execute(select(InterestProfile)).scalar_one_or_none()
+    interest_profile_text = profile.profile_text if profile else ""
+
+    threads: list[Thread] = list(
+        session.execute(
+            select(Thread).where(Thread.status == "active")
+        ).scalars().all()
+    )
+
+    # Step 1: re-score all active threads (also applies single-source gate).
+    for thread in threads:
+        score_and_tier(session, thread, settings)
+
+    # Step 2: relevance gate — off-interest threads are forced to low_noise.
+    for thread in threads:
+        try:
+            relevant, reason = relevance_gate_fn(interest_profile_text, thread)
+            if not relevant:
+                thread.tier = "low_noise"
+                thread.tier_reason = reason
+        except Exception:
+            logger.exception(
+                "relevance_gate_fn raised for thread %s; skipping (fail-open)",
+                thread.id,
+            )
+
+    # Step 3: tier caps — keep top-N by composite, demote the rest to deep_read.
+    must_know = sorted(
+        [t for t in threads if t.tier == "must_know"],
+        key=lambda t: _composite_from_stored(t, settings),
+        reverse=True,
+    )
+    for t in must_know[settings.clusterer_must_know_max:]:
+        t.tier = "deep_read"
+        t.tier_reason = f"[tier cap: demoted from must_know] {t.tier_reason or ''}".strip()
+        logger.debug("thread %s demoted from must_know by tier cap", t.id)
+
+    worth_tracking = sorted(
+        [t for t in threads if t.tier == "worth_tracking"],
+        key=lambda t: _composite_from_stored(t, settings),
+        reverse=True,
+    )
+    for t in worth_tracking[settings.clusterer_worth_tracking_max:]:
+        t.tier = "deep_read"
+        t.tier_reason = f"[tier cap: demoted from worth_tracking] {t.tier_reason or ''}".strip()
+        logger.debug("thread %s demoted from worth_tracking by tier cap", t.id)
+
+    logger.info(
+        "curation pass complete: %d threads, %d must_know (cap %d), %d worth_tracking (cap %d)",
+        len(threads),
+        min(len(must_know), settings.clusterer_must_know_max),
+        settings.clusterer_must_know_max,
+        min(len(worth_tracking), settings.clusterer_worth_tracking_max),
+        settings.clusterer_worth_tracking_max,
+    )
