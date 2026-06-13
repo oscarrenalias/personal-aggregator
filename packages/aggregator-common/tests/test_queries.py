@@ -543,14 +543,19 @@ def _make_thread(
     *,
     title: str = "Test Thread",
     source_list: list | None = None,
+    surfaced: bool = True,
+    top_grade: int | None = None,
+    last_updated: datetime | None = None,
 ) -> Thread:
-    now = _NOW
+    now = last_updated or _NOW
     thread = Thread(
         representative_title=title,
         first_seen=now,
         last_updated=now,
         status="active",
         source_list=source_list,
+        surfaced=surfaced,
+        top_grade=top_grade,
         known_facts=[],
         deltas=[],
     )
@@ -636,56 +641,43 @@ class TestListThreads:
         assert thread.id in ids
         assert ids[thread.id].member_count == 3
 
-    def test_max_age_days_excludes_thread_older_than_cutoff(self, session: Session):
+    def test_unsurfaced_thread_excluded(self, session: Session):
+        """list_threads returns only surfaced=True threads."""
+        _make_thread(session, title="Not Surfaced", surfaced=False)
+        surfaced = _make_thread(session, title="Surfaced", surfaced=True)
+
+        results = queries.list_threads(session)
+        ids = {r.id for r in results}
+
+        assert surfaced.id in ids
+
+    def test_surfaced_false_thread_not_returned(self, session: Session):
+        """Threads with surfaced=False are excluded."""
+        not_surfaced = _make_thread(session, title="Hidden Thread", surfaced=False)
+
+        results = queries.list_threads(session)
+        ids = {r.id for r in results}
+
+        assert not_surfaced.id not in ids
+
+    def test_order_by_top_grade_descending(self, session: Session):
+        """list_threads returns threads ordered by top_grade descending (nulls last)."""
+        low = _make_thread(session, title="Low Grade Thread", surfaced=True, top_grade=40)
+        high = _make_thread(session, title="High Grade Thread", surfaced=True, top_grade=90)
+
+        results = queries.list_threads(session)
+        ids = [r.id for r in results]
+
+        high_idx = ids.index(high.id)
+        low_idx = ids.index(low.id)
+        assert high_idx < low_idx
+
+    def test_thread_older_than_7_days_excluded(self, session: Session):
+        """Threads with last_updated older than 7 days are not returned."""
         old_time = datetime.now(tz=timezone.utc) - timedelta(days=8)
-        old_thread = Thread(
-            representative_title="Old Thread",
-            first_seen=old_time,
-            last_updated=old_time,
-            status="active",
-            known_facts=[],
-            deltas=[],
-        )
-        session.add(old_thread)
-        session.flush()
+        old = _make_thread(session, title="Old Surfaced Thread", surfaced=True, last_updated=old_time)
 
-        results = queries.list_threads(session, max_age_days=7)
+        results = queries.list_threads(session)
         ids = {r.id for r in results}
 
-        assert old_thread.id not in ids
-
-    def test_max_age_days_includes_thread_within_cutoff(self, session: Session):
-        recent_time = datetime.now(tz=timezone.utc) - timedelta(days=6)
-        recent_thread = Thread(
-            representative_title="Recent Thread",
-            first_seen=recent_time,
-            last_updated=recent_time,
-            status="active",
-            known_facts=[],
-            deltas=[],
-        )
-        session.add(recent_thread)
-        session.flush()
-
-        results = queries.list_threads(session, max_age_days=7)
-        ids = {r.id for r in results}
-
-        assert recent_thread.id in ids
-
-    def test_max_age_days_none_returns_all_threads(self, session: Session):
-        old_time = datetime.now(tz=timezone.utc) - timedelta(days=60)
-        old_thread = Thread(
-            representative_title="Very Old Thread",
-            first_seen=old_time,
-            last_updated=old_time,
-            status="active",
-            known_facts=[],
-            deltas=[],
-        )
-        session.add(old_thread)
-        session.flush()
-
-        results = queries.list_threads(session, max_age_days=None)
-        ids = {r.id for r in results}
-
-        assert old_thread.id in ids
+        assert old.id not in ids

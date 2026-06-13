@@ -3,21 +3,18 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-import pytest
 from sqlalchemy import select
-from sqlalchemy.orm import Session
 
 from aggregator_clusterer.config import ClustererSettings
 from aggregator_clusterer.consolidate import (
     ConsolidationResult,
-    _thread_relevance_hash,
     find_merge_candidates,
     run_consolidation_pass,
-    run_curation_pass,
     run_merge_pass,
     run_retention_prune,
+    run_surfacing_pass,
 )
-from aggregator_common.models import Article, ClassificationLabel, Thread, ThreadMembership
+from aggregator_common.models import Article, Thread, ThreadMembership
 
 from .conftest import make_article, make_source, make_thread
 
@@ -26,39 +23,6 @@ _SETTINGS = ClustererSettings()
 # Stub callables for injectable functions
 _ALWAYS_MERGE = lambda t1, t2: True  # noqa: E731
 _NEVER_MERGE = lambda t1, t2: False  # noqa: E731
-_ALWAYS_RELEVANT = lambda profile, thread: (True, "")  # noqa: E731
-_ALWAYS_IRRELEVANT = lambda profile, thread: (False, "off-interest")  # noqa: E731
-
-
-def _make_must_know_thread(
-    session: Session,
-    *,
-    src_url_a: str,
-    src_url_b: str,
-    key_prefix: str,
-) -> Thread:
-    """Create a 2-source, 2-member thread that scores must_know."""
-    src1 = make_source(session, url=src_url_a)
-    src2 = make_source(session, url=src_url_b)
-    thread = make_thread(
-        session,
-        last_updated=datetime.now(tz=timezone.utc),
-        confidence=1.0,
-        source_list=[src1.feed_url, src2.feed_url],
-    )
-    art1 = make_article(session, source_id=src1.id, dedup_key=f"{key_prefix}-a1", importance_score=100)
-    art2 = make_article(session, source_id=src2.id, dedup_key=f"{key_prefix}-a2", importance_score=100)
-    for art in (art1, art2):
-        session.add(ThreadMembership(
-            thread_id=thread.id,
-            article_id=art.id,
-            classification_label=ClassificationLabel.same_thread_new_fact.value,
-            suppressed=False,
-            assigned_at=datetime.now(tz=timezone.utc),
-        ))
-    session.commit()
-    session.refresh(thread)
-    return thread
 
 
 class TestFindMergeCandidates:
@@ -174,205 +138,92 @@ class TestRunMergePass:
         assert count == 0  # max_merge_checks=0 means no LLM calls allowed → 0 merges
 
 
-class TestRunCurationPass:
-    def test_relevance_gate_fail_open_on_exception(self, db_session):
-        """Exception in relevance gate is swallowed; thread tier is unchanged."""
-        def _raising_gate(profile, thread):
-            raise RuntimeError("gate broken")
+class TestRunSurfacingPass:
+    def test_empty_db_returns_zero(self, db_session):
+        count = run_surfacing_pass(db_session, _SETTINGS)
+        assert count == 0
 
-        thread = _make_must_know_thread(
-            db_session,
-            src_url_a="https://curation-exc-a.test/feed.xml",
-            src_url_b="https://curation-exc-b.test/feed.xml",
-            key_prefix="curation-exc",
-        )
-        run_curation_pass(db_session, _SETTINGS, _raising_gate)
-        # Gate exception swallowed; tier was set by score_and_tier in-memory.
-        # Flush so the identity map reflects the updated state before asserting.
-        db_session.flush()
-        db_session.refresh(thread)
-        assert thread.tier is not None  # tier assigned without crash
-
-    def test_relevance_gate_demotes_off_interest_thread_to_low_noise(self, db_session):
-        thread = _make_must_know_thread(
-            db_session,
-            src_url_a="https://curation-irr-a.test/feed.xml",
-            src_url_b="https://curation-irr-b.test/feed.xml",
-            key_prefix="curation-irr",
-        )
-        run_curation_pass(db_session, _SETTINGS, _ALWAYS_IRRELEVANT)
-        db_session.flush()
-        db_session.refresh(thread)
-        assert thread.tier == "low_noise"
-        assert thread.tier_reason == "off-interest"
-
-    def test_must_know_cap_demotes_overflow_to_deep_read(self, db_session):
-        """Threads beyond clusterer_must_know_max are demoted from must_know to deep_read."""
-        settings = ClustererSettings(clusterer_must_know_max=2)
-        threads = []
-        for i in range(4):
-            t = _make_must_know_thread(
-                db_session,
-                src_url_a=f"https://cap-mk-{i}a.test/feed.xml",
-                src_url_b=f"https://cap-mk-{i}b.test/feed.xml",
-                key_prefix=f"cap-mk-{i}",
-            )
-            threads.append(t)
-
-        run_curation_pass(db_session, settings, _ALWAYS_RELEVANT)
-        db_session.flush()
-
-        for t in threads:
-            db_session.refresh(t)
-
-        must_know_count = sum(1 for t in threads if t.tier == "must_know")
-        deep_read_count = sum(1 for t in threads if t.tier == "deep_read" and "[tier cap:" in (t.tier_reason or ""))
-        assert must_know_count == 2
-        assert deep_read_count == 2
-
-    def test_worth_tracking_cap_demotes_overflow_to_deep_read(self, db_session):
-        """Threads beyond clusterer_worth_tracking_max are demoted to deep_read."""
-        settings = ClustererSettings(
-            clusterer_worth_tracking_max=1,
-            # Lower must_know threshold so threads don't become must_know
-            clusterer_tier_must_know_threshold=0.99,
-        )
-        # Create threads that will land in worth_tracking range
-        src = make_source(db_session, url="https://cap-wt-src.test/feed.xml")
-        threads = []
+    def test_surfaces_thread_with_enough_members(self, db_session):
+        """Thread with member_count >= min_members gets surfaced=True."""
+        src = make_source(db_session, url="https://surf-members.test/feed.xml")
+        thread = make_thread(db_session, title="Surfaced By Members")
         for i in range(3):
-            t = make_thread(
-                db_session,
-                title=f"Worth Tracking Thread {i}",
-                last_updated=datetime.now(tz=timezone.utc) - timedelta(hours=40),
-                confidence=0.5,
-                source_list=[src.feed_url],
-            )
-            art = make_article(db_session, source_id=src.id, dedup_key=f"cap-wt-k{i}",
-                               importance_score=60)
+            art = make_article(db_session, source_id=src.id, dedup_key=f"surf-mem-k{i}",
+                               importance_score=30)
             db_session.add(ThreadMembership(
-                thread_id=t.id, article_id=art.id, suppressed=False,
+                thread_id=thread.id, article_id=art.id, suppressed=False,
                 assigned_at=datetime.now(tz=timezone.utc),
             ))
-            db_session.commit()
-            db_session.refresh(t)
-            threads.append(t)
+        db_session.commit()
+        db_session.refresh(thread)
 
-        run_curation_pass(db_session, settings, _ALWAYS_RELEVANT)
-        db_session.flush()
-
-        for t in threads:
-            db_session.refresh(t)
-
-        worth_tracking_count = sum(1 for t in threads if t.tier == "worth_tracking")
-        assert worth_tracking_count <= 1
-
-    def test_relevance_gate_cache_hit_skips_llm_call(self, db_session):
-        """When hash matches stored hash, the gate fn is NOT called (LLM skip)."""
-        gate_calls = []
-
-        def _counting_gate(profile, thread):
-            gate_calls.append(thread.id)
-            return True, ""
-
-        thread = _make_must_know_thread(
-            db_session,
-            src_url_a="https://cache-hit-a.test/feed.xml",
-            src_url_b="https://cache-hit-b.test/feed.xml",
-            key_prefix="cache-hit",
-        )
-        # Prime the cache: set hash + pass on the thread to simulate a prior run.
-        current_hash = _thread_relevance_hash(thread)
-        thread.relevance_gate_hash = current_hash
-        thread.relevance_gate_pass = True
-        db_session.flush()
-
-        gate_calls.clear()
-        run_curation_pass(db_session, _SETTINGS, _counting_gate)
-
-        # Gate fn must NOT have been called for the cached thread.
-        assert thread.id not in gate_calls
-
-    def test_relevance_gate_cache_miss_calls_llm_and_stores_hash(self, db_session):
-        """When hash is absent or stale, the gate fn IS called and hash+pass are stored."""
-        gate_calls = []
-
-        def _counting_gate(profile, thread):
-            gate_calls.append(thread.id)
-            return True, ""
-
-        thread = _make_must_know_thread(
-            db_session,
-            src_url_a="https://cache-miss-a.test/feed.xml",
-            src_url_b="https://cache-miss-b.test/feed.xml",
-            key_prefix="cache-miss",
-        )
-        # Thread has no cached hash — must trigger LLM call.
-        assert thread.relevance_gate_hash is None
-
-        run_curation_pass(db_session, _SETTINGS, _counting_gate)
+        run_surfacing_pass(db_session, _SETTINGS)
         db_session.flush()
         db_session.refresh(thread)
 
-        assert thread.id in gate_calls
-        assert thread.relevance_gate_hash == _thread_relevance_hash(thread)
-        assert thread.relevance_gate_pass is True
+        assert thread.surfaced is True
 
-    def test_relevance_gate_cache_stale_hash_calls_llm(self, db_session):
-        """A thread whose content changed since caching triggers a fresh LLM call."""
-        gate_calls = []
+    def test_surfaces_thread_with_high_top_grade(self, db_session):
+        """Thread with max importance_score >= min_grade gets surfaced=True."""
+        src = make_source(db_session, url="https://surf-grade.test/feed.xml")
+        thread = make_thread(db_session, title="Surfaced By Grade")
+        art = make_article(db_session, source_id=src.id, dedup_key="surf-grade-k1",
+                           importance_score=80)
+        db_session.add(ThreadMembership(
+            thread_id=thread.id, article_id=art.id, suppressed=False,
+            assigned_at=datetime.now(tz=timezone.utc),
+        ))
+        db_session.commit()
+        db_session.refresh(thread)
 
-        def _counting_gate(profile, thread):
-            gate_calls.append(thread.id)
-            return False, "off-topic"
-
-        thread = _make_must_know_thread(
-            db_session,
-            src_url_a="https://cache-stale-a.test/feed.xml",
-            src_url_b="https://cache-stale-b.test/feed.xml",
-            key_prefix="cache-stale",
-        )
-        # Store a stale hash (different from current content).
-        thread.relevance_gate_hash = "0" * 64
-        thread.relevance_gate_pass = True  # cached as relevant
-        db_session.flush()
-
-        run_curation_pass(db_session, _SETTINGS, _counting_gate)
+        run_surfacing_pass(db_session, _SETTINGS)
         db_session.flush()
         db_session.refresh(thread)
 
-        # Fresh call must have been made; thread should now be low_noise.
-        assert thread.id in gate_calls
-        assert thread.tier == "low_noise"
-        assert thread.relevance_gate_hash == _thread_relevance_hash(thread)
-        assert thread.relevance_gate_pass is False
+        assert thread.surfaced is True
+        assert thread.top_grade == 80
 
-    def test_idempotent_second_call_leaves_tiers_unchanged(self, db_session):
-        """Running curation pass twice produces no further tier changes on the second run."""
-        settings = ClustererSettings(clusterer_must_know_max=2)
-        threads = []
-        for i in range(3):
-            t = _make_must_know_thread(
-                db_session,
-                src_url_a=f"https://idem-cp-{i}a.test/feed.xml",
-                src_url_b=f"https://idem-cp-{i}b.test/feed.xml",
-                key_prefix=f"idem-cp-{i}",
-            )
-            threads.append(t)
+    def test_does_not_surface_lone_on_topic_article(self, db_session):
+        """Single article with grade below min_grade and only 1 source/member is not surfaced."""
+        src = make_source(db_session, url="https://surf-lone.test/feed.xml")
+        thread = make_thread(db_session, title="Lone On-Topic", source_list=[src.feed_url])
+        art = make_article(db_session, source_id=src.id, dedup_key="surf-lone-k1",
+                           importance_score=33)
+        db_session.add(ThreadMembership(
+            thread_id=thread.id, article_id=art.id, suppressed=False,
+            assigned_at=datetime.now(tz=timezone.utc),
+        ))
+        db_session.commit()
+        db_session.refresh(thread)
 
-        run_curation_pass(db_session, settings, _ALWAYS_RELEVANT)
+        run_surfacing_pass(db_session, _SETTINGS)
         db_session.flush()
-        for t in threads:
-            db_session.refresh(t)
-        tiers_after_first = [t.tier for t in threads]
+        db_session.refresh(thread)
 
-        run_curation_pass(db_session, settings, _ALWAYS_RELEVANT)
+        assert thread.surfaced is False
+
+    def test_idempotent_second_call_leaves_surfaced_unchanged(self, db_session):
+        """Running surfacing pass twice produces the same result."""
+        src = make_source(db_session, url="https://surf-idem.test/feed.xml")
+        thread = make_thread(db_session, title="Idempotent Surfacing")
+        art = make_article(db_session, source_id=src.id, dedup_key="surf-idem-k1",
+                           importance_score=80)
+        db_session.add(ThreadMembership(
+            thread_id=thread.id, article_id=art.id, suppressed=False,
+            assigned_at=datetime.now(tz=timezone.utc),
+        ))
+        db_session.commit()
+
+        run_surfacing_pass(db_session, _SETTINGS)
         db_session.flush()
-        for t in threads:
-            db_session.refresh(t)
-        tiers_after_second = [t.tier for t in threads]
+        db_session.refresh(thread)
+        surfaced_after_first = thread.surfaced
 
-        assert tiers_after_first == tiers_after_second
+        run_surfacing_pass(db_session, _SETTINGS)
+        db_session.flush()
+        db_session.refresh(thread)
+
+        assert thread.surfaced == surfaced_after_first
 
 
 class TestRunRetentionPrune:
@@ -456,9 +307,7 @@ class TestRunRetentionPrune:
 
 class TestRunConsolidationPass:
     def test_returns_consolidation_result_dataclass(self, db_session):
-        result = run_consolidation_pass(
-            db_session, _SETTINGS, _NEVER_MERGE, _ALWAYS_RELEVANT
-        )
+        result = run_consolidation_pass(db_session, _SETTINGS, _NEVER_MERGE)
         assert isinstance(result, ConsolidationResult)
         assert result.merges == 0
         assert result.curated == 0
@@ -469,14 +318,10 @@ class TestRunConsolidationPass:
         make_thread(db_session, title="Old 1", last_updated=old_time)
         make_thread(db_session, title="Old 2", last_updated=old_time)
 
-        result = run_consolidation_pass(
-            db_session, _SETTINGS, _NEVER_MERGE, _ALWAYS_RELEVANT
-        )
+        result = run_consolidation_pass(db_session, _SETTINGS, _NEVER_MERGE)
         assert result.pruned == 2
 
     def test_stop_event_does_not_prevent_pass(self, db_session):
         """run_consolidation_pass doesn't check stop_event; it always runs to completion."""
-        result = run_consolidation_pass(
-            db_session, _SETTINGS, _NEVER_MERGE, _ALWAYS_RELEVANT
-        )
+        result = run_consolidation_pass(db_session, _SETTINGS, _NEVER_MERGE)
         assert isinstance(result, ConsolidationResult)
