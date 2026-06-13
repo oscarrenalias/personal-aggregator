@@ -5,7 +5,7 @@ description: "Foundational story clustering: a new aggregator-clusterer worker g
 dependencies: null
 priority: high
 complexity: null
-status: planned
+status: done
 tags:
 - clustering
 - threads
