@@ -1,3 +1,20 @@
+"""Thread consolidation: merge near-duplicates, surface threads, and prune stale ones.
+
+Three sequential sub-passes are run by ``run_consolidation_pass`` each cycle:
+
+1. **Merge pass** — finds active thread pairs whose composite entity/topic/FTS
+   similarity meets ``CLUSTERER_MERGE_SIMILARITY_FLOOR``, confirms duplicates via
+   an LLM call, and absorbs the lower-ranked thread into the higher-ranked one.
+
+2. **Surfacing pass** — recomputes ``surfaced`` and ``top_grade`` for every active
+   thread.  A thread is surfaced when its top member grade, distinct source count,
+   or member count clears the configured thresholds.  See ``scoring.compute_surfaced``
+   for the exact OR-conditions.
+
+3. **Retention prune** — hard-deletes threads whose ``last_updated`` timestamp is
+   older than ``CLUSTERER_THREAD_RETENTION_DAYS``.  Member rows are removed via
+   DB-level CASCADE; articles are never touched.
+"""
 from __future__ import annotations
 
 import logging
