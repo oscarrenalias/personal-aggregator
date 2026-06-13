@@ -6,14 +6,21 @@ from datetime import datetime, timezone
 from aggregator_common.models import Thread
 
 
-def _make_thread(session, *, title: str = "Test Thread", tier: str | None = "must_know") -> Thread:
+def _make_thread(
+    session,
+    *,
+    title: str = "Test Thread",
+    surfaced: bool = True,
+    top_grade: int | None = 75,
+) -> Thread:
     now = datetime.now(tz=timezone.utc)
     thread = Thread(
         representative_title=title,
         first_seen=now,
         last_updated=now,
         status="active",
-        tier=tier,
+        surfaced=surfaced,
+        top_grade=top_grade,
         source_list=[],
         known_facts=[],
         deltas=[],
@@ -41,19 +48,35 @@ class TestThreadsIndex:
         assert response.status_code == 200
         assert "<!DOCTYPE html>" in response.text
 
-    def test_get_threads_tier_filter_forwarded(self, client, db_session):
-        _make_thread(db_session, title="Must Know Thread", tier="must_know")
-        _make_thread(db_session, title="Low Noise Thread", tier="low_noise")
-        response = client.get("/threads?tier=must_know")
-        assert response.status_code == 200
-        assert "Must Know Thread" in response.text
-        assert "Low Noise Thread" not in response.text
-
-    def test_get_threads_shows_thread_titles(self, client, db_session):
-        _make_thread(db_session, title="Breaking AI News")
+    def test_get_threads_shows_surfaced_thread_titles(self, client, db_session):
+        _make_thread(db_session, title="Breaking AI News", surfaced=True)
         response = client.get("/threads", headers={"HX-Request": "true"})
         assert response.status_code == 200
         assert "Breaking AI News" in response.text
+
+    def test_get_threads_unsurfaced_threads_hidden(self, client, db_session):
+        _make_thread(db_session, title="Hidden Thread", surfaced=False)
+        response = client.get("/threads", headers={"HX-Request": "true"})
+        assert response.status_code == 200
+        assert "Hidden Thread" not in response.text
+
+    def test_get_threads_no_tier_section_headings(self, client, db_session):
+        _make_thread(db_session, title="Some Thread")
+        response = client.get("/threads", headers={"HX-Request": "true"})
+        assert response.status_code == 200
+        # Flat list: no tier section labels in the HTML
+        assert "must_know" not in response.text
+        assert "worth_tracking" not in response.text
+        assert "low_noise" not in response.text
+
+    def test_get_threads_grade_descending_order(self, client, db_session):
+        _make_thread(db_session, title="Low Grade Thread", top_grade=30)
+        _make_thread(db_session, title="High Grade Thread", top_grade=90)
+        response = client.get("/threads", headers={"HX-Request": "true"})
+        assert response.status_code == 200
+        high_pos = response.text.index("High Grade Thread")
+        low_pos = response.text.index("Low Grade Thread")
+        assert high_pos < low_pos
 
 
 class TestThreadDetail:
