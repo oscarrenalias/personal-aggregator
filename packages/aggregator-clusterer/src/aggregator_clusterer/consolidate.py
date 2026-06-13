@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from typing import Callable
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from aggregator_common.management import merge_threads
@@ -12,6 +14,14 @@ from aggregator_clusterer.config import ClustererSettings
 from aggregator_clusterer.scoring import score_and_tier
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class ConsolidationResult:
+    merges: int
+    curated: int
+    pruned: int
+
 
 _ENTITY_W = 0.40
 _TOPIC_W = 0.30
@@ -215,7 +225,7 @@ def run_curation_pass(
     session: Session,
     settings: ClustererSettings,
     relevance_gate_fn: Callable[[str, Thread], tuple[bool, str]],
-) -> None:
+) -> int:
     """Re-score all active threads and apply curation gates and tier caps.
 
     Steps:
@@ -237,6 +247,8 @@ def run_curation_pass(
         ).scalars().all()
     )
 
+    curated_count = 0
+
     # Step 1: re-score all active threads (also applies single-source gate).
     for thread in threads:
         score_and_tier(session, thread, settings)
@@ -248,6 +260,7 @@ def run_curation_pass(
             if not relevant:
                 thread.tier = "low_noise"
                 thread.tier_reason = reason
+                curated_count += 1
         except Exception:
             logger.exception(
                 "relevance_gate_fn raised for thread %s; skipping (fail-open)",
@@ -264,6 +277,7 @@ def run_curation_pass(
         t.tier = "deep_read"
         t.tier_reason = f"[tier cap: demoted from must_know] {t.tier_reason or ''}".strip()
         logger.debug("thread %s demoted from must_know by tier cap", t.id)
+        curated_count += 1
 
     worth_tracking = sorted(
         [t for t in threads if t.tier == "worth_tracking"],
@@ -274,12 +288,59 @@ def run_curation_pass(
         t.tier = "deep_read"
         t.tier_reason = f"[tier cap: demoted from worth_tracking] {t.tier_reason or ''}".strip()
         logger.debug("thread %s demoted from worth_tracking by tier cap", t.id)
+        curated_count += 1
 
     logger.info(
-        "curation pass complete: %d threads, %d must_know (cap %d), %d worth_tracking (cap %d)",
+        "curation pass complete: %d threads, %d must_know (cap %d), %d worth_tracking (cap %d), %d curated",
         len(threads),
         min(len(must_know), settings.clusterer_must_know_max),
         settings.clusterer_must_know_max,
         min(len(worth_tracking), settings.clusterer_worth_tracking_max),
         settings.clusterer_worth_tracking_max,
+        curated_count,
     )
+    return curated_count
+
+
+def run_retention_prune(session: Session, settings: ClustererSettings) -> int:
+    """Delete threads whose last_updated is older than the retention window.
+
+    ThreadMembership rows are removed via DB-level CASCADE. The underlying
+    articles are never touched.  Returns the count of deleted threads.
+    """
+    cutoff = datetime.now(timezone.utc) - timedelta(days=settings.clusterer_thread_retention_days)
+    expired_ids: list[int] = list(
+        session.execute(
+            select(Thread.id).where(Thread.last_updated < cutoff)
+        ).scalars().all()
+    )
+    if not expired_ids:
+        return 0
+    session.execute(delete(Thread).where(Thread.id.in_(expired_ids)))
+    logger.info(
+        "retention prune: deleted %d threads with last_updated before %s",
+        len(expired_ids),
+        cutoff.date(),
+    )
+    return len(expired_ids)
+
+
+def run_consolidation_pass(
+    session: Session,
+    settings: ClustererSettings,
+    llm_merge_fn: Callable[[Thread, Thread], bool],
+    relevance_gate_fn: Callable[[str, Thread], tuple[bool, str]],
+) -> ConsolidationResult:
+    """Run all three consolidation sub-passes in order and return a summary.
+
+    Calls run_merge_pass, run_curation_pass, and run_retention_prune sequentially.
+    The session is not committed here — callers are responsible for commit/rollback.
+    """
+    merges = run_merge_pass(session, settings, llm_merge_fn)
+    curated = run_curation_pass(session, settings, relevance_gate_fn)
+    pruned = run_retention_prune(session, settings)
+    logger.info(
+        "consolidation pass complete: merges=%d curated=%d pruned=%d",
+        merges, curated, pruned,
+    )
+    return ConsolidationResult(merges=merges, curated=curated, pruned=pruned)
