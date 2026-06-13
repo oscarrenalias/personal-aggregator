@@ -2,6 +2,14 @@ from __future__ import annotations
 
 from typing import Any, Protocol, Sequence
 
+from aggregator_common.grades import (
+    GOOD_TO_KNOW_MAX,
+    IMPORTANT_MAX,
+    MUST_KNOW_MAX,
+    NOISE_MAX,
+    ON_TOPIC_MAX,
+)
+
 from .config import SummarizeRankSettings
 from .schema import PROMPT_VERSION
 
@@ -13,30 +21,34 @@ class _CategoryEntry(Protocol):
     description: str | None
 
 
-_SYSTEM_WITH_PROFILE = """\
+_SYSTEM_WITH_PROFILE = f"""\
 You are an article analyst. For the article provided:
 1. Write a concise summary in at most 60 words.
 2. Extract up to 5 key topics as a list of short strings.
 3. Score this article's importance to the specific user (0-100) based on their interest profile:
-   - 0-30: low relevance, general noise, or outside stated interests
-   - 31-60: maybe useful, tangentially related to interests
-   - 61-80: relevant, directly related to one or more stated interests
-   - 81-100: highly important, strongly matches interests
+   - 0-{NOISE_MAX}: noise — off-topic, irrelevant, spam, or unrelated to any stated interest
+   - {NOISE_MAX + 1}-{ON_TOPIC_MAX}: on-topic — touches stated interests but is routine, expected, or low value
+   - {ON_TOPIC_MAX + 1}-{GOOD_TO_KNOW_MAX}: good-to-know — useful and relevant, provides clear value to the user
+   - {GOOD_TO_KNOW_MAX + 1}-{IMPORTANT_MAX}: important — directly relevant, timely, and meaningfully advances the user's interests
+   - {IMPORTANT_MAX + 1}-{MUST_KNOW_MAX}: must-know — critical, essential reading for someone with these interests
+   Most articles, even on-topic, are routine and belong below {ON_TOPIC_MAX}. Be selective — on a typical day only a handful are important or must-know.
    The interest profile may include topics or subjects marked as low-priority, negative, or to be deprioritized.
-   If the article's subject matches those low-priority or deprioritized signals, assign a LOWER score (push toward the 0-30 band) even if the article is otherwise newsworthy.
+   If the article's subject matches those low-priority or deprioritized signals, assign a LOWER score (push toward the 0-{NOISE_MAX} band) even if the article is otherwise newsworthy.
    Both the profile's stated priorities AND its deprioritizations shape the score.
    Consider: interest match, source relevance, novelty, and practical usefulness.
 4. Give a one-sentence reason for the score."""
 
-_SYSTEM_NEUTRAL = """\
+_SYSTEM_NEUTRAL = f"""\
 You are an article analyst. For the article provided:
 1. Write a concise summary in at most 60 words.
 2. Extract up to 5 key topics as a list of short strings.
 3. Score this article's general newsworthiness and usefulness to a general reader (0-100):
-   - 0-30: low interest, routine, or narrow niche content
-   - 31-60: maybe useful to some readers, limited general appeal
-   - 61-80: relevant and informative for a general audience
-   - 81-100: highly newsworthy, broadly important, or widely applicable
+   - 0-{NOISE_MAX}: noise — routine, narrow niche, or low-interest content
+   - {NOISE_MAX + 1}-{ON_TOPIC_MAX}: on-topic — touches a relevant subject but is routine or of limited general appeal
+   - {ON_TOPIC_MAX + 1}-{GOOD_TO_KNOW_MAX}: good-to-know — useful and informative for a general audience
+   - {GOOD_TO_KNOW_MAX + 1}-{IMPORTANT_MAX}: important — relevant, timely, and broadly informative
+   - {IMPORTANT_MAX + 1}-{MUST_KNOW_MAX}: must-know — highly newsworthy, widely important, or broadly applicable
+   Most articles, even on-topic, are routine and belong below {ON_TOPIC_MAX}. Be selective — on a typical day only a handful are important or must-know.
    Consider: newsworthiness, novelty, practical value, and breadth of potential interest.
 4. Give a one-sentence reason for the score."""
 
