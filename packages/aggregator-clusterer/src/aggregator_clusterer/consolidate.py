@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -10,9 +9,9 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from aggregator_common.management import merge_threads
-from aggregator_common.models import Article, InterestProfile, Thread, ThreadMembership
+from aggregator_common.models import Article, Thread, ThreadMembership
 from aggregator_clusterer.config import ClustererSettings
-from aggregator_clusterer.scoring import score_and_tier
+from aggregator_clusterer.scoring import compute_surfaced
 
 logger = logging.getLogger(__name__)
 
@@ -27,12 +26,6 @@ class ConsolidationResult:
 _ENTITY_W = 0.40
 _TOPIC_W = 0.30
 _FTS_W = 0.30
-
-
-def _thread_relevance_hash(thread: Thread) -> str:
-    """SHA-256 of representative_title + rolling_summary; used to cache gate results."""
-    content = (thread.representative_title or "") + "\x00" + (thread.rolling_summary or "")
-    return hashlib.sha256(content.encode()).hexdigest()
 
 
 def _to_set(value: object) -> frozenset:
@@ -211,117 +204,62 @@ def run_merge_pass(
     return merge_count
 
 
-def _composite_from_stored(thread: Thread, settings: ClustererSettings) -> float:
-    """Recompute the composite score from a thread's already-persisted dimension scores."""
-    w_n = settings.clusterer_weight_novelty
-    w_i = settings.clusterer_weight_importance
-    w_d = settings.clusterer_weight_diversity
-    w_c = settings.clusterer_weight_confidence
-    w_t = settings.clusterer_weight_time_sensitivity
-    weight_sum = w_n + w_i + w_d + w_c + w_t
-    return (
-        w_n * (thread.novelty_score or 0.0)
-        + w_i * (thread.importance_score or 0.0)
-        + w_d * (thread.diversity_score or 0.0)
-        + w_c * (thread.confidence or 0.0)
-        + w_t * (thread.time_sensitivity_score or 0.0)
-    ) / (weight_sum or 1.0)
+def run_surfacing_pass(session: Session, settings: ClustererSettings) -> int:
+    """Compute and persist surfaced/top_grade for all active threads.
 
-
-def run_curation_pass(
-    session: Session,
-    settings: ClustererSettings,
-    relevance_gate_fn: Callable[[str, Thread], tuple[bool, str]],
-) -> int:
-    """Re-score all active threads and apply curation gates and tier caps.
-
-    Steps:
-    1. Re-score every active thread via score_and_tier().
-    2. Apply relevance gate (fail-open: exceptions skip that thread).
-    3. Apply single-source gate (already enforced inside score_and_tier).
-    4. Enforce tier caps: top-N by composite stay in must_know/worth_tracking;
-       overflow is demoted to deep_read.
-
-    The function is idempotent: re-running it on an already-curated set
-    produces no further changes.
+    For each thread, derives top_grade from the max importance_score of its
+    member articles, then calls compute_surfaced with the config thresholds.
     """
-    profile = session.execute(select(InterestProfile)).scalar_one_or_none()
-    interest_profile_text = profile.profile_text if profile else ""
-
     threads: list[Thread] = list(
         session.execute(
             select(Thread).where(Thread.status == "active")
         ).scalars().all()
     )
 
-    curated_count = 0
+    if not threads:
+        return 0
 
-    # Step 1: re-score all active threads (also applies single-source gate).
+    thread_ids = [t.id for t in threads]
+
+    # Fetch max importance_score and member count per thread in one query.
+    rows = session.execute(
+        select(
+            ThreadMembership.thread_id,
+            func.max(Article.importance_score).label("max_score"),
+            func.count(Article.id).label("member_count"),
+        )
+        .join(Article, ThreadMembership.article_id == Article.id)
+        .where(ThreadMembership.thread_id.in_(thread_ids))
+        .group_by(ThreadMembership.thread_id)
+    ).all()
+
+    stats: dict[int, tuple[int | None, int]] = {
+        row.thread_id: (
+            int(row.max_score) if row.max_score is not None else None,
+            row.member_count,
+        )
+        for row in rows
+    }
+
+    updated = 0
     for thread in threads:
-        score_and_tier(session, thread, settings)
+        top_grade, member_count = stats.get(thread.id, (None, 0))
+        distinct_sources = len(set(thread.source_list or []))
 
-    # Step 2: relevance gate — off-interest threads are forced to low_noise.
-    # Cache gate results by content hash to avoid redundant LLM calls when the
-    # thread's representative_title + rolling_summary hasn't changed since last run.
-    for thread in threads:
-        try:
-            current_hash = _thread_relevance_hash(thread)
-            if thread.relevance_gate_hash == current_hash and thread.relevance_gate_pass is not None:
-                # Cache hit: reuse stored decision, skip LLM call entirely.
-                relevant = thread.relevance_gate_pass
-                logger.debug(
-                    "relevance gate cache hit for thread %s (relevant=%s)", thread.id, relevant
-                )
-                if not relevant:
-                    thread.tier = "low_noise"
-                    curated_count += 1
-            else:
-                relevant, reason = relevance_gate_fn(interest_profile_text, thread)
-                thread.relevance_gate_hash = current_hash
-                thread.relevance_gate_pass = relevant
-                if not relevant:
-                    thread.tier = "low_noise"
-                    thread.tier_reason = reason
-                    curated_count += 1
-        except Exception:
-            logger.exception(
-                "relevance_gate_fn raised for thread %s; skipping (fail-open)",
-                thread.id,
-            )
+        surfaced, top_grade_out = compute_surfaced(
+            top_grade,
+            distinct_sources,
+            member_count,
+            min_grade=settings.clusterer_surface_min_grade,
+            min_sources=settings.clusterer_surface_min_sources,
+            min_members=settings.clusterer_surface_min_members,
+        )
+        thread.surfaced = surfaced
+        thread.top_grade = top_grade_out
+        updated += 1
 
-    # Step 3: tier caps — keep top-N by composite, demote the rest to deep_read.
-    must_know = sorted(
-        [t for t in threads if t.tier == "must_know"],
-        key=lambda t: _composite_from_stored(t, settings),
-        reverse=True,
-    )
-    for t in must_know[settings.clusterer_must_know_max:]:
-        t.tier = "deep_read"
-        t.tier_reason = f"[tier cap: demoted from must_know] {t.tier_reason or ''}".strip()
-        logger.debug("thread %s demoted from must_know by tier cap", t.id)
-        curated_count += 1
-
-    worth_tracking = sorted(
-        [t for t in threads if t.tier == "worth_tracking"],
-        key=lambda t: _composite_from_stored(t, settings),
-        reverse=True,
-    )
-    for t in worth_tracking[settings.clusterer_worth_tracking_max:]:
-        t.tier = "deep_read"
-        t.tier_reason = f"[tier cap: demoted from worth_tracking] {t.tier_reason or ''}".strip()
-        logger.debug("thread %s demoted from worth_tracking by tier cap", t.id)
-        curated_count += 1
-
-    logger.info(
-        "curation pass complete: %d threads, %d must_know (cap %d), %d worth_tracking (cap %d), %d curated",
-        len(threads),
-        min(len(must_know), settings.clusterer_must_know_max),
-        settings.clusterer_must_know_max,
-        min(len(worth_tracking), settings.clusterer_worth_tracking_max),
-        settings.clusterer_worth_tracking_max,
-        curated_count,
-    )
-    return curated_count
+    logger.info("surfacing pass complete: %d threads updated", updated)
+    return updated
 
 
 def run_retention_prune(session: Session, settings: ClustererSettings) -> int:
@@ -351,18 +289,17 @@ def run_consolidation_pass(
     session: Session,
     settings: ClustererSettings,
     llm_merge_fn: Callable[[Thread, Thread], bool],
-    relevance_gate_fn: Callable[[str, Thread], tuple[bool, str]],
 ) -> ConsolidationResult:
     """Run all three consolidation sub-passes in order and return a summary.
 
-    Calls run_merge_pass, run_curation_pass, and run_retention_prune sequentially.
+    Calls run_merge_pass, run_surfacing_pass, and run_retention_prune sequentially.
     The session is not committed here — callers are responsible for commit/rollback.
     """
     merges = run_merge_pass(session, settings, llm_merge_fn)
-    curated = run_curation_pass(session, settings, relevance_gate_fn)
+    curated = run_surfacing_pass(session, settings)
     pruned = run_retention_prune(session, settings)
     logger.info(
-        "consolidation pass complete: merges=%d curated=%d pruned=%d",
+        "consolidation pass complete: merges=%d surfaced=%d pruned=%d",
         merges, curated, pruned,
     )
     return ConsolidationResult(merges=merges, curated=curated, pruned=pruned)
