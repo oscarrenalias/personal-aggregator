@@ -651,7 +651,7 @@ def threads_index(
 ) -> Response:
     threads = list_threads(db)
     suppressed_today = count_suppressed_today(db)
-    ctx = {"threads": threads, "suppressed_today": suppressed_today, "tier": None}
+    ctx = {"threads": threads, "suppressed_today": suppressed_today}
     if hx_request:
         return templates.TemplateResponse(request, "_thread_list.html", ctx)
     return templates.TemplateResponse(request, "threads/index.html", ctx)
