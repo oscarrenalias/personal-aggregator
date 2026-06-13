@@ -15,7 +15,7 @@ from aggregator_common.db import SessionFactory as _DefaultSessionFactory
 from aggregator_common.models import Article, Thread, ThreadMembership
 from aggregator_common.queries import list_unassigned_ready_articles
 from aggregator_clusterer.candidates import get_candidates
-from aggregator_clusterer.classification import classify_article
+from aggregator_clusterer.classification import classify_article, is_section_title_blocked
 from aggregator_clusterer.config import ClustererSettings
 from aggregator_clusterer.consolidate import run_consolidation_pass
 from aggregator_clusterer.dedup import check_duplicate
@@ -216,6 +216,10 @@ def _run_one_cycle(
                 art = work_session.get(Article, article_id)
                 if art is None:
                     logger.warning("Article %d vanished before clustering; skipping", article_id)
+                    work_session.commit()
+                    continue
+
+                if is_section_title_blocked(art, settings):
                     work_session.commit()
                     continue
 
