@@ -5,7 +5,7 @@ description: "Improve clustering quality: fix tiering signals (diversity rewards
 dependencies: null
 priority: high
 complexity: null
-status: planned
+status: done
 tags:
 - clustering
 - tiering
