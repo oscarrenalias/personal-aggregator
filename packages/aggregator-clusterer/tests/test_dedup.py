@@ -60,8 +60,12 @@ class TestCheckDuplicate:
 
     def test_url_miss_unmatched_returns_none(self, db_session):
         src = make_source(db_session, url="https://dedup3.test/feed.xml")
+        # Distinct titles so neither the URL nor the title-Jaccard check matches —
+        # this isolates the genuinely-unmatched path (make_article defaults both to
+        # the same feed_title, which would otherwise trip the title-dedup check).
         existing = make_article(
             db_session, source_id=src.id, dedup_key="k1",
+            feed_title="Apple announces record quarterly earnings beat",
             raw_payload={"link": "https://dedup3.test/article/OLD"},
         )
         thread = make_thread(db_session)
@@ -76,6 +80,7 @@ class TestCheckDuplicate:
 
         new_art = make_article(
             db_session, source_id=src.id, dedup_key="k2",
+            feed_title="Helsinki tram strike enters its second week",
             raw_payload={"link": "https://dedup3.test/article/NEW"},
         )
         result = check_duplicate(db_session, new_art, _SETTINGS)
