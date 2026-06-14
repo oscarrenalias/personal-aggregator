@@ -138,3 +138,126 @@ class TestProcessClassification:
         ).scalar_one()
         thread = db_session.get(Thread, membership.thread_id)
         assert thread.source_diversity == 1.0
+
+    # --- thread_title regression tests ---
+
+    def test_new_thread_uses_llm_title_when_provided(self, db_session):
+        """LLM-synthesized thread_title takes precedence over article headline on creation."""
+        src = make_source(db_session, url="https://upsert7.test/feed.xml")
+        article = make_article(
+            db_session, source_id=src.id, dedup_key="k1",
+            clean_title="SHOCKING: AI Will DESTROY Humanity!!!",
+        )
+        result = ClassificationResult(
+            label=ClassificationLabel.new_thread,
+            thread_id=None,
+            confidence=0.9,
+            new_facts=[],
+            reason="New story",
+            thread_title="AI development raises concerns among researchers",
+        )
+        process_classification(db_session, article, result, _SETTINGS)
+        db_session.flush()
+
+        membership = db_session.execute(
+            select(ThreadMembership).where(ThreadMembership.article_id == article.id)
+        ).scalar_one()
+        thread = db_session.get(Thread, membership.thread_id)
+        assert thread.representative_title == "AI development raises concerns among researchers"
+        assert thread.representative_title != "SHOCKING: AI Will DESTROY Humanity!!!"
+
+    def test_new_thread_falls_back_to_article_title_when_no_llm_title(self, db_session):
+        """Without thread_title, article headline is used as before."""
+        src = make_source(db_session, url="https://upsert8.test/feed.xml")
+        article = make_article(
+            db_session, source_id=src.id, dedup_key="k1",
+            clean_title="Original Headline",
+        )
+        result = ClassificationResult(
+            label=ClassificationLabel.new_thread,
+            thread_id=None,
+            confidence=0.9,
+            new_facts=[],
+            reason="New story",
+            thread_title=None,
+        )
+        process_classification(db_session, article, result, _SETTINGS)
+        db_session.flush()
+
+        membership = db_session.execute(
+            select(ThreadMembership).where(ThreadMembership.article_id == article.id)
+        ).scalar_one()
+        thread = db_session.get(Thread, membership.thread_id)
+        assert thread.representative_title == "Original Headline"
+
+    def test_material_update_refreshes_title(self, db_session):
+        """same_thread_new_fact with thread_title updates representative_title."""
+        src = make_source(db_session, url="https://upsert9.test/feed.xml")
+        thread = make_thread(db_session, title="Initial thread title")
+        article = make_article(db_session, source_id=src.id, dedup_key="k1")
+        result = ClassificationResult(
+            label=ClassificationLabel.same_thread_new_fact,
+            thread_id=thread.id,
+            confidence=0.85,
+            new_facts=["New development X"],
+            reason="Adds new info",
+            thread_title="Thread title updated with new development",
+        )
+        process_classification(db_session, article, result, _SETTINGS)
+        db_session.flush()
+        db_session.refresh(thread)
+
+        assert thread.representative_title == "Thread title updated with new development"
+
+    def test_correction_refreshes_title(self, db_session):
+        """correction_or_clarification with thread_title updates representative_title."""
+        src = make_source(db_session, url="https://upsert10.test/feed.xml")
+        thread = make_thread(db_session, title="Story with erroneous figure")
+        article = make_article(db_session, source_id=src.id, dedup_key="k1")
+        result = ClassificationResult(
+            label=ClassificationLabel.correction_or_clarification,
+            thread_id=thread.id,
+            confidence=0.95,
+            new_facts=["Correction: figure corrected to 50"],
+            reason="Corrects prior reporting",
+            thread_title="Story corrects earlier figure to 50",
+        )
+        process_classification(db_session, article, result, _SETTINGS)
+        db_session.flush()
+        db_session.refresh(thread)
+
+        assert thread.representative_title == "Story corrects earlier figure to 50"
+
+    def test_duplicate_does_not_change_title(self, db_session):
+        """DedupResult (duplicate path) leaves representative_title unchanged."""
+        src = make_source(db_session, url="https://upsert11.test/feed.xml")
+        thread = make_thread(db_session, title="Stable thread title")
+        article = make_article(db_session, source_id=src.id, dedup_key="k1")
+        result = DedupResult(
+            thread_id=thread.id,
+            classification_label=ClassificationLabel.same_thread_duplicate,
+        )
+        process_classification(db_session, article, result, _SETTINGS)
+        db_session.flush()
+        db_session.refresh(thread)
+
+        assert thread.representative_title == "Stable thread title"
+
+    def test_background_article_does_not_change_title(self, db_session):
+        """same_thread_background_only does not refresh representative_title."""
+        src = make_source(db_session, url="https://upsert12.test/feed.xml")
+        thread = make_thread(db_session, title="Stable thread title")
+        article = make_article(db_session, source_id=src.id, dedup_key="k1")
+        result = ClassificationResult(
+            label=ClassificationLabel.same_thread_background_only,
+            thread_id=thread.id,
+            confidence=0.7,
+            new_facts=[],
+            reason="Background only",
+            thread_title="This should be ignored",
+        )
+        process_classification(db_session, article, result, _SETTINGS)
+        db_session.flush()
+        db_session.refresh(thread)
+
+        assert thread.representative_title == "Stable thread title"

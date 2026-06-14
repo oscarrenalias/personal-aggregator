@@ -66,6 +66,11 @@ Respond with a JSON object only — no markdown, no commentary. Required fields:
 - "confidence": a float between 0.0 and 1.0
 - "new_facts": a list of strings (may be empty) — concrete new facts the article adds to the thread
 - "reason": a brief explanation of the classification
+- "thread_title": a concise (≤90 characters), neutral, objective headline for the thread.
+  new_thread or related_new_thread: synthesize a title from the article — do not copy the headline verbatim.
+  same_thread_new_fact or correction_or_clarification: refresh the title to reflect the latest development.
+  All other labels: set to null.
+  Avoid clickbait, sensationalist framing, and exclamation marks.
 
 Label semantics:
 - new_thread: article starts a distinct new story with no existing thread
@@ -160,6 +165,7 @@ class ClassificationResult:
     confidence: float
     new_facts: list[str] = field(default_factory=list)
     reason: str = ""
+    thread_title: Optional[str] = None
 
 
 def classify_article(
@@ -234,10 +240,14 @@ def classify_article(
 
     reason = str(data.get("reason", ""))
 
+    raw_title = data.get("thread_title")
+    thread_title: Optional[str] = str(raw_title)[:90] if raw_title else None
+
     return ClassificationResult(
         label=label,
         thread_id=thread_id,
         confidence=confidence,
         new_facts=new_facts,
         reason=reason,
+        thread_title=thread_title,
     )

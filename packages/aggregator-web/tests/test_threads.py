@@ -210,6 +210,25 @@ class TestThreadDetailPresentation:
         # Suppressed article title should NOT appear as a link label
         assert "Suppressed Dup" not in response.text
 
+    def test_suppressed_row_shows_source_name_only_no_per_row_prefix(self, client, db_session):
+        """Regression: suppressed rows must not repeat 'Also covered by' per row (only the heading does)."""
+        src = _make_source(db_session, name="Per Row Prefix Source")
+        active_src = _make_source(db_session, name="Active Source")
+        thread = _make_thread(db_session, title="Per Row Prefix Test Thread")
+        active_art = _make_article(db_session, active_src.id, "prefix-active-1", title="Active Article")
+        suppressed_art = _make_article(db_session, src.id, "prefix-supp-1", title="Suppressed Article")
+        _make_membership(db_session, thread.id, active_art.id, suppressed=False)
+        _make_membership(db_session, thread.id, suppressed_art.id, suppressed=True)
+
+        response = client.get(f"/threads/{thread.id}", headers={"HX-Request": "true"})
+        assert response.status_code == 200
+        html = response.text
+        # Heading appears exactly once
+        assert html.count("Also covered by") == 1
+        # Row link text is just the source name, not "Also covered by <source>"
+        assert "Also covered by Per Row Prefix Source" not in html
+        assert "Per Row Prefix Source" in html
+
     def test_new_facts_rendered_as_list_items(self, client, db_session):
         delta = {
             "label": "same_thread_new_fact",
