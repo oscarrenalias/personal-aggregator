@@ -53,6 +53,28 @@ def list_articles(
 
 
 @mcp.tool()
+def list_threads(
+    sort: str = "importance",
+    status: Optional[str] = None,
+    limit: int = _settings.mcp_default_limit,
+) -> list:
+    limit = min(limit, _settings.mcp_max_limit)
+    with get_session() as session:
+        results = queries.list_threads(session, sort=sort, status=status, limit=limit)  # type: ignore[arg-type]
+    return [asdict(r) for r in results]
+
+
+@mcp.tool()
+def get_thread(thread_id: int) -> dict:
+    with get_session() as session:
+        result = queries.get_thread(session, thread_id)
+        if result is None:
+            return {"error": "not_found", "detail": f"Thread {thread_id} not found"}
+        members = queries.get_thread_members(session, thread_id)
+    return {"thread": asdict(result), "members": [asdict(m) for m in members]}
+
+
+@mcp.tool()
 def get_article(article_id: int) -> dict:
     with get_session() as session:
         result = queries.get_article(session, article_id)
@@ -135,6 +157,17 @@ def feed_resource(view: str) -> list:
     return [asdict(r) for r in results]
 
 
+@mcp.resource("thread://{id}")
+def thread_resource(id: str) -> dict:
+    thread_id = int(id)
+    with get_session() as session:
+        result = queries.get_thread(session, thread_id)
+        if result is None:
+            return {"error": "not_found"}
+        members = queries.get_thread_members(session, thread_id)
+    return {"thread": asdict(result), "members": [asdict(m) for m in members]}
+
+
 @mcp.resource("profile://interests")
 def profile_resource() -> str:
     with get_session() as session:
@@ -146,6 +179,16 @@ def whats_latest(topic: str) -> str:
     return (
         f"Search for recent articles about '{topic}' using the search_articles tool. "
         f"Summarize the top results with their titles, key points, and links."
+    )
+
+
+@mcp.prompt()
+def whats_developing() -> str:
+    return (
+        "Call list_threads to retrieve current story threads. "
+        "Focus on threads with the highest top_grade and those sourced from multiple outlets. "
+        "Summarize the top developing stories, explaining what is happening, why it matters, "
+        "and which sources are covering it."
     )
 
 
@@ -546,6 +589,19 @@ def rerank(
             return ops.rerank(session, article_id=article_id, all_ready=all_ready, failed_only=failed_only)
     except ValueError as exc:
         return {"error": "invalid_transition", "detail": str(exc)}
+
+
+@mcp.tool()
+def recluster() -> dict:
+    """Enqueue a full recluster pass so the clusterer re-evaluates all ready articles.
+
+    Sets cluster_state.recluster_requested to True; the clusterer daemon picks it
+    up on the next poll cycle and re-runs thread assignment and scoring.
+    Returns {"status": "enqueued"} on success.
+    """
+    with get_session() as session:
+        management.enqueue_recluster(session)
+    return {"status": "enqueued"}
 
 
 @mcp.resource("status://pipeline")
