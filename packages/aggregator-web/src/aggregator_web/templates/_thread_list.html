@@ -2,29 +2,29 @@
   _thread_list.html — Thread clustering view (HTMX partial).
 
   Context:
-    threads          : list[ThreadResult] — surfaced threads from list_threads(), ordered by grade then recency
-    suppressed_today : int — count of articles suppressed today
+    threads  : list[ThreadResult] — surfaced threads from list_threads()
+    sort     : str — active sort mode: "importance" | "recent"
+    base_url : str — base path for this list (e.g. /threads)
 #}
 
 <div id="article-list" class="thread-list-pane"
-     x-data="threadList()">
+     x-data="{ ...threadList(), baseUrl: '{{ base_url }}', sortMode: '{{ sort }}' }">
 
   <div class="feed-controls thread-controls">
-    <p class="suppressed-summary">
-      {% if suppressed_today %}
-      {{ suppressed_today }} article{{ 's' if suppressed_today != 1 else '' }} suppressed today
-      {% else %}
-      No articles suppressed today
-      {% endif %}
-    </p>
-    <button class="btn-recluster"
-            @click="startRecluster()"
-            hx-post="/threads/recluster"
-            hx-swap="none"
-            :disabled="reclustering">
-      <span x-show="!reclustering">Re-cluster now</span>
-      <span x-show="reclustering" x-cloak aria-live="polite">Clustering…</span>
-    </button>
+    <div class="feed-sort-toggle" role="group" aria-label="Sort order">
+      <button class="sort-btn{% if sort != 'recent' %} active{% endif %}"
+              hx-get="{{ base_url }}"
+              hx-target="#article-list"
+              hx-swap="innerHTML"
+              @click="setSortMode('importance')"
+              aria-pressed="{{ 'true' if sort != 'recent' else 'false' }}">Importance</button>
+      <button class="sort-btn{% if sort == 'recent' %} active{% endif %}"
+              hx-get="{{ base_url }}?sort=recent"
+              hx-target="#article-list"
+              hx-swap="innerHTML"
+              @click="setSortMode('recent')"
+              aria-pressed="{{ 'true' if sort == 'recent' else 'false' }}">Last updated</button>
+    </div>
   </div>
 
   {% if not threads %}

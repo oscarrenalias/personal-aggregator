@@ -405,14 +405,18 @@ def _to_thread_result(thread: Thread, member_count: int = 0) -> ThreadResult:
     )
 
 
+ThreadSortMode = Literal["importance", "recent"]
+
+
 def list_threads(
     session: Session,
     *,
     status: Optional[str] = None,
+    sort: ThreadSortMode = "importance",
     limit: int = _DEFAULT_LIMIT,
     offset: int = 0,
 ) -> List[ThreadResult]:
-    """List surfaced threads updated within the last 7 days, ordered by top_grade then recency."""
+    """List surfaced threads updated within the last 7 days."""
     cutoff = datetime.now(tz=timezone.utc) - timedelta(days=7)
     filters: list = [
         Thread.surfaced == True,
@@ -420,10 +424,15 @@ def list_threads(
     ]
     if status is not None:
         filters.append(Thread.status == status)
+    order = (
+        (Thread.last_updated.desc(),)
+        if sort == "recent"
+        else (Thread.top_grade.desc().nulls_last(), Thread.last_updated.desc())
+    )
     q = (
         select(Thread)
         .where(*filters)
-        .order_by(Thread.top_grade.desc().nulls_last(), Thread.last_updated.desc())
+        .order_by(*order)
         .limit(limit)
         .offset(offset)
     )

@@ -20,7 +20,6 @@ from aggregator_common.db import SessionFactory, get_session
 from aggregator_common.management import enqueue_recluster
 from aggregator_common.models import Article, Brief, BriefTopic, Category, Source
 from aggregator_common.queries import (
-    count_suppressed_today,
     get_thread,
     get_thread_members,
     list_threads,
@@ -643,15 +642,23 @@ def brief_detail_view(
     )
 
 
+_VALID_THREAD_SORT_VALUES = {"importance", "recent"}
+
+
+def _normalize_thread_sort(sort: str) -> str:
+    return sort if sort in _VALID_THREAD_SORT_VALUES else "importance"
+
+
 @app.get("/threads")
 def threads_index(
     request: Request,
+    sort: str = "importance",
     hx_request: Optional[str] = Header(None, alias="HX-Request"),
     db: Session = Depends(get_db),
 ) -> Response:
-    threads = list_threads(db)
-    suppressed_today = count_suppressed_today(db)
-    ctx = {"threads": threads, "suppressed_today": suppressed_today}
+    sort = _normalize_thread_sort(sort)
+    threads = list_threads(db, sort=sort)
+    ctx = {"threads": threads, "sort": sort, "base_url": "/threads"}
     if hx_request:
         return templates.TemplateResponse(request, "_thread_list.html", ctx)
     return templates.TemplateResponse(request, "threads/index.html", ctx)
