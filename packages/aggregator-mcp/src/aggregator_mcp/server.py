@@ -157,6 +157,17 @@ def feed_resource(view: str) -> list:
     return [asdict(r) for r in results]
 
 
+@mcp.resource("thread://{id}")
+def thread_resource(id: str) -> dict:
+    thread_id = int(id)
+    with get_session() as session:
+        result = queries.get_thread(session, thread_id)
+        if result is None:
+            return {"error": "not_found"}
+        members = queries.get_thread_members(session, thread_id)
+    return {"thread": asdict(result), "members": [asdict(m) for m in members]}
+
+
 @mcp.resource("profile://interests")
 def profile_resource() -> str:
     with get_session() as session:
