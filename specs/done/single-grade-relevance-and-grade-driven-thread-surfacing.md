@@ -5,7 +5,7 @@ description: Collapse three relevance judgments into one discriminating 5-level 
 dependencies: null
 priority: high
 complexity: null
-status: planned
+status: done
 tags:
 - clustering
 - summarize-rank
