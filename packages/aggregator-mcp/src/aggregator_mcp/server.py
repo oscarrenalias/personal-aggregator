@@ -581,6 +581,19 @@ def rerank(
         return {"error": "invalid_transition", "detail": str(exc)}
 
 
+@mcp.tool()
+def recluster() -> dict:
+    """Enqueue a full recluster pass so the clusterer re-evaluates all ready articles.
+
+    Sets cluster_state.recluster_requested to True; the clusterer daemon picks it
+    up on the next poll cycle and re-runs thread assignment and scoring.
+    Returns {"status": "enqueued"} on success.
+    """
+    with get_session() as session:
+        management.enqueue_recluster(session)
+    return {"status": "enqueued"}
+
+
 @mcp.resource("status://pipeline")
 def pipeline_status_resource() -> dict:
     """Quick pipeline health snapshot: article counts by status, in-flight claims, source counts."""
