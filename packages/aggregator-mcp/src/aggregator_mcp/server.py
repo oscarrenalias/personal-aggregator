@@ -182,6 +182,16 @@ def whats_latest(topic: str) -> str:
     )
 
 
+@mcp.prompt()
+def whats_developing() -> str:
+    return (
+        "Call list_threads to retrieve current story threads. "
+        "Focus on threads with the highest top_grade and those sourced from multiple outlets. "
+        "Summarize the top developing stories, explaining what is happening, why it matters, "
+        "and which sources are covering it."
+    )
+
+
 @mcp.tool()
 def get_daily_brief() -> dict:
     with get_session() as session:
