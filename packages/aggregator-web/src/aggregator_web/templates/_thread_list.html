@@ -2,33 +2,57 @@
   _thread_list.html — Thread clustering view (HTMX partial).
 
   Context:
-    threads  : list[ThreadResult] — surfaced threads from list_threads()
-    sort     : str — active sort mode: "importance" | "recent"
-    base_url : str — base path for this list (e.g. /threads)
+    threads       : list[ThreadResult] — surfaced threads from list_threads()
+    sort          : str — active sort mode: "importance" | "recent"
+    base_url      : str — base path for this list (e.g. /threads)
+    show_dismissed: bool — True when showing the dismissed-threads view
 #}
 
+{% set refresh_url = base_url + '?sort=' + sort + ('&show_dismissed=true' if show_dismissed else '') %}
+
 <div id="article-list" class="thread-list-pane"
-     x-data="{ ...threadList(), baseUrl: '{{ base_url }}', sortMode: '{{ sort }}' }">
+     x-data="{ ...threadList(), baseUrl: '{{ base_url }}', sortMode: '{{ sort }}' }"
+     hx-trigger="refreshThreadList from:body"
+     hx-get="{{ refresh_url }}"
+     hx-target="this"
+     hx-swap="innerHTML">
 
   <div class="feed-controls thread-controls">
     <div class="feed-sort-toggle" role="group" aria-label="Sort order">
       <button class="sort-btn{% if sort != 'recent' %} active{% endif %}"
-              hx-get="{{ base_url }}"
+              hx-get="{{ base_url }}{% if show_dismissed %}?show_dismissed=true{% endif %}"
               hx-target="#article-list"
               hx-swap="innerHTML"
               @click="setSortMode('importance')"
               aria-pressed="{{ 'true' if sort != 'recent' else 'false' }}">Importance</button>
       <button class="sort-btn{% if sort == 'recent' %} active{% endif %}"
-              hx-get="{{ base_url }}?sort=recent"
+              hx-get="{{ base_url }}?sort=recent{% if show_dismissed %}&show_dismissed=true{% endif %}"
               hx-target="#article-list"
               hx-swap="innerHTML"
               @click="setSortMode('recent')"
               aria-pressed="{{ 'true' if sort == 'recent' else 'false' }}">Last updated</button>
     </div>
+    {% if show_dismissed %}
+    <a class="thread-filter-link thread-filter-link-active"
+       hx-get="{{ base_url }}?sort={{ sort }}"
+       hx-target="#article-list"
+       hx-swap="innerHTML"
+       href="{{ base_url }}">&#8592; Active threads</a>
+    {% else %}
+    <a class="thread-filter-link"
+       hx-get="{{ base_url }}?sort={{ sort }}&show_dismissed=true"
+       hx-target="#article-list"
+       hx-swap="innerHTML"
+       href="{{ base_url }}?show_dismissed=true">Dismissed</a>
+    {% endif %}
   </div>
 
   {% if not threads %}
+  {% if show_dismissed %}
+  <p class="empty-state">No dismissed threads.</p>
+  {% else %}
   <p class="empty-state">No threads yet. Articles will be grouped into threads by the clusterer service.</p>
+  {% endif %}
   {% else %}
 
   {% for thread in threads %}
