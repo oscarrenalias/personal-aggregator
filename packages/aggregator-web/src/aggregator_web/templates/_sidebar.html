@@ -144,7 +144,7 @@
     <ul class="sidebar-nav-list" role="list">
       {% for cat in categories %}
       <li>
-        <a class="sidebar-link"
+        <a class="sidebar-link{% if not show_unread_counts %} sidebar-link--stacked{% endif %}"
            hx-get="/feed/category/{{ cat.name | urlencode }}"
            hx-target="#article-list"
            hx-swap="innerHTML"
