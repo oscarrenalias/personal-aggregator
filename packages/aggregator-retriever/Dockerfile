@@ -12,7 +12,7 @@ RUN uv sync --frozen --no-dev --no-editable --package aggregator-retriever
 FROM python:3.13-slim AS runtime
 
 ARG APP_VERSION=dev
-ENV APP_VERSION=${APP_VERSION}
+ENV AGGREGATOR_VERSION=${APP_VERSION}
 
 LABEL org.opencontainers.image.title="aggregator-retriever" \
       org.opencontainers.image.version="${APP_VERSION}" \
