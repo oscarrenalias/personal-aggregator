@@ -130,7 +130,7 @@
                hx-swap="innerHTML"
                hx-push-url="true"
                @click="document.body.classList.add('reader-open')">
-              Also covered by {{ m.source_name | e if m.source_name else "(unknown source)" }}
+              {{ m.source_name | e if m.source_name else "(unknown source)" }}
             </a>
           </li>
           {% endfor %}
