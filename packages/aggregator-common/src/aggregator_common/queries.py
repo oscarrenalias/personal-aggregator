@@ -90,6 +90,8 @@ class ThreadResult:
     novelty_label: Optional[str]
     deltas: Optional[list]
     source_list: Optional[list]
+    top_grade: Optional[int] = None
+    surfaced: bool = False
     source_count: int = 0
     member_count: int = 0
 
@@ -400,6 +402,8 @@ def _to_thread_result(thread: Thread, member_count: int = 0) -> ThreadResult:
         novelty_label=thread.novelty_label,
         deltas=thread.deltas,
         source_list=thread.source_list,
+        top_grade=thread.top_grade,
+        surfaced=thread.surfaced,
         source_count=len(thread.source_list) if thread.source_list else 0,
         member_count=member_count,
     )
