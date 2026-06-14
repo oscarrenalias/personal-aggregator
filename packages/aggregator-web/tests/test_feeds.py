@@ -311,11 +311,11 @@ def test_get_sidebar_counts_smart_views(db_session):
 
     counts = get_sidebar_counts(db_session, important_threshold=70)
 
-    assert counts.smart["all"] == 2
-    assert counts.smart["unread"] == 2
-    assert counts.smart["saved"] == 1
-    assert counts.smart["important"] == 1
-    assert counts.smart["uncategorized"] == 1  # k2 has no categories
+    assert counts.smart["all"].count == 2
+    assert counts.smart["unread"].count == 2
+    assert counts.smart["saved"].count == 1
+    assert counts.smart["important"].count == 1
+    assert counts.smart["uncategorized"].count == 1  # k2 has no categories
 
 
 def test_get_sidebar_counts_sources(db_session):

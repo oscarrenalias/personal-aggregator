@@ -28,8 +28,10 @@ from aggregator_common.queries import (
 from aggregator_common.version import version
 from aggregator_web.config import WebSettings
 from aggregator_web.feeds import (
+    CategoryEntry,
     FeedPage,
     SmartViewName,
+    SourceEntry,
     category_feed,
     category_feed_count,
     category_feed_max_id,
@@ -270,11 +272,11 @@ def sidebar(request: Request, db: Session = Depends(get_db)) -> Response:
     ).scalars().all()
 
     sidebar_sources = [
-        SimpleNamespace(id=s.id, name=s.name, unread_count=counts.sources.get(s.id, 0))
+        SimpleNamespace(id=s.id, name=s.name, unread_count=counts.sources.get(s.id, SourceEntry()).count)
         for s in enabled_sources
     ]
     sidebar_categories = [
-        SimpleNamespace(name=c.name, unread_count=counts.categories.get(c.name, 0))
+        SimpleNamespace(name=c.name, unread_count=counts.categories.get(c.name, CategoryEntry()).count)
         for c in enabled_categories
     ]
 
@@ -282,7 +284,7 @@ def sidebar(request: Request, db: Session = Depends(get_db)) -> Response:
         request,
         "_sidebar.html",
         {
-            "counts": counts.smart,
+            "counts": {k: v.count for k, v in counts.smart.items()},
             "categories": sidebar_categories,
             "sources": sidebar_sources,
         },

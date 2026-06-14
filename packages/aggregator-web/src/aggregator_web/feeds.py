@@ -59,10 +59,32 @@ class FeedPage:
 
 
 @dataclass
+class SmartViewEntry:
+    count: int = 0
+    has_new: bool = False
+    has_priority: bool = False
+
+
+@dataclass
+class SourceEntry:
+    count: int = 0
+    has_new: bool = False
+    has_priority: bool = False
+
+
+@dataclass
+class CategoryEntry:
+    count: int = 0
+    has_new: bool = False
+    has_priority: bool = False
+    last_activity: Optional[datetime] = None
+
+
+@dataclass
 class SidebarCounts:
-    smart: Dict[str, int]
-    categories: Dict[str, int]
-    sources: Dict[int, int]
+    smart: Dict[str, SmartViewEntry]
+    categories: Dict[str, CategoryEntry]
+    sources: Dict[int, SourceEntry]
 
 
 def _ready_base():
@@ -323,12 +345,12 @@ def get_sidebar_counts(
             select(func.count(Article.id)).where(unread, *extra)
         ).scalar_one()
 
-    smart: Dict[str, int] = {
-        "all": _count(),
-        "unread": _count(),
-        "saved": _count(Article.is_saved == True),
-        "important": _count(Article.importance_score >= important_threshold),
-        "uncategorized": _count(
+    smart: Dict[str, SmartViewEntry] = {
+        "all": SmartViewEntry(count=_count()),
+        "unread": SmartViewEntry(count=_count()),
+        "saved": SmartViewEntry(count=_count(Article.is_saved == True)),
+        "important": SmartViewEntry(count=_count(Article.importance_score >= important_threshold)),
+        "uncategorized": SmartViewEntry(count=_count(
             or_(
                 Article.categories.is_(None),
                 func.jsonb_typeof(Article.categories) == "null",
@@ -337,7 +359,7 @@ def get_sidebar_counts(
                     func.jsonb_array_length(Article.categories) == 0,
                 ),
             )
-        ),
+        )),
     }
 
     # Source counts: single GROUP BY query, then join to enabled sources
@@ -351,14 +373,16 @@ def get_sidebar_counts(
     enabled_sources = session.execute(
         select(Source).where(Source.enabled == True).order_by(Source.name)
     ).scalars().all()
-    sources: Dict[int, int] = {src.id: all_source_counts.get(src.id, 0) for src in enabled_sources}
+    sources: Dict[int, SourceEntry] = {
+        src.id: SourceEntry(count=all_source_counts.get(src.id, 0)) for src in enabled_sources
+    }
 
     # Category counts: per-category JSONB containment
     enabled_categories = session.execute(
         select(Category).where(Category.enabled == True).order_by(Category.sort_order, Category.name)
     ).scalars().all()
-    categories: Dict[str, int] = {
-        cat.name: _count(Article.categories.contains([cat.name]))
+    categories: Dict[str, CategoryEntry] = {
+        cat.name: CategoryEntry(count=_count(Article.categories.contains([cat.name])))
         for cat in enabled_categories
     }
 
