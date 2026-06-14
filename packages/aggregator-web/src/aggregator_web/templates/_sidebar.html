@@ -23,6 +23,12 @@
     <kbd class="sidebar-search-hint">/</kbd>
   </div>
 
+  {# Render a dot marker: accent dot for priority, subtle dot for has_new, nothing otherwise #}
+  {% macro activity_dot(has_new, has_priority) %}{% if has_priority %}<span class="sidebar-dot is-priority"></span>{% elif has_new %}<span class="sidebar-dot"></span>{% endif %}{% endmacro %}
+
+  {# Deterministic freshness phrase for a category entry #}
+  {% macro freshness_phrase(cat) %}{% if cat.has_priority %}New notable stories{% elif cat.last_activity and cat.last_activity.date() == utcnow_date %}Updated today{% elif cat.last_activity and cat.last_activity.date() == yesterday_date %}Updated yesterday{% else %}Quiet{% endif %}{% endmacro %}
+
   <!-- Today's brief -->
   <section class="sidebar-section" aria-labelledby="today-heading">
     <h2 class="sidebar-section-title" id="today-heading">Daily</h2>
@@ -61,7 +67,11 @@
            hx-swap="innerHTML"
            hx-push-url="true">
           All
+          {% if show_unread_counts %}
           <span class="unread-badge">{{ counts.all | default(0) }}</span>
+          {% else %}
+          {{ activity_dot(smart_entries['all'].has_new, smart_entries['all'].has_priority) }}
+          {% endif %}
         </a>
       </li>
       <li>
@@ -71,7 +81,15 @@
            hx-swap="innerHTML"
            hx-push-url="true">
           Unread
+          {% if show_unread_counts %}
           <span class="unread-badge">{{ counts.unread | default(0) }}</span>
+          {% else %}
+          {% if smart_entries['unread'].has_new %}
+          {{ activity_dot(true, smart_entries['unread'].has_priority) }}
+          {% else %}
+          <span class="sidebar-freshness">All caught up</span>
+          {% endif %}
+          {% endif %}
         </a>
       </li>
       <li>
@@ -81,7 +99,11 @@
            hx-swap="innerHTML"
            hx-push-url="true">
           Saved
+          {% if show_unread_counts %}
           <span class="unread-badge">{{ counts.saved | default(0) }}</span>
+          {% else %}
+          {{ activity_dot(smart_entries['saved'].has_new, smart_entries['saved'].has_priority) }}
+          {% endif %}
         </a>
       </li>
       <li>
@@ -91,7 +113,11 @@
            hx-swap="innerHTML"
            hx-push-url="true">
           Important
+          {% if show_unread_counts %}
           <span class="unread-badge">{{ counts.important | default(0) }}</span>
+          {% else %}
+          {{ activity_dot(smart_entries['important'].has_new, smart_entries['important'].has_priority) }}
+          {% endif %}
         </a>
       </li>
       <li>
@@ -101,7 +127,11 @@
            hx-swap="innerHTML"
            hx-push-url="true">
           Uncategorized
+          {% if show_unread_counts %}
           <span class="unread-badge">{{ counts.uncategorized | default(0) }}</span>
+          {% else %}
+          {{ activity_dot(smart_entries['uncategorized'].has_new, smart_entries['uncategorized'].has_priority) }}
+          {% endif %}
         </a>
       </li>
     </ul>
@@ -120,7 +150,11 @@
            hx-swap="innerHTML"
            hx-push-url="true">
           {{ cat.name }}
+          {% if show_unread_counts %}
           <span class="unread-badge">{{ cat.unread_count | default(0) }}</span>
+          {% else %}
+          <span class="sidebar-freshness">{{ freshness_phrase(cat) }}</span>
+          {% endif %}
         </a>
       </li>
       {% endfor %}
@@ -141,7 +175,11 @@
            hx-swap="innerHTML"
            hx-push-url="true">
           {{ source.name }}
+          {% if show_unread_counts %}
           <span class="unread-badge">{{ source.unread_count | default(0) }}</span>
+          {% else %}
+          {{ activity_dot(source.has_new, source.has_priority) }}
+          {% endif %}
         </a>
       </li>
       {% endfor %}

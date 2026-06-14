@@ -292,6 +292,7 @@ def sidebar(request: Request, db: Session = Depends(get_db)) -> Response:
         for c in enabled_categories
     ]
 
+    _now = datetime.utcnow()
     return templates.TemplateResponse(
         request,
         "_sidebar.html",
@@ -301,6 +302,8 @@ def sidebar(request: Request, db: Session = Depends(get_db)) -> Response:
             "categories": sidebar_categories,
             "sources": sidebar_sources,
             "show_unread_counts": settings.web_show_unread_counts,
+            "utcnow_date": _now.date(),
+            "yesterday_date": (_now - timedelta(days=1)).date(),
         },
     )
 
