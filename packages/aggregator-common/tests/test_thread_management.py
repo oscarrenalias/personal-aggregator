@@ -15,6 +15,7 @@ from aggregator_common.management import (
     create_thread,
     enqueue_recluster,
     merge_threads,
+    set_thread_dismissed,
     update_thread,
 )
 from aggregator_common.errors import NotFoundError
@@ -391,3 +392,101 @@ class TestMergeThreads:
         last_delta = result.deltas[-1]
         assert last_delta["type"] == "merge"
         assert last_delta["absorbed_id"] == absorb_id
+
+
+# ---------------------------------------------------------------------------
+# set_thread_dismissed
+# ---------------------------------------------------------------------------
+
+
+class TestSetThreadDismissed:
+    def _make_thread(self, session: Session, *, title: str = "Dismiss Test Thread") -> Thread:
+        thread = Thread(
+            representative_title=title,
+            first_seen=_NOW,
+            last_updated=_NOW,
+            status="active",
+            source_list=[],
+            known_facts=[],
+            deltas=[],
+        )
+        session.add(thread)
+        session.flush()
+        return thread
+
+    def test_dismiss_sets_dismissed_true_and_returns_thread(self, session: Session):
+        thread = self._make_thread(session, title="Dismiss Me")
+        result = set_thread_dismissed(session, thread.id, True)
+        assert result is not None
+        assert result.id == thread.id
+        assert result.dismissed is True
+
+    def test_restore_sets_dismissed_false(self, session: Session):
+        thread = self._make_thread(session, title="Restore Me")
+        set_thread_dismissed(session, thread.id, True)
+        session.flush()
+        result = set_thread_dismissed(session, thread.id, False)
+        assert result is not None
+        assert result.dismissed is False
+
+    def test_unknown_thread_id_returns_none(self, session: Session):
+        result = set_thread_dismissed(session, 999_999_700, True)
+        assert result is None
+
+    def test_idempotent_dismiss_twice_no_error(self, session: Session):
+        thread = self._make_thread(session, title="Idempotent Dismiss")
+        set_thread_dismissed(session, thread.id, True)
+        session.flush()
+        result = set_thread_dismissed(session, thread.id, True)
+        assert result is not None
+        assert result.dismissed is True
+
+    def test_idempotent_restore_twice_no_error(self, session: Session):
+        thread = self._make_thread(session, title="Idempotent Restore")
+        result = set_thread_dismissed(session, thread.id, False)
+        assert result is not None
+        assert result.dismissed is False
+
+    def test_dismissed_persists_after_grade_update(self, session: Session):
+        """Simulates clusterer touching grade/surfaced without changing dismissed."""
+        thread = self._make_thread(session, title="Clusterer Touch Test")
+        set_thread_dismissed(session, thread.id, True)
+        session.flush()
+
+        # Simulate clusterer updating grade and surfaced without touching dismissed
+        thread.top_grade = 95
+        thread.surfaced = True
+        session.flush()
+        session.refresh(thread)
+
+        assert thread.dismissed is True
+
+
+# ---------------------------------------------------------------------------
+# Migration: dismissed column round-trip
+# ---------------------------------------------------------------------------
+
+
+def test_migration_dismissed_column_upgrade(migration_engine):
+    """After upgrade to head, threads table must have a dismissed column."""
+    from alembic import command
+
+    engine, alembic_cfg = migration_engine
+    command.upgrade(alembic_cfg, "head")
+    inspector = inspect(engine)
+    columns = {col["name"] for col in inspector.get_columns("threads")}
+    assert "dismissed" in columns
+
+
+def test_migration_dismissed_column_downgrade(migration_engine):
+    """Downgrade to a2b3c4d5e6f7 (parent of b2c3d4e5f6a7) removes dismissed column."""
+    from alembic import command
+
+    engine, alembic_cfg = migration_engine
+    command.upgrade(alembic_cfg, "head")
+    command.downgrade(alembic_cfg, "a2b3c4d5e6f7")
+    inspector = inspect(engine)
+    columns = {col["name"] for col in inspector.get_columns("threads")}
+    assert "dismissed" not in columns
+    # Re-upgrade so subsequent migration tests still have a valid head state
+    command.upgrade(alembic_cfg, "head")

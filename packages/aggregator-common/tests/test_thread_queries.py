@@ -187,3 +187,92 @@ class TestGetThreadTopGradeAndSurfaced:
 
         assert result is not None
         assert result.member_count == 1
+
+
+# ---------------------------------------------------------------------------
+# Dismissed field in ThreadResult
+# ---------------------------------------------------------------------------
+
+
+class TestListThreadsDismissed:
+    def test_dismissed_thread_excluded_by_default(self, session: Session):
+        thread = _make_thread(session, "-dismissed-excl", surfaced=True)
+        thread.dismissed = True  # type: ignore[attr-defined]
+        session.flush()
+
+        results = queries.list_threads(session)
+
+        titles = [r.representative_title for r in results]
+        assert "Query Test Thread -dismissed-excl" not in titles
+
+    def test_dismissed_thread_included_with_flag(self, session: Session):
+        thread = _make_thread(session, "-dismissed-incl", surfaced=True)
+        thread.dismissed = True  # type: ignore[attr-defined]
+        session.flush()
+
+        results = queries.list_threads(session, include_dismissed=True)
+
+        titles = [r.representative_title for r in results]
+        assert "Query Test Thread -dismissed-incl" in titles
+
+    def test_non_dismissed_thread_in_default_list(self, session: Session):
+        thread = _make_thread(session, "-not-dismissed", surfaced=True)
+        assert thread.dismissed is False  # type: ignore[attr-defined]
+
+        results = queries.list_threads(session)
+
+        titles = [r.representative_title for r in results]
+        assert "Query Test Thread -not-dismissed" in titles
+
+    def test_thread_result_dismissed_field_false_by_default(self, session: Session):
+        _make_thread(session, "-dis-false", surfaced=True)
+
+        results = queries.list_threads(session)
+
+        matching = [r for r in results if r.representative_title == "Query Test Thread -dis-false"]
+        assert len(matching) == 1
+        assert hasattr(matching[0], "dismissed")
+        assert matching[0].dismissed is False
+
+    def test_thread_result_dismissed_field_true_when_set(self, session: Session):
+        thread = _make_thread(session, "-dis-true", surfaced=True)
+        thread.dismissed = True  # type: ignore[attr-defined]
+        session.flush()
+
+        results = queries.list_threads(session, include_dismissed=True)
+
+        matching = [r for r in results if r.representative_title == "Query Test Thread -dis-true"]
+        assert len(matching) == 1
+        assert matching[0].dismissed is True
+
+
+class TestGetThreadDismissed:
+    def test_get_thread_dismissed_field_false_by_default(self, session: Session):
+        thread = _make_thread(session, "-gt-disFalse", surfaced=True)
+
+        result = queries.get_thread(session, thread.id)
+
+        assert result is not None
+        assert hasattr(result, "dismissed")
+        assert result.dismissed is False
+
+    def test_get_thread_dismissed_field_true_when_set(self, session: Session):
+        thread = _make_thread(session, "-gt-disTrue", surfaced=False)
+        thread.dismissed = True  # type: ignore[attr-defined]
+        session.flush()
+
+        result = queries.get_thread(session, thread.id)
+
+        assert result is not None
+        assert result.dismissed is True
+
+    def test_get_thread_returns_dismissed_thread_by_id(self, session: Session):
+        """get_thread always returns by id regardless of dismissed status."""
+        thread = _make_thread(session, "-gt-dismissedById", surfaced=True)
+        thread.dismissed = True  # type: ignore[attr-defined]
+        session.flush()
+
+        result = queries.get_thread(session, thread.id)
+
+        assert result is not None
+        assert result.id == thread.id
