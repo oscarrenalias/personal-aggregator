@@ -46,6 +46,7 @@ class TestClassifyArticle:
         assert result.confidence == 0.9
         assert "Fact one" in result.new_facts
         assert result.reason == "Distinct new story"
+        assert result.is_error is False
 
     def test_llm_exception_returns_new_thread_fallback(self, db_session):
         src = make_source(db_session, url="https://cls2.test/feed.xml")
@@ -59,6 +60,7 @@ class TestClassifyArticle:
         assert result.label == ClassificationLabel.new_thread
         assert result.confidence == 0.0
         assert result.reason == "classification_error"
+        assert result.is_error is True
 
     def test_json_parse_error_returns_new_thread_fallback(self, db_session):
         src = make_source(db_session, url="https://cls3.test/feed.xml")
@@ -68,6 +70,34 @@ class TestClassifyArticle:
             result = classify_article(article, [], db_session, _SETTINGS)
 
         assert result.label == ClassificationLabel.new_thread
+        assert result.confidence == 0.0
+        assert result.is_error is True
+
+    def test_empty_llm_response_signals_error(self, db_session):
+        src = make_source(db_session, url="https://cls3b.test/feed.xml")
+        article = make_article(db_session, source_id=src.id, dedup_key="k1-empty")
+        with patch("aggregator_clusterer.classification.litellm.completion") as mock_llm:
+            mock_llm.return_value = _mock_response("")
+            result = classify_article(article, [], db_session, _SETTINGS)
+
+        assert result.is_error is True
+        assert result.confidence == 0.0
+
+    def test_invalid_label_signals_error(self, db_session):
+        src = make_source(db_session, url="https://cls3c.test/feed.xml")
+        article = make_article(db_session, source_id=src.id, dedup_key="k1-invalid")
+        payload = {
+            "label": "not_a_real_label",
+            "thread_id": None,
+            "confidence": 0.9,
+            "new_facts": [],
+            "reason": "Test",
+        }
+        with patch("aggregator_clusterer.classification.litellm.completion") as mock_llm:
+            mock_llm.return_value = _mock_response(json.dumps(payload))
+            result = classify_article(article, [], db_session, _SETTINGS)
+
+        assert result.is_error is True
         assert result.confidence == 0.0
 
     def test_new_thread_label_forces_thread_id_none(self, db_session):

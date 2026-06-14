@@ -2,4 +2,4 @@ import os
 
 
 def version() -> str:
-    return os.environ.get("APP_VERSION", "dev")
+    return os.environ.get("AGGREGATOR_VERSION", "dev")
