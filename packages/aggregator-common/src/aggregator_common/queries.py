@@ -407,25 +407,25 @@ def _to_thread_result(thread: Thread, member_count: int = 0) -> ThreadResult:
 def list_threads(
     session: Session,
     *,
-    tier: Optional[str] = None,
     status: Optional[str] = None,
-    max_age_days: Optional[int] = None,
     limit: int = _DEFAULT_LIMIT,
     offset: int = 0,
 ) -> List[ThreadResult]:
-    """List threads with optional tier/status/recency filters, ordered by last_updated desc."""
-    filters = []
-    if tier is not None:
-        filters.append(Thread.tier == tier)
+    """List surfaced threads updated within the last 7 days, ordered by top_grade then recency."""
+    cutoff = datetime.now(tz=timezone.utc) - timedelta(days=7)
+    filters: list = [
+        Thread.surfaced == True,
+        Thread.last_updated >= cutoff,
+    ]
     if status is not None:
         filters.append(Thread.status == status)
-    if max_age_days is not None:
-        cutoff = datetime.now(tz=timezone.utc) - timedelta(days=max_age_days)
-        filters.append(Thread.last_updated >= cutoff)
-    q = select(Thread)
-    if filters:
-        q = q.where(*filters)
-    q = q.order_by(Thread.last_updated.desc()).limit(limit).offset(offset)
+    q = (
+        select(Thread)
+        .where(*filters)
+        .order_by(Thread.top_grade.desc().nulls_last(), Thread.last_updated.desc())
+        .limit(limit)
+        .offset(offset)
+    )
     threads = list(session.execute(q).scalars().all())
 
     member_counts: Dict[int, int] = {}

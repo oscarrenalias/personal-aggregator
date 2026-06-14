@@ -1,6 +1,6 @@
 from pydantic import BaseModel, field_validator, model_validator
 
-PROMPT_VERSION = "1.2.0"
+PROMPT_VERSION = "1.3.0"
 
 
 class RankResult(BaseModel):

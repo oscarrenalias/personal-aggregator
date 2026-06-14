@@ -20,31 +20,15 @@ class ClustererSettings(BaseSettings):
     clusterer_claim_lease_seconds: int = Field(600, description="Work-claim lease duration in seconds")
     clusterer_dormant_age_days: int = Field(7, description="Days before an inactive thread is considered dormant")
     clusterer_archive_age_days: int = Field(30, description="Days before a dormant thread is archived")
-    clusterer_tier_must_know_threshold: float = Field(0.75, description="Minimum importance score for must-know tier")
-    clusterer_tier_worth_tracking_threshold: float = Field(0.5, description="Minimum importance score for worth-tracking tier")
-    clusterer_tier_deep_read_threshold: float = Field(0.25, description="Minimum importance score for deep-read tier")
     clusterer_batch_size: int = Field(20, description="Maximum articles processed per clustering cycle")
     clusterer_title_jaccard_threshold: float = Field(0.7, description="Minimum token Jaccard similarity to treat two titles as near-duplicates")
-    clusterer_weight_relevance: float = Field(0.25, description="Composite score weight for relevance dimension")
-    clusterer_weight_novelty: float = Field(0.15, description="Composite score weight for novelty dimension")
-    clusterer_weight_importance: float = Field(0.30, description="Composite score weight for importance dimension")
-    clusterer_weight_diversity: float = Field(0.05, description="Composite score weight for source diversity dimension")
-    clusterer_weight_confidence: float = Field(0.10, description="Composite score weight for clustering confidence dimension")
-    clusterer_weight_time_sensitivity: float = Field(0.15, description="Composite score weight for time sensitivity dimension")
 
-    # Tiering and curation settings
+    # Diversity saturation (used in scoring)
     clusterer_diversity_saturation_n: int = Field(4, description="Source count at which diversity score saturates (diminishing returns beyond this)")
-    clusterer_min_sources_for_must_know: int = Field(2, description="Minimum distinct sources required to qualify a thread for must-know tier")
-    clusterer_min_members_for_must_know: int = Field(2, description="Minimum article members required to qualify a thread for must-know tier")
-    clusterer_must_know_max: int = Field(5, description="Maximum threads that can be assigned the must-know tier per cycle")
-    clusterer_worth_tracking_max: int = Field(10, description="Maximum threads that can be assigned the worth-tracking tier per cycle")
 
     # Thread merging settings
     clusterer_merge_similarity_floor: float = Field(0.35, description="Minimum similarity score required to consider merging two threads")
     clusterer_max_merge_checks: int = Field(20, description="Maximum candidate thread pairs checked for merging per cycle")
-
-    # Relevance gate settings
-    clusterer_relevance_gate_enabled: bool = Field(True, description="When True, articles below the relevance threshold are excluded from thread assignment")
 
     # Consolidation throttle
     clusterer_consolidation_min_interval_minutes: int = Field(
@@ -61,3 +45,8 @@ class ClustererSettings(BaseSettings):
         default_factory=lambda: ["top stories", "home", "homepage", "latest", "news", "breaking news"],
         description="RSS section/category titles that are too generic to use as thread titles and should be ignored",
     )
+
+    # Surface gate settings
+    clusterer_surface_min_grade: int = Field(66, description="Minimum top_grade (0–100) for a thread to be surfaced")
+    clusterer_surface_min_sources: int = Field(2, description="Minimum distinct sources required to surface a thread")
+    clusterer_surface_min_members: int = Field(3, description="Minimum article members required to surface a thread")

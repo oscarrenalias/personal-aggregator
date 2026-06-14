@@ -255,6 +255,8 @@ class Thread(Base):
     deltas: Mapped[Optional[list]] = mapped_column(JSONB, nullable=True)
     relevance_gate_hash: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     relevance_gate_pass: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
+    surfaced: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
+    top_grade: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
 
     members: Mapped[List["ThreadMembership"]] = relationship(
         "ThreadMembership", back_populates="thread", cascade="all, delete-orphan"

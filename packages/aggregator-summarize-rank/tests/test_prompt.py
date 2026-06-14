@@ -146,8 +146,8 @@ class TestGetPromptVersion:
     def test_returns_string(self):
         assert isinstance(get_prompt_version(), str)
 
-    def test_prompt_version_is_1_2_0(self):
-        assert PROMPT_VERSION == "1.2.0"
+    def test_prompt_version_is_1_3_0(self):
+        assert PROMPT_VERSION == "1.3.0"
 
 
 class _Cat:

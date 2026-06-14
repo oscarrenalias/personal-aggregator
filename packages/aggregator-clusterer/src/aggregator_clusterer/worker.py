@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Callable
 
 import litellm
-from sqlalchemy import select, text
+from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
 from aggregator_common.db import SessionFactory as _DefaultSessionFactory
@@ -19,7 +19,7 @@ from aggregator_clusterer.classification import classify_article, is_section_tit
 from aggregator_clusterer.config import ClustererSettings
 from aggregator_clusterer.consolidate import run_consolidation_pass
 from aggregator_clusterer.dedup import check_duplicate
-from aggregator_clusterer.scoring import score_and_tier
+from aggregator_clusterer.scoring import compute_surfaced
 from aggregator_clusterer.upsert import process_classification
 
 logger = logging.getLogger(__name__)
@@ -78,64 +78,6 @@ def _make_llm_merge_fn(settings: ClustererSettings) -> Callable[[Thread, Thread]
             return False
 
     return llm_merge_fn
-
-
-def _make_relevance_gate_fn(
-    settings: ClustererSettings,
-) -> Callable[[str, Thread], tuple[bool, str]]:
-    """Return a litellm-backed relevance gate.
-
-    Fail-open: returns (True, '') on any LLM or parse error so the thread keeps
-    its current tier rather than being incorrectly gated.
-    """
-
-    def relevance_gate_fn(interest_profile_text: str, thread: Thread) -> tuple[bool, str]:
-        if not settings.clusterer_relevance_gate_enabled:
-            return True, ""
-        messages = [
-            {
-                "role": "system",
-                "content": (
-                    "You are a relevance filter for a personal news reader. "
-                    "Given a reader's interest profile and a news thread, decide whether "
-                    "the thread is relevant to the reader's interests. "
-                    "Reply with a JSON object only — no markdown: "
-                    '{"relevant": true|false, "reason": "..."}. '
-                    "Be permissive: only mark not relevant when the thread is clearly "
-                    "off-topic or of no interest to this reader."
-                ),
-            },
-            {
-                "role": "user",
-                "content": (
-                    f"Reader interest profile:\n{interest_profile_text or '(not specified)'}\n\n"
-                    f"Thread:\nTitle: {thread.representative_title or '(no title)'}\n"
-                    f"Summary: {thread.rolling_summary or '(no summary)'}\n\n"
-                    "Is this thread relevant to the reader's interests?"
-                ),
-            },
-        ]
-        try:
-            response = litellm.completion(
-                model=settings.clusterer_llm_model,
-                messages=messages,
-                max_tokens=128,
-                temperature=0.0,
-                timeout=settings.clusterer_llm_timeout_seconds,
-            )
-            content = response.choices[0].message.content or ""
-            data = json.loads(content)
-            relevant = bool(data.get("relevant", True))
-            reason = str(data.get("reason", ""))
-            return relevant, reason
-        except Exception:
-            logger.exception(
-                "LLM relevance gate failed for thread %s; skip gate (fail-open)",
-                thread.id,
-            )
-            return True, ""
-
-    return relevance_gate_fn
 
 
 def _try_acquire_advisory_lock(session: Session) -> bool:
@@ -294,7 +236,7 @@ def _run_one_cycle(
             if assigned_this_article:
                 any_article_assigned = True
 
-        # Score and tier all threads touched during this cycle
+        # Compute and persist surfaced/top_grade for threads touched during this cycle.
         for thread_id in touched_thread_ids:
             if stop_event.is_set():
                 break
@@ -302,7 +244,27 @@ def _run_one_cycle(
             try:
                 thread = score_session.get(Thread, thread_id)
                 if thread is not None:
-                    score_and_tier(score_session, thread, settings)
+                    row = score_session.execute(
+                        select(
+                            func.max(Article.importance_score).label("max_score"),
+                            func.count(Article.id).label("member_count"),
+                        )
+                        .join(ThreadMembership, ThreadMembership.article_id == Article.id)
+                        .where(ThreadMembership.thread_id == thread_id)
+                    ).one()
+                    top_grade = int(row.max_score) if row.max_score is not None else None
+                    member_count = row.member_count
+                    distinct_sources = len(set(thread.source_list or []))
+                    surfaced, top_grade_out = compute_surfaced(
+                        top_grade,
+                        distinct_sources,
+                        member_count,
+                        min_grade=settings.clusterer_surface_min_grade,
+                        min_sources=settings.clusterer_surface_min_sources,
+                        min_members=settings.clusterer_surface_min_members,
+                    )
+                    thread.surfaced = surfaced
+                    thread.top_grade = top_grade_out
                     score_session.commit()
             except Exception:
                 score_session.rollback()
@@ -362,7 +324,6 @@ def _run_one_cycle(
                     consol_session,
                     settings,
                     _make_llm_merge_fn(settings),
-                    _make_relevance_gate_fn(settings),
                 )
                 _mark_consolidation_done(consol_session)
                 consol_session.commit()
