@@ -148,16 +148,6 @@ def _build_user_message(
     return "\n".join(lines)
 
 
-def _error_result() -> "ClassificationResult":
-    return ClassificationResult(
-        label=ClassificationLabel.new_thread,
-        thread_id=None,
-        confidence=0.0,
-        new_facts=[],
-        reason="classification_error",
-    )
-
-
 @dataclass
 class ClassificationResult:
     label: ClassificationLabel
@@ -166,6 +156,18 @@ class ClassificationResult:
     new_facts: list[str] = field(default_factory=list)
     reason: str = ""
     thread_title: Optional[str] = None
+    is_error: bool = False
+
+
+def _error_result() -> "ClassificationResult":
+    return ClassificationResult(
+        label=ClassificationLabel.new_thread,
+        thread_id=None,
+        confidence=0.0,
+        new_facts=[],
+        reason="classification_error",
+        is_error=True,
+    )
 
 
 def classify_article(
