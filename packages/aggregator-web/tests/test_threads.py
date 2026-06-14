@@ -248,3 +248,133 @@ class TestThreadDetailPresentation:
         response = client.get(f"/threads/{thread.id}", headers={"HX-Request": "true"})
         assert response.status_code == 200
         assert "What changed" not in response.text
+
+
+class TestThreadListPolish:
+    """Regression tests for thread list/detail UI polish (B-22949bf1)."""
+
+    def test_no_suppressed_today_text_in_thread_list(self, client, db_session):
+        response = client.get("/threads", headers={"HX-Request": "true"})
+        assert response.status_code == 200
+        assert "suppressed today" not in response.text
+        assert "suppressed-summary" not in response.text
+
+    def test_no_recluster_button_in_thread_list(self, client, db_session):
+        response = client.get("/threads", headers={"HX-Request": "true"})
+        assert response.status_code == 200
+        assert "Re-cluster now" not in response.text
+        assert "btn-recluster" not in response.text
+
+    def test_no_recluster_button_in_thread_detail(self, client, db_session):
+        thread = _make_thread(db_session, title="Detail Recluster Test")
+        response = client.get(f"/threads/{thread.id}", headers={"HX-Request": "true"})
+        assert response.status_code == 200
+        assert "Re-cluster now" not in response.text
+        assert "btn-recluster" not in response.text
+
+    def test_sort_toggle_rendered_in_thread_list(self, client, db_session):
+        response = client.get("/threads", headers={"HX-Request": "true"})
+        assert response.status_code == 200
+        assert "Importance" in response.text
+        assert "Last updated" in response.text
+        assert "feed-sort-toggle" in response.text
+
+    def test_sort_toggle_importance_active_by_default(self, client, db_session):
+        response = client.get("/threads", headers={"HX-Request": "true"})
+        assert response.status_code == 200
+        # Default sort = importance; the Importance button should carry "active" class
+        html = response.text
+        # Find the Importance button and verify it has 'active' in its class
+        import re
+        btn = re.search(r'<button[^>]*sort-btn[^>]*>Importance</button>', html)
+        assert btn is not None
+        assert "active" in btn.group(0)
+
+    def test_sort_toggle_recent_active_when_sort_recent(self, client, db_session):
+        response = client.get("/threads?sort=recent", headers={"HX-Request": "true"})
+        assert response.status_code == 200
+        html = response.text
+        import re
+        btn = re.search(r'<button[^>]*sort-btn[^>]*>Last updated</button>', html)
+        assert btn is not None
+        assert "active" in btn.group(0)
+
+    def test_recluster_route_still_exists(self, client, db_session):
+        response = client.post("/threads/recluster")
+        assert response.status_code == 202
+
+
+class TestListThreadsSort:
+    """Unit tests for list_threads sort parameter in queries.py."""
+
+    def test_list_threads_default_sort_is_importance(self, db_session):
+        from aggregator_common.queries import list_threads
+        _make_thread(db_session, title="Low Grade", top_grade=20)
+        _make_thread(db_session, title="High Grade", top_grade=95)
+        results = list_threads(db_session)
+        titles = [r.representative_title for r in results]
+        assert titles.index("High Grade") < titles.index("Low Grade")
+
+    def test_list_threads_sort_recent_orders_by_last_updated(self, db_session):
+        from datetime import timedelta
+        from aggregator_common.queries import list_threads
+        now = datetime.now(tz=timezone.utc)
+        older = Thread(
+            representative_title="Older Thread",
+            first_seen=now - timedelta(hours=10),
+            last_updated=now - timedelta(hours=10),
+            status="active",
+            surfaced=True,
+            top_grade=90,
+            source_list=[],
+            known_facts=[],
+            deltas=[],
+        )
+        newer = Thread(
+            representative_title="Newer Thread",
+            first_seen=now - timedelta(hours=1),
+            last_updated=now - timedelta(hours=1),
+            status="active",
+            surfaced=True,
+            top_grade=20,
+            source_list=[],
+            known_facts=[],
+            deltas=[],
+        )
+        db_session.add_all([older, newer])
+        db_session.commit()
+        results = list_threads(db_session, sort="recent")
+        titles = [r.representative_title for r in results]
+        assert titles.index("Newer Thread") < titles.index("Older Thread")
+
+    def test_list_threads_sort_importance_ignores_last_updated(self, db_session):
+        from datetime import timedelta
+        from aggregator_common.queries import list_threads
+        now = datetime.now(tz=timezone.utc)
+        low_grade_recent = Thread(
+            representative_title="Low Grade Recent",
+            first_seen=now - timedelta(hours=1),
+            last_updated=now - timedelta(hours=1),
+            status="active",
+            surfaced=True,
+            top_grade=10,
+            source_list=[],
+            known_facts=[],
+            deltas=[],
+        )
+        high_grade_older = Thread(
+            representative_title="High Grade Older",
+            first_seen=now - timedelta(hours=8),
+            last_updated=now - timedelta(hours=8),
+            status="active",
+            surfaced=True,
+            top_grade=95,
+            source_list=[],
+            known_facts=[],
+            deltas=[],
+        )
+        db_session.add_all([low_grade_recent, high_grade_older])
+        db_session.commit()
+        results = list_threads(db_session, sort="importance")
+        titles = [r.representative_title for r in results]
+        assert titles.index("High Grade Older") < titles.index("Low Grade Recent")

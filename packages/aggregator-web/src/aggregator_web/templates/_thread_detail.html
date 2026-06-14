@@ -30,20 +30,13 @@
 
     {# ── (1) Title + tier badge ───────────────────────────────── #}
     <header class="thread-detail-header">
+      {% if thread.tier %}
       <div class="thread-detail-meta">
-        {% if thread.tier %}
         <span class="tier-badge tier-badge-{{ thread.tier }}">
           {{ tier_labels.get(thread.tier, thread.tier) }}
         </span>
-        {% endif %}
-        <button class="btn-recluster"
-                hx-post="/threads/recluster"
-                hx-swap="none"
-                hx-indicator=".recluster-indicator">
-          Re-cluster now
-          <span class="recluster-indicator htmx-indicator" aria-hidden="true">…</span>
-        </button>
       </div>
+      {% endif %}
       <h1 class="thread-detail-title">{{ thread.representative_title | e }}</h1>
     </header>
 

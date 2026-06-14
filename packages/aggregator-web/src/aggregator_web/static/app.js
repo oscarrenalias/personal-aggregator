@@ -272,22 +272,24 @@ function briefList() {
 function threadList() {
   return {
     selectedId: null,
-    reclustering: false,
+    baseUrl: null,
+    sortMode: 'importance',
 
     init() {
-      this._onAfterRequest = (evt) => {
-        if (
-          evt.detail.requestConfig &&
-          evt.detail.requestConfig.path === '/threads/recluster'
-        ) {
-          this.reclustering = false;
+      if (this.baseUrl) {
+        const persisted = localStorage.getItem('threadSort:' + this.baseUrl);
+        if (persisted && persisted !== this.sortMode) {
+          const url = this.baseUrl + (persisted === 'recent' ? '?sort=recent' : '');
+          htmx.ajax('GET', url, { target: '#article-list', swap: 'innerHTML' });
         }
-      };
-      this.$el.addEventListener('htmx:afterRequest', this._onAfterRequest);
+      }
     },
 
-    destroy() {
-      this.$el.removeEventListener('htmx:afterRequest', this._onAfterRequest);
+    /* Write sort preference to localStorage; called by sort toggle buttons. */
+    setSortMode(mode) {
+      if (this.baseUrl) {
+        localStorage.setItem('threadSort:' + this.baseUrl, mode);
+      }
     },
 
     /* Mark a thread as selected and open the reader pane. HTMX loads the detail
@@ -295,11 +297,6 @@ function threadList() {
     selectThread(id) {
       this.selectedId = id;
       document.body.classList.add('reader-open');
-    },
-
-    /* Called on recluster button click; set loading state (reset by htmx:afterRequest). */
-    startRecluster() {
-      this.reclustering = true;
     },
   };
 }
