@@ -7,11 +7,9 @@
   <header class="brief-detail-header">
     <h1 class="brief-detail-headline">{{ brief.headline or "Daily Brief" }}</h1>
     <div class="brief-detail-meta">
-      {% if brief.generated_at %}
-      <time datetime="{{ brief.generated_at.isoformat() }}">
-        {{ brief.generated_at.strftime('%-d %b %Y, %H:%M') }}
+      <time datetime="{{ brief.period_start.isoformat() }}">
+        {{ format_brief_date(brief.period_start) }}
       </time>
-      {% endif %}
       {% if brief.model %}
       <span class="brief-detail-model">{{ brief.model }}</span>
       {% endif %}

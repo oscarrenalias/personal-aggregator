@@ -370,3 +370,123 @@ def test_styles_css_has_brief_detail_rule(client):
     response = client.get("/static/styles.css")
     assert response.status_code == 200
     assert ".brief-detail" in response.text
+
+
+# ---------------------------------------------------------------------------
+# Regression: same-day multiple briefs — issue #1
+# ---------------------------------------------------------------------------
+
+
+def test_today_shows_both_same_day_briefs(db_session, client):
+    """Regression: two ready briefs with the same period_start (same calendar day)
+    must BOTH appear in the Today list.
+
+    Pre-fix concern: the second brief might overwrite or shadow the first.
+    Post-fix: the query returns all ready briefs regardless of period_start;
+    both cards are rendered.
+    """
+    day_start = _NOW.replace(hour=0, minute=0, second=0, microsecond=0)
+    auto_brief = Brief(
+        status="ready",
+        origin="auto",
+        headline="Auto Brief",
+        generated_at=_NOW,
+        period_start=day_start,
+        period_end=day_start + timedelta(days=1),
+    )
+    manual_brief = Brief(
+        status="ready",
+        origin="manual",
+        headline="Manual Refresh Brief",
+        generated_at=_NOW + timedelta(minutes=30),
+        period_start=day_start,
+        period_end=day_start + timedelta(days=1),
+    )
+    db_session.add(auto_brief)
+    db_session.add(manual_brief)
+    db_session.flush()
+    db_session.commit()
+
+    response = client.get("/today")
+    assert response.status_code == 200
+    html = response.text
+
+    assert "Auto Brief" in html
+    assert "Manual Refresh Brief" in html
+    assert html.count("brief-card") >= 2
+
+
+def test_brief_card_date_uses_period_start_not_generated_at(db_session, client):
+    """Regression: the brief card date must reflect period_start, not generated_at.
+
+    Pre-fix: the card used brief.generated_at which could be on a different UTC day
+    than the period it covers (e.g., a UTC+2 auto-brief generated before UTC midnight
+    would show 'Jun 13' even though it covered the Jun 14 local day).
+    Post-fix: period_start drives the date label.
+    """
+    day_start = datetime(2025, 6, 14, 0, 0, 0, tzinfo=timezone.utc)
+    brief = Brief(
+        status="ready",
+        origin="auto",
+        headline="Timezone Test Brief",
+        generated_at=datetime(2025, 6, 13, 22, 30, 0, tzinfo=timezone.utc),
+        period_start=day_start,
+        period_end=day_start + timedelta(days=1),
+    )
+    db_session.add(brief)
+    db_session.flush()
+    db_session.commit()
+
+    card_response = client.get("/today")
+    assert card_response.status_code == 200
+    html = card_response.text
+
+    assert "14 Jun 2025" in html
+    assert "13 Jun 2025" not in html
+
+
+def test_brief_detail_date_uses_period_start_not_generated_at(db_session, client):
+    """Regression: the brief detail date must reflect period_start, not generated_at."""
+    day_start = datetime(2025, 6, 14, 0, 0, 0, tzinfo=timezone.utc)
+    brief = Brief(
+        status="ready",
+        origin="auto",
+        headline="Detail Date Test",
+        generated_at=datetime(2025, 6, 13, 22, 30, 0, tzinfo=timezone.utc),
+        period_start=day_start,
+        period_end=day_start + timedelta(days=1),
+    )
+    db_session.add(brief)
+    db_session.flush()
+    db_session.commit()
+
+    detail_response = client.get(f"/brief/{brief.id}")
+    assert detail_response.status_code == 200
+    html = detail_response.text
+
+    assert "14 Jun 2025" in html
+    assert "13 Jun 2025" not in html
+
+
+def test_today_refresh_period_uses_local_midnight(client, db_session):
+    """POST /today/refresh creates a brief whose period_start is local-timezone midnight,
+    not UTC midnight — matching the period boundaries used by the auto-brief scheduler.
+
+    In a UTC-only deployment (the test default) both are identical; the test verifies
+    that period_start is the start of the day (00:00:00) and period_end is 24h later.
+    """
+    from sqlalchemy import select as sa_select
+
+    response = client.post("/today/refresh")
+    assert response.status_code == 200
+
+    pending = db_session.execute(
+        sa_select(Brief).where(Brief.status == "pending")
+    ).scalar_one_or_none()
+    assert pending is not None
+    assert pending.origin == "manual"
+    assert pending.period_start.hour == 0
+    assert pending.period_start.minute == 0
+    assert pending.period_start.second == 0
+    period_duration = (pending.period_end - pending.period_start).total_seconds()
+    assert period_duration == 86400

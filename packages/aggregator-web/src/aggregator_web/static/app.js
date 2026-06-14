@@ -237,12 +237,26 @@ function articleList() {
 /* ── Brief list component (bound to the today list div in _today.html)
    Manages: brief card selection, reader pane loading, desktop auto-select.
    ─────────────────────────────────────────────────────────────────────── */
+
+/* Persists the selected brief ID across HTMX-driven re-renders of #article-list.
+   The generating banner polls every 5s and replaces #article-list innerHTML, which
+   destroys and recreates the Alpine component. Without this variable, init() would
+   always jump to the newest card, hiding what the user was reading. */
+let _briefSelectedId = null;
+
 function briefList() {
   return {
     selectedId: null,
 
     init() {
       if (window.innerWidth >= 1024) {
+        if (_briefSelectedId !== null) {
+          const existing = this.$el.querySelector(`[data-brief-id="${_briefSelectedId}"]`);
+          if (existing) {
+            this.selectedId = _briefSelectedId;
+            return;
+          }
+        }
         const first = this.$el.querySelector('.brief-card');
         if (first) {
           this.selectBrief(parseInt(first.dataset.briefId, 10));
@@ -252,6 +266,7 @@ function briefList() {
 
     selectBrief(id) {
       this.selectedId = id;
+      _briefSelectedId = id;
       const content = document.getElementById('reader-content');
       htmx.ajax('GET', `/brief/${id}`, {
         target: '#reader-content',
