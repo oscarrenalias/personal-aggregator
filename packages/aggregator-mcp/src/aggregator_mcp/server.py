@@ -65,6 +65,16 @@ def list_threads(
 
 
 @mcp.tool()
+def get_thread(thread_id: int) -> dict:
+    with get_session() as session:
+        result = queries.get_thread(session, thread_id)
+        if result is None:
+            return {"error": "not_found", "detail": f"Thread {thread_id} not found"}
+        members = queries.get_thread_members(session, thread_id)
+    return {"thread": asdict(result), "members": [asdict(m) for m in members]}
+
+
+@mcp.tool()
 def get_article(article_id: int) -> dict:
     with get_session() as session:
         result = queries.get_article(session, article_id)
