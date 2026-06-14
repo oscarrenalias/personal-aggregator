@@ -113,6 +113,62 @@ def test_get_sidebar_includes_source(db_session, client):
     assert "My Feed" in response.text
 
 
+def test_sidebar_category_has_stacked_class_in_qualitative_mode(db_session, client):
+    """Regression: category links must carry sidebar-link--stacked in qualitative mode.
+
+    Before the fix, category <a> tags had only class="sidebar-link", leaving
+    the freshness phrase side-by-side with the name.  After the fix they carry
+    sidebar-link--stacked so CSS stacks the phrase on a second line.
+    """
+    import aggregator_web.app as app_mod
+
+    src = make_source(db_session)
+    make_category(db_session, name="technology")
+    make_article(db_session, source_id=src.id, is_read=False, categories=["technology"])
+
+    original = app_mod.settings.web_show_unread_counts
+    try:
+        app_mod.settings.web_show_unread_counts = False
+        response = client.get("/sidebar")
+    finally:
+        app_mod.settings.web_show_unread_counts = original
+
+    assert response.status_code == 200
+    assert "sidebar-link--stacked" in response.text
+
+
+def test_sidebar_category_no_stacked_class_in_counts_mode(db_session, client):
+    """In counts mode category links must NOT carry sidebar-link--stacked."""
+    import aggregator_web.app as app_mod
+
+    src = make_source(db_session)
+    make_category(db_session, name="technology")
+    make_article(db_session, source_id=src.id, is_read=False, categories=["technology"])
+
+    original = app_mod.settings.web_show_unread_counts
+    try:
+        app_mod.settings.web_show_unread_counts = True
+        response = client.get("/sidebar")
+    finally:
+        app_mod.settings.web_show_unread_counts = original
+
+    assert response.status_code == 200
+    assert "sidebar-link--stacked" not in response.text
+
+
+def test_sidebar_smart_view_links_never_have_stacked_class(db_session, client):
+    """Smart-view links must never carry sidebar-link--stacked regardless of mode."""
+    src = make_source(db_session)
+    make_article(db_session, source_id=src.id, is_read=False)
+    response = client.get("/sidebar")
+    assert response.status_code == 200
+    html = response.text
+    # Smart views section appears before Categories in the template; find it
+    smart_section_end = html.find("Categories")
+    smart_section = html[:smart_section_end] if smart_section_end != -1 else html
+    assert "sidebar-link--stacked" not in smart_section
+
+
 # ---------------------------------------------------------------------------
 # Feed routes — smart views
 # ---------------------------------------------------------------------------
