@@ -19,6 +19,10 @@ EXPECTED_TOOLS = {
     "refresh_brief",
     # Profile management
     "set_interest_profile",
+    # Thread tools
+    "list_threads",
+    "get_thread",
+    "recluster",
     # Source management
     "add_source",
     "enable_source",
@@ -44,9 +48,9 @@ EXPECTED_TOOLS = {
     "rerank",
 }
 
-EXPECTED_RESOURCE_TEMPLATES = {"article://{id}", "feed://{view}"}
+EXPECTED_RESOURCE_TEMPLATES = {"article://{id}", "feed://{view}", "thread://{id}"}
 EXPECTED_STATIC_RESOURCES = {"profile://interests", "brief://today", "status://pipeline"}
-EXPECTED_PROMPTS = {"whats_latest", "daily_brief", "troubleshoot"}
+EXPECTED_PROMPTS = {"whats_latest", "daily_brief", "troubleshoot", "whats_developing"}
 
 
 def test_exact_tool_names_registered(mcp_server):

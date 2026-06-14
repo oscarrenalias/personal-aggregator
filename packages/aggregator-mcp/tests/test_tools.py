@@ -9,7 +9,7 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from aggregator_common.models import Article, Brief, BriefTopic, Source
+from aggregator_common.models import Article, Brief, BriefTopic, ClusterState, Source, Thread, ThreadMembership
 from aggregator_common.state import ArticleStatus
 
 _NOW = datetime.now(tz=timezone.utc)
@@ -879,3 +879,135 @@ class TestRerankTool:
 
         assert isinstance(result, dict)
         assert result.get("error") == "invalid_transition"
+
+
+# ---------------------------------------------------------------------------
+# Thread tools
+# ---------------------------------------------------------------------------
+
+
+def _make_thread(
+    session: Session,
+    suffix: str = "",
+    *,
+    top_grade: int = 85,
+    surfaced: bool = True,
+) -> Thread:
+    thread = Thread(
+        representative_title=f"Test Thread {suffix}",
+        first_seen=_NOW,
+        last_updated=_NOW,
+        status="active",
+        surfaced=surfaced,
+        top_grade=top_grade,
+        source_list=[],
+        known_facts=[],
+        deltas=[],
+    )
+    session.add(thread)
+    session.flush()
+    return thread
+
+
+def _make_thread_membership(
+    session: Session, thread_id: int, article_id: int, *, suppressed: bool = False
+) -> ThreadMembership:
+    membership = ThreadMembership(
+        thread_id=thread_id,
+        article_id=article_id,
+        suppressed=suppressed,
+        assigned_at=_NOW,
+    )
+    session.add(membership)
+    session.flush()
+    return membership
+
+
+class TestListThreadsTool:
+    def test_returns_list(self, session: Session):
+        import aggregator_mcp.server as srv
+
+        _make_thread(session, "-ltret")
+        results = srv.list_threads()
+
+        assert isinstance(results, list)
+
+    def test_limit_clamped_to_mcp_max_limit(self, session: Session):
+        import aggregator_mcp.server as srv
+
+        results = srv.list_threads(limit=9999)
+
+        assert isinstance(results, list)
+        assert len(results) <= 100
+
+    def test_sort_forwarded_does_not_raise(self, session: Session):
+        import aggregator_mcp.server as srv
+
+        _make_thread(session, "-ltsort")
+        results_importance = srv.list_threads(sort="importance")
+        results_recent = srv.list_threads(sort="recent")
+
+        assert isinstance(results_importance, list)
+        assert isinstance(results_recent, list)
+
+    def test_status_filter_forwarded(self, session: Session):
+        import aggregator_mcp.server as srv
+
+        _make_thread(session, "-ltstatus")
+        results = srv.list_threads(status="active")
+
+        assert isinstance(results, list)
+        for r in results:
+            assert r["status"] == "active"
+
+
+class TestGetThreadTool:
+    def test_found_returns_thread_and_members(self, session: Session):
+        import aggregator_mcp.server as srv
+
+        src = _make_source(session, "-gthr")
+        art = _make_ready_article(session, src.id, "gthr-art1")
+        thread = _make_thread(session, "-gthr1")
+        _make_thread_membership(session, thread.id, art.id)
+
+        result = srv.get_thread(thread_id=thread.id)
+
+        assert isinstance(result, dict)
+        assert "thread" in result
+        assert "members" in result
+        assert isinstance(result["members"], list)
+        assert len(result["members"]) == 1
+        member = result["members"][0]
+        assert "clean_title" in member
+        assert "url" in member
+        assert "source_name" in member
+        assert "new_facts" in member
+        assert "suppressed" in member
+
+    def test_unknown_id_returns_error_dict_no_exception(self, session: Session):
+        import aggregator_mcp.server as srv
+
+        result = srv.get_thread(thread_id=999_999_777)
+
+        assert isinstance(result, dict)
+        assert result.get("error") == "not_found"
+
+
+class TestReclusterTool:
+    def test_returns_enqueued(self, session: Session):
+        import aggregator_mcp.server as srv
+
+        result = srv.recluster()
+
+        assert isinstance(result, dict)
+        assert result == {"status": "enqueued"}
+
+    def test_cluster_state_recluster_requested_true(self, session: Session):
+        import aggregator_mcp.server as srv
+
+        srv.recluster()
+        session.flush()
+
+        row = session.get(ClusterState, True)
+        assert row is not None
+        assert row.recluster_requested is True
