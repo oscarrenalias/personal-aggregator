@@ -75,6 +75,24 @@ def get_thread(thread_id: int) -> dict:
 
 
 @mcp.tool()
+def dismiss_thread(thread_id: int, dismissed: bool = True) -> dict:
+    """Dismiss or restore a thread.
+
+    dismissed=True hides the thread from the default view.
+    dismissed=False restores it.
+    Returns the updated thread state, or {"error": "not_found"} if thread_id is unknown.
+    """
+    with get_session() as session:
+        result = management.set_thread_dismissed(session, thread_id, dismissed)
+        if result is None:
+            return {"error": "not_found"}
+        thread_result = queries.get_thread(session, thread_id)
+    if thread_result is None:
+        return {"error": "not_found"}
+    return asdict(thread_result)
+
+
+@mcp.tool()
 def get_article(article_id: int) -> dict:
     with get_session() as session:
         result = queries.get_article(session, article_id)
