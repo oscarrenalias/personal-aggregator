@@ -681,3 +681,50 @@ class TestListThreads:
         ids = {r.id for r in results}
 
         assert old.id not in ids
+
+
+class TestGetThreadMembers:
+    def test_source_name_resolved_for_active_member(self, session: Session):
+        src = _make_source(session, "-gtm1")
+        thread = _make_thread(session, title="Thread Source Name Test")
+        article = _make_ready_article(session, src.id, "gtm1-art1", title="Member Article")
+        _make_thread_membership(session, thread.id, article.id, suppressed=False)
+
+        members = queries.get_thread_members(session, thread.id)
+
+        assert len(members) == 1
+        assert members[0].source_name == src.name
+
+    def test_source_name_resolved_for_suppressed_member(self, session: Session):
+        src = _make_source(session, "-gtm2")
+        thread = _make_thread(session, title="Thread Suppressed Source Name")
+        article = _make_ready_article(session, src.id, "gtm2-supp", title="Suppressed Article")
+        _make_thread_membership(session, thread.id, article.id, suppressed=True)
+
+        members = queries.get_thread_members(session, thread.id)
+
+        assert len(members) == 1
+        assert members[0].source_name == src.name
+        assert members[0].suppressed is True
+
+    def test_source_names_resolved_in_single_batch(self, session: Session):
+        src_a = _make_source(session, "-gtm3a")
+        src_b = _make_source(session, "-gtm3b")
+        thread = _make_thread(session, title="Thread Multi Source")
+        art_a = _make_ready_article(session, src_a.id, "gtm3-arta", title="Article A")
+        art_b = _make_ready_article(session, src_b.id, "gtm3-artb", title="Article B")
+        _make_thread_membership(session, thread.id, art_a.id)
+        _make_thread_membership(session, thread.id, art_b.id)
+
+        members = queries.get_thread_members(session, thread.id)
+        names = {m.source_name for m in members}
+
+        assert src_a.name in names
+        assert src_b.name in names
+
+    def test_empty_thread_returns_empty_list(self, session: Session):
+        thread = _make_thread(session, title="Empty Thread")
+
+        members = queries.get_thread_members(session, thread.id)
+
+        assert members == []

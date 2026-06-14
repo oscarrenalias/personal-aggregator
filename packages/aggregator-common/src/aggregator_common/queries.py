@@ -107,6 +107,7 @@ class ThreadMemberResult:
     assigned_at: str
     clean_title: Optional[str]
     url: Optional[str]
+    source_name: Optional[str] = None
 
 
 @dataclass
@@ -466,6 +467,8 @@ def get_thread_members(session: Session, thread_id: int) -> List[ThreadMemberRes
         .where(ThreadMembership.thread_id == thread_id)
         .order_by(ThreadMembership.assigned_at.desc())
     ).all()
+    articles = [a for _, a in rows]
+    source_names = _resolve_source_names(articles, session)
     return [
         ThreadMemberResult(
             id=tm.id,
@@ -479,6 +482,7 @@ def get_thread_members(session: Session, thread_id: int) -> List[ThreadMemberRes
             assigned_at=tm.assigned_at.isoformat(),
             clean_title=a.clean_title or a.feed_title,
             url=_article_url(a),
+            source_name=source_names.get(a.source_id),
         )
         for tm, a in rows
     ]

@@ -28,16 +28,13 @@
 <div id="thread-detail" class="thread-detail">
   <div class="thread-detail-content">
 
-    {# ── (1) Title + tier badge + confidence ─────────────────── #}
+    {# ── (1) Title + tier badge ───────────────────────────────── #}
     <header class="thread-detail-header">
       <div class="thread-detail-meta">
         {% if thread.tier %}
         <span class="tier-badge tier-badge-{{ thread.tier }}">
           {{ tier_labels.get(thread.tier, thread.tier) }}
         </span>
-        {% endif %}
-        {% if thread.confidence is not none %}
-        <span class="thread-confidence">{{ (thread.confidence * 100) | int }}% confidence</span>
         {% endif %}
         <button class="btn-recluster"
                 hx-post="/threads/recluster"
@@ -57,30 +54,22 @@
     </section>
     {% endif %}
 
-    {# ── (3) What changed — latest delta only ────────────────── #}
+    {# ── (3) What changed — latest delta new_facts as bullets ── #}
     {% if thread.deltas %}
     {% set latest_delta = thread.deltas[-1] %}
+    {% if latest_delta is mapping and latest_delta.new_facts %}
     <section class="thread-detail-section thread-what-changed">
       <h2 class="thread-section-heading">What changed</h2>
-      {% if latest_delta is string %}
-      <p>{{ latest_delta | e }}</p>
-      {% elif latest_delta is mapping %}
-        {% if latest_delta.summary %}
-        <p>{{ latest_delta.summary | e }}</p>
-        {% endif %}
-        {% if latest_delta.added %}
-        <p class="delta-added"><strong>Added:</strong> {{ latest_delta.added | e }}</p>
-        {% endif %}
-        {% if latest_delta.removed %}
-        <p class="delta-removed"><strong>Removed:</strong> {{ latest_delta.removed | e }}</p>
-        {% endif %}
-        {% if not (latest_delta.summary or latest_delta.added or latest_delta.removed) %}
-          {% for key, val in latest_delta.items() %}
-          <p><strong>{{ key | e }}:</strong> {{ val | e }}</p>
-          {% endfor %}
-        {% endif %}
+      {% if latest_delta.reason %}
+      <p class="delta-reason">{{ latest_delta.reason | e }}</p>
       {% endif %}
+      <ul class="delta-facts-list">
+        {% for fact in latest_delta.new_facts %}
+        <li>{{ fact | e }}</li>
+        {% endfor %}
+      </ul>
     </section>
+    {% endif %}
     {% endif %}
 
     {# ── (4) Known facts ─────────────────────────────────────── #}
@@ -126,7 +115,7 @@
                  hx-swap="innerHTML"
                  hx-push-url="true"
                  @click="document.body.classList.add('reader-open')">
-                {% if m.clean_title %}{{ m.clean_title | e }}{% else %}(untitled){% endif %}
+                {% if m.source_name %}<span class="member-source">({{ m.source_name | e }})</span> {% endif %}{% if m.clean_title %}{{ m.clean_title | e }}{% else %}(untitled){% endif %}
               </a>
             </td>
             <td class="member-date">{{ m.assigned_at | timeago }}</td>
@@ -138,66 +127,24 @@
 
       {% if suppressed_members %}
       <div class="thread-suppressed">
-        <h3 class="thread-suppressed-heading">Suppressed duplicates</h3>
-        <table class="thread-members-table thread-members-suppressed">
-          <tbody>
-            {% for m in suppressed_members %}
-            <tr>
-              <td>
-                {% if m.classification_label %}
-                <span class="classification-badge classification-{{ m.classification_label }}">
-                  {{ label_labels.get(m.classification_label, m.classification_label) }}
-                </span>
-                {% endif %}
-              </td>
-              <td>
-                <a href="/article/{{ m.article_id }}"
-                   hx-get="/article/{{ m.article_id }}"
-                   hx-target="#reader-content"
-                   hx-swap="innerHTML"
-                   hx-push-url="true"
-                   @click="document.body.classList.add('reader-open')">
-                  {% if m.clean_title %}{{ m.clean_title | e }}{% else %}(untitled){% endif %}
-                </a>
-              </td>
-              <td class="member-date">{{ m.assigned_at | timeago }}</td>
-            </tr>
-            {% endfor %}
-          </tbody>
-        </table>
+        <h3 class="thread-suppressed-heading">Also covered by</h3>
+        <ul class="thread-suppressed-list">
+          {% for m in suppressed_members %}
+          <li>
+            <a href="/article/{{ m.article_id }}"
+               hx-get="/article/{{ m.article_id }}"
+               hx-target="#reader-content"
+               hx-swap="innerHTML"
+               hx-push-url="true"
+               @click="document.body.classList.add('reader-open')">
+              Also covered by {{ m.source_name | e if m.source_name else "(unknown source)" }}
+            </a>
+          </li>
+          {% endfor %}
+        </ul>
       </div>
       {% endif %}
 
-    </section>
-    {% endif %}
-
-    {# ── (6) Source comparison ────────────────────────────────── #}
-    {% if thread.source_list %}
-    <section class="thread-detail-section thread-sources">
-      <h2 class="thread-section-heading">
-        Sources
-        {% if thread.source_diversity is not none %}
-        <span class="source-diversity-metric">diversity {{ (thread.source_diversity * 100) | int }}%</span>
-        {% endif %}
-      </h2>
-      <ul class="thread-source-list">
-        {% for source in thread.source_list %}
-        <li>{{ source | e }}</li>
-        {% endfor %}
-      </ul>
-    </section>
-    {% endif %}
-
-    {# ── (7) Explanation — tier_reason + confidence ───────────── #}
-    {% if thread.tier_reason or thread.confidence is not none %}
-    <section class="thread-detail-section thread-explanation">
-      <h2 class="thread-section-heading">Explanation</h2>
-      {% if thread.tier_reason %}
-      <p class="thread-tier-reason">{{ thread.tier_reason | e }}</p>
-      {% endif %}
-      {% if thread.confidence is not none %}
-      <p class="thread-confidence-detail">Confidence: {{ (thread.confidence * 100) | int }}%</p>
-      {% endif %}
     </section>
     {% endif %}
 
