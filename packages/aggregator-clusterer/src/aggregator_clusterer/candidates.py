@@ -119,13 +119,12 @@ def get_candidates(
 
         thread_members = members_by_thread.get(thread.id, [])
 
-        # Entity and topic overlap against the most recent member's article
+        # Entity and topic overlap against the union of all thread members' entities/topics
         thread_entities: frozenset = frozenset()
         thread_topics: frozenset = frozenset()
-        if thread_members:
-            _, recent_art = thread_members[0]
-            thread_entities = _to_set(recent_art.entities)
-            thread_topics = _to_set(recent_art.topics)
+        for _, member_art in thread_members:
+            thread_entities = thread_entities | _to_set(member_art.entities)
+            thread_topics = thread_topics | _to_set(member_art.topics)
 
         entity_overlap = _jaccard(article_entities, thread_entities)
         topic_overlap = _jaccard(article_topics, thread_topics)
