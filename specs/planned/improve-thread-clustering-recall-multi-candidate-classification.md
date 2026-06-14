@@ -5,7 +5,7 @@ description: "Raise thread-clustering recall so same-story articles stop fragmen
 dependencies: null
 priority: medium
 complexity: null
-status: draft
+status: planned
 tags:
 - clusterer
 - clustering
@@ -14,7 +14,7 @@ tags:
 scope:
   in: null
   out: null
-feature_root_id: null
+feature_root_id: B-96f2fafe
 ---
 # Improve thread clustering recall: multi-candidate classification
 
