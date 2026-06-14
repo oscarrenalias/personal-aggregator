@@ -11,11 +11,9 @@
          @keydown.enter="selectBrief({{ brief.id }})">
   <h2 class="brief-card-title">{{ brief.headline or "Daily Brief" }}</h2>
   <div class="brief-card-meta">
-    {% if brief.generated_at %}
-    <time class="brief-card-date" datetime="{{ brief.generated_at.isoformat() }}">
-      {{ brief.generated_at.strftime('%-d %b %Y, %H:%M') }}
+    <time class="brief-card-date" datetime="{{ brief.period_start.isoformat() }}">
+      {{ format_brief_date(brief.period_start) }}
     </time>
-    {% endif %}
     <span class="brief-card-count">{{ brief.topics | length }} topic{{ 's' if brief.topics | length != 1 else '' }}</span>
   </div>
 </article>

@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Generator, List, Optional
 from types import SimpleNamespace
 from urllib.parse import quote, urlencode
+from zoneinfo import ZoneInfo
 
 from markupsafe import Markup, escape
 
@@ -53,6 +54,7 @@ from aggregator_web.reader import (
 _BASE_DIR = Path(__file__).parent
 
 settings = WebSettings()
+_brief_tz = ZoneInfo(settings.brief_timezone)
 
 app = FastAPI(title="personal-aggregator web")
 
@@ -96,8 +98,16 @@ def _timeago_filter(dt_str: str) -> str:
         return str(dt_str)[:10] if dt_str else ""
 
 
+def _format_brief_date(dt: datetime, fmt: str = "%-d %b %Y") -> str:
+    """Format a datetime in the configured brief timezone for display in templates."""
+    if dt is None:
+        return ""
+    return dt.astimezone(_brief_tz).strftime(fmt)
+
+
 templates.env.filters["paragraphs"] = _paragraphs_filter
 templates.env.filters["timeago"] = _timeago_filter
+templates.env.globals["format_brief_date"] = _format_brief_date
 
 
 def get_db() -> Generator[Session, None, None]:
@@ -586,8 +596,10 @@ def today_refresh(
     request: Request,
     db: Session = Depends(get_db),
 ) -> Response:
-    today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
-    today_end = today_start + timedelta(days=1)
+    now_local = datetime.now(timezone.utc).astimezone(_brief_tz)
+    today_start_local = now_local.replace(hour=0, minute=0, second=0, microsecond=0)
+    today_start = today_start_local.astimezone(timezone.utc)
+    today_end = (today_start_local + timedelta(days=1)).astimezone(timezone.utc)
 
     existing = db.execute(
         select(Brief)
