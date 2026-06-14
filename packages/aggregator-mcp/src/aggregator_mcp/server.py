@@ -53,6 +53,18 @@ def list_articles(
 
 
 @mcp.tool()
+def list_threads(
+    sort: str = "importance",
+    status: Optional[str] = None,
+    limit: int = _settings.mcp_default_limit,
+) -> list:
+    limit = min(limit, _settings.mcp_max_limit)
+    with get_session() as session:
+        results = queries.list_threads(session, sort=sort, status=status, limit=limit)  # type: ignore[arg-type]
+    return [asdict(r) for r in results]
+
+
+@mcp.tool()
 def get_article(article_id: int) -> dict:
     with get_session() as session:
         result = queries.get_article(session, article_id)
