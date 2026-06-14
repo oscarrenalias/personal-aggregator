@@ -138,6 +138,61 @@ class TestClassifyArticle:
 
         assert result.confidence == 0.0
 
+    def test_thread_title_parsed_from_llm_response(self, db_session):
+        """thread_title field is extracted from the LLM response."""
+        src = make_source(db_session, url="https://cls8.test/feed.xml")
+        article = make_article(db_session, source_id=src.id, dedup_key="k1")
+        payload = {
+            "label": "new_thread",
+            "thread_id": None,
+            "confidence": 0.9,
+            "new_facts": [],
+            "reason": "New story",
+            "thread_title": "Researchers publish findings on climate adaptation",
+        }
+        with patch("aggregator_clusterer.classification.litellm.completion") as mock_llm:
+            mock_llm.return_value = _mock_response(json.dumps(payload))
+            result = classify_article(article, [], db_session, _SETTINGS)
+
+        assert result.thread_title == "Researchers publish findings on climate adaptation"
+
+    def test_thread_title_absent_in_response_yields_none(self, db_session):
+        """Missing thread_title in LLM response produces None (backwards-compatible)."""
+        src = make_source(db_session, url="https://cls9.test/feed.xml")
+        article = make_article(db_session, source_id=src.id, dedup_key="k1")
+        payload = {
+            "label": "new_thread",
+            "thread_id": None,
+            "confidence": 0.8,
+            "new_facts": [],
+            "reason": "Test",
+        }
+        with patch("aggregator_clusterer.classification.litellm.completion") as mock_llm:
+            mock_llm.return_value = _mock_response(json.dumps(payload))
+            result = classify_article(article, [], db_session, _SETTINGS)
+
+        assert result.thread_title is None
+
+    def test_thread_title_truncated_to_90_chars(self, db_session):
+        """thread_title longer than 90 chars is truncated."""
+        src = make_source(db_session, url="https://cls10.test/feed.xml")
+        article = make_article(db_session, source_id=src.id, dedup_key="k1")
+        long_title = "A" * 120
+        payload = {
+            "label": "new_thread",
+            "thread_id": None,
+            "confidence": 0.8,
+            "new_facts": [],
+            "reason": "Test",
+            "thread_title": long_title,
+        }
+        with patch("aggregator_clusterer.classification.litellm.completion") as mock_llm:
+            mock_llm.return_value = _mock_response(json.dumps(payload))
+            result = classify_article(article, [], db_session, _SETTINGS)
+
+        assert result.thread_title is not None
+        assert len(result.thread_title) == 90
+
 
 class TestIsSectionTitleBlocked:
     def _article(self, *, clean_title=None, feed_title=None):
