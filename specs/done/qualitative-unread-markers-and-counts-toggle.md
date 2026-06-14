@@ -5,7 +5,7 @@ description: "Replace numeric unread-count badges in the sidebar with qualitativ
 dependencies: null
 priority: medium
 complexity: null
-status: planned
+status: done
 tags:
 - web
 - sidebar

@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Dict, List, Literal, Optional
 
-from sqlalchemy import and_, false, func, or_, select
+from sqlalchemy import and_, false, func, or_, select, text
 from sqlalchemy.orm import Session
 
 from aggregator_common.models import Article, Category, Source
@@ -59,10 +59,32 @@ class FeedPage:
 
 
 @dataclass
+class SmartViewEntry:
+    count: int = 0
+    has_new: bool = False
+    has_priority: bool = False
+
+
+@dataclass
+class SourceEntry:
+    count: int = 0
+    has_new: bool = False
+    has_priority: bool = False
+
+
+@dataclass
+class CategoryEntry:
+    count: int = 0
+    has_new: bool = False
+    has_priority: bool = False
+    last_activity: Optional[datetime] = None
+
+
+@dataclass
 class SidebarCounts:
-    smart: Dict[str, int]
-    categories: Dict[str, int]
-    sources: Dict[int, int]
+    smart: Dict[str, SmartViewEntry]
+    categories: Dict[str, CategoryEntry]
+    sources: Dict[int, SourceEntry]
 
 
 def _ready_base():
@@ -317,18 +339,28 @@ def get_sidebar_counts(
 ) -> SidebarCounts:
     base = _ready_base()
     unread = and_(base, Article.is_read == False)
+    priority_filter = Article.importance_score >= important_threshold
 
-    def _count(*extra) -> int:
-        return session.execute(
-            select(func.count(Article.id)).where(unread, *extra)
-        ).scalar_one()
+    def _counts(*extra):
+        """Return (unread_count, priority_count) in a single query."""
+        row = session.execute(
+            select(
+                func.count(Article.id).label("cnt"),
+                func.count(Article.id).filter(priority_filter).label("priority_cnt"),
+            ).where(unread, *extra)
+        ).one()
+        return row.cnt, row.priority_cnt
 
-    smart: Dict[str, int] = {
-        "all": _count(),
-        "unread": _count(),
-        "saved": _count(Article.is_saved == True),
-        "important": _count(Article.importance_score >= important_threshold),
-        "uncategorized": _count(
+    def _smart_entry(*extra) -> SmartViewEntry:
+        cnt, priority_cnt = _counts(*extra)
+        return SmartViewEntry(count=cnt, has_new=cnt > 0, has_priority=priority_cnt > 0)
+
+    smart: Dict[str, SmartViewEntry] = {
+        "all": _smart_entry(),
+        "unread": _smart_entry(),
+        "saved": _smart_entry(Article.is_saved == True),
+        "important": _smart_entry(priority_filter),
+        "uncategorized": _smart_entry(
             or_(
                 Article.categories.is_(None),
                 func.jsonb_typeof(Article.categories) == "null",
@@ -340,26 +372,62 @@ def get_sidebar_counts(
         ),
     }
 
-    # Source counts: single GROUP BY query, then join to enabled sources
+    # Source counts + priority markers: single GROUP BY query with FILTER
     source_count_rows = session.execute(
-        select(Article.source_id, func.count(Article.id).label("cnt"))
+        select(
+            Article.source_id,
+            func.count(Article.id).label("cnt"),
+            func.count(Article.id).filter(priority_filter).label("priority_cnt"),
+        )
         .where(unread)
         .group_by(Article.source_id)
     ).all()
     all_source_counts: Dict[int, int] = {row.source_id: row.cnt for row in source_count_rows}
+    all_source_priority: Dict[int, int] = {row.source_id: row.priority_cnt for row in source_count_rows}
 
     enabled_sources = session.execute(
         select(Source).where(Source.enabled == True).order_by(Source.name)
     ).scalars().all()
-    sources: Dict[int, int] = {src.id: all_source_counts.get(src.id, 0) for src in enabled_sources}
+    sources: Dict[int, SourceEntry] = {
+        src.id: SourceEntry(
+            count=all_source_counts.get(src.id, 0),
+            has_new=all_source_counts.get(src.id, 0) > 0,
+            has_priority=all_source_priority.get(src.id, 0) > 0,
+        )
+        for src in enabled_sources
+    }
 
-    # Category counts: per-category JSONB containment
+    # Category stats: one unnested query replaces N per-category queries.
+    # Returns unread_cnt, priority_cnt, and last_activity (max retrieved_at over ready articles).
+    cat_rows = session.execute(
+        text("""
+            SELECT
+                cat_name,
+                COUNT(*) FILTER (WHERE is_read = false) AS unread_cnt,
+                COUNT(*) FILTER (WHERE is_read = false AND importance_score >= :threshold) AS priority_cnt,
+                MAX(retrieved_at) AS last_activity
+            FROM articles, jsonb_array_elements_text(categories) AS cat_name
+            WHERE status = 'ready' AND is_hidden = false
+              AND jsonb_typeof(categories) = 'array'
+            GROUP BY cat_name
+        """),
+        {"threshold": important_threshold},
+    ).all()
+    cat_stats: Dict[str, tuple] = {
+        r.cat_name: (r.unread_cnt, r.priority_cnt, r.last_activity) for r in cat_rows
+    }
+
     enabled_categories = session.execute(
         select(Category).where(Category.enabled == True).order_by(Category.sort_order, Category.name)
     ).scalars().all()
-    categories: Dict[str, int] = {
-        cat.name: _count(Article.categories.contains([cat.name]))
-        for cat in enabled_categories
-    }
+    categories: Dict[str, CategoryEntry] = {}
+    for cat in enabled_categories:
+        stat = cat_stats.get(cat.name, (0, 0, None))
+        categories[cat.name] = CategoryEntry(
+            count=stat[0],
+            has_new=stat[0] > 0,
+            has_priority=stat[1] > 0,
+            last_activity=stat[2],
+        )
 
     return SidebarCounts(smart=smart, categories=categories, sources=sources)

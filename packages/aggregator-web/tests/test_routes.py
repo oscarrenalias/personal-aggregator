@@ -1677,3 +1677,169 @@ def test_detail_header_toolbar_flows_static_on_mobile(client):
     assert any("float: none" in b for b in toolbar_blocks), (
         "a .detail-reader-toolbar rule must set float: none for the ≤1023px layout"
     )
+
+
+# ---------------------------------------------------------------------------
+# Sidebar marker rendering: dot classes, badge counts, freshness phrases
+# ---------------------------------------------------------------------------
+
+
+def test_web_show_unread_counts_defaults_to_false():
+    """WEB_SHOW_UNREAD_COUNTS must default to False (dot markers, not numeric badges)."""
+    from aggregator_web.config import WebSettings
+
+    s = WebSettings()
+    assert s.web_show_unread_counts is False
+
+
+def test_web_show_unread_counts_true_when_env_set(monkeypatch):
+    """WEB_SHOW_UNREAD_COUNTS=true must set web_show_unread_counts=True on WebSettings."""
+    monkeypatch.setenv("WEB_SHOW_UNREAD_COUNTS", "true")
+    from aggregator_web.config import WebSettings
+
+    s = WebSettings()
+    assert s.web_show_unread_counts is True
+
+
+def test_sidebar_show_unread_counts_true_renders_numeric_badge(db_session, client, monkeypatch):
+    """show_unread_counts=True renders unread-badge spans instead of dot markers."""
+    import aggregator_web.app as app_mod
+
+    monkeypatch.setattr(app_mod.settings, "web_show_unread_counts", True)
+
+    src = make_source(db_session)
+    make_article(db_session, source_id=src.id, is_read=False, importance_score=80)
+
+    response = client.get("/sidebar")
+    assert response.status_code == 200
+    assert "unread-badge" in response.text
+    assert 'class="sidebar-dot' not in response.text
+
+
+def test_sidebar_show_unread_counts_false_renders_dot_not_badge(db_session, client, monkeypatch):
+    """show_unread_counts=False (default) renders dot markers, not numeric badges."""
+    import aggregator_web.app as app_mod
+
+    monkeypatch.setattr(app_mod.settings, "web_show_unread_counts", False)
+
+    src = make_source(db_session)
+    make_article(db_session, source_id=src.id, is_read=False, importance_score=80)
+
+    response = client.get("/sidebar")
+    assert response.status_code == 200
+    assert "sidebar-dot" in response.text
+    assert "unread-badge" not in response.text
+
+
+def test_sidebar_is_priority_dot_for_source_with_priority(db_session, client, monkeypatch):
+    """A source with an unread high-importance article must render the is-priority dot."""
+    import aggregator_web.app as app_mod
+
+    monkeypatch.setattr(app_mod.settings, "web_show_unread_counts", False)
+
+    src = make_source(db_session)
+    make_article(db_session, source_id=src.id, is_read=False, importance_score=80)
+
+    response = client.get("/sidebar")
+    assert response.status_code == 200
+    assert "sidebar-dot is-priority" in response.text
+
+
+def test_sidebar_plain_dot_for_source_has_new_only(db_session, client, monkeypatch):
+    """A source with unread low-importance articles renders a plain dot (no is-priority)."""
+    import aggregator_web.app as app_mod
+
+    monkeypatch.setattr(app_mod.settings, "web_show_unread_counts", False)
+
+    src = make_source(db_session)
+    make_article(db_session, source_id=src.id, is_read=False, importance_score=50)
+
+    response = client.get("/sidebar")
+    assert response.status_code == 200
+    assert 'class="sidebar-dot"' in response.text
+    assert "is-priority" not in response.text
+
+
+def test_sidebar_unread_all_caught_up_when_no_unread(client, monkeypatch):
+    """Unread smart view with no unread articles renders 'All caught up' label."""
+    import aggregator_web.app as app_mod
+
+    monkeypatch.setattr(app_mod.settings, "web_show_unread_counts", False)
+
+    response = client.get("/sidebar")
+    assert response.status_code == 200
+    assert "All caught up" in response.text
+
+
+def test_sidebar_category_freshness_phrase_new_notable_stories(db_session, client, monkeypatch):
+    """Category with a high-importance unread article renders 'New notable stories'."""
+    import aggregator_web.app as app_mod
+
+    monkeypatch.setattr(app_mod.settings, "web_show_unread_counts", False)
+
+    src = make_source(db_session)
+    make_category(db_session, name="tech")
+    make_article(
+        db_session, source_id=src.id, categories=["tech"],
+        is_read=False, importance_score=80,
+    )
+
+    response = client.get("/sidebar")
+    assert response.status_code == 200
+    assert "New notable stories" in response.text
+
+
+def test_sidebar_category_freshness_phrase_updated_today(db_session, client, monkeypatch):
+    """Category with only today's activity (no priority) renders 'Updated today'."""
+    from datetime import datetime, timezone
+    import aggregator_web.app as app_mod
+
+    monkeypatch.setattr(app_mod.settings, "web_show_unread_counts", False)
+
+    src = make_source(db_session)
+    make_category(db_session, name="tech")
+    make_article(
+        db_session, source_id=src.id, categories=["tech"],
+        is_read=False, importance_score=50,
+        retrieved_at=datetime.now(timezone.utc),
+    )
+
+    response = client.get("/sidebar")
+    assert response.status_code == 200
+    assert "Updated today" in response.text
+
+
+def test_sidebar_category_freshness_phrase_updated_yesterday(db_session, client, monkeypatch):
+    """Category whose most recent article was retrieved yesterday renders 'Updated yesterday'."""
+    from datetime import datetime, timezone, timedelta
+    import aggregator_web.app as app_mod
+
+    monkeypatch.setattr(app_mod.settings, "web_show_unread_counts", False)
+
+    src = make_source(db_session)
+    make_category(db_session, name="tech")
+    make_article(
+        db_session, source_id=src.id, categories=["tech"],
+        is_read=True,
+        retrieved_at=datetime.now(timezone.utc) - timedelta(days=1),
+    )
+
+    response = client.get("/sidebar")
+    assert response.status_code == 200
+    assert "Updated yesterday" in response.text
+
+
+def test_sidebar_category_freshness_phrase_quiet(db_session, client, monkeypatch):
+    """Category with only old articles (more than 1 day ago) renders 'Quiet'."""
+    import aggregator_web.app as app_mod
+
+    monkeypatch.setattr(app_mod.settings, "web_show_unread_counts", False)
+
+    src = make_source(db_session)
+    make_category(db_session, name="tech")
+    # Default retrieved_at is Jan 1 2025 — well beyond yesterday
+    make_article(db_session, source_id=src.id, categories=["tech"], is_read=True)
+
+    response = client.get("/sidebar")
+    assert response.status_code == 200
+    assert "Quiet" in response.text

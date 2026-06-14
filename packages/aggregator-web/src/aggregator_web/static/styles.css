@@ -493,6 +493,32 @@ button {
   color: #fff;
 }
 
+/* Qualitative unread marker — subtle bullet dot */
+.sidebar-dot {
+  flex-shrink: 0;
+  font-size: 10px;
+  line-height: 1;
+  color: var(--c-text-muted);
+}
+
+.sidebar-dot::before {
+  content: '\2022';
+}
+
+/* Priority variant — accent colour */
+.sidebar-dot.is-priority {
+  color: var(--c-accent-light);
+}
+
+/* Freshness label — small muted text, pushed to the right */
+.sidebar-freshness {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--c-text-muted);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
 
 /* ================================================================
    ARTICLE CARDS

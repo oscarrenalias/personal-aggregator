@@ -157,6 +157,7 @@ At process startup, every service calls `aggregator_common.load_env()` (python-d
 | `WEB_PORT` | `8000` | Port to bind the web server |
 | `WEB_PAGE_SIZE` | `50` | Number of articles per page in feed lists |
 | `WEB_IMPORTANT_THRESHOLD` | `70` | Minimum `importance_score` for the Important smart view |
+| `WEB_SHOW_UNREAD_COUNTS` | `false` | Show numeric unread counts in sidebar (`true`) or qualitative dot markers only (`false`) |
 | `BRIEF_LLM_MODEL` | `gpt-4.1` | LLM model used for brief generation |
 | `BRIEF_LLM_MAX_OUTPUT_TOKENS` | `4096` | Maximum output tokens for LLM calls |
 | `BRIEF_LLM_TEMPERATURE` | `0.3` | LLM sampling temperature |
