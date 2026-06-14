@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
-from typing import Union
+from typing import Optional, Union
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -28,10 +28,10 @@ _DELTA_LABELS = frozenset({
 
 def _normalize(
     result: Union[ClassificationResult, DedupResult],
-) -> tuple[int | None, ClassificationLabel, float, list[str], str]:
+) -> tuple[int | None, ClassificationLabel, float, list[str], str, Optional[str]]:
     if isinstance(result, DedupResult):
-        return result.thread_id, result.classification_label, 1.0, [], ""
-    return result.thread_id, result.label, result.confidence, result.new_facts, result.reason
+        return result.thread_id, result.classification_label, 1.0, [], "", None
+    return result.thread_id, result.label, result.confidence, result.new_facts, result.reason, result.thread_title
 
 
 def process_classification(
@@ -40,14 +40,14 @@ def process_classification(
     result: Union[ClassificationResult, DedupResult],
     settings: ClustererSettings,
 ) -> None:
-    thread_id, label, confidence, new_facts, reason = _normalize(result)
+    thread_id, label, confidence, new_facts, reason, thread_title = _normalize(result)
 
     suppressed = label in _SUPPRESSED_LABELS
 
     if thread_id is None:
         thread = management.create_thread(
             session,
-            representative_title=article.clean_title or article.feed_title or "",
+            representative_title=thread_title or article.clean_title or article.feed_title or "",
             rolling_summary=article.summary,
             known_facts=[],
             source_list=[article.source_id],
@@ -66,14 +66,14 @@ def process_classification(
             )
             thread = management.create_thread(
                 session,
-                representative_title=article.clean_title or article.feed_title or "",
+                representative_title=thread_title or article.clean_title or article.feed_title or "",
                 rolling_summary=article.summary,
                 known_facts=[],
                 source_list=[article.source_id],
                 confidence=confidence,
             )
         else:
-            _update_thread(thread, article, label, new_facts, reason)
+            _update_thread(thread, article, label, new_facts, reason, thread_title)
 
     management.assign_article_to_thread(
         session,
@@ -93,6 +93,7 @@ def _update_thread(
     label: ClassificationLabel,
     new_facts: list[str],
     reason: str,
+    thread_title: Optional[str] = None,
 ) -> None:
     now = datetime.now(tz=timezone.utc)
 
@@ -111,6 +112,9 @@ def _update_thread(
             "reason": reason,
         }
         thread.deltas = list(thread.deltas or []) + [delta_entry]
+
+    if label in _DELTA_LABELS and thread_title:
+        thread.representative_title = thread_title
 
     source_list: list = list(thread.source_list or [])
     if article.source_id not in source_list:
