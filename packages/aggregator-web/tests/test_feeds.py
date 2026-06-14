@@ -325,7 +325,7 @@ def test_get_sidebar_counts_sources(db_session):
     make_article(db_session, source_id=src.id, dedup_key="k3", is_read=True)
 
     counts = get_sidebar_counts(db_session, important_threshold=70)
-    assert counts.sources[src.id] == 2
+    assert counts.sources[src.id].count == 2
 
 
 def test_get_sidebar_counts_categories(db_session):
@@ -347,7 +347,7 @@ def test_get_sidebar_counts_categories(db_session):
     )
 
     counts = get_sidebar_counts(db_session, important_threshold=70)
-    assert counts.categories["tech"] == 1
+    assert counts.categories["tech"].count == 1
 
 
 # ---------------------------------------------------------------------------
@@ -409,6 +409,106 @@ def test_get_sidebar_counts_disabled_source_excluded(db_session):
     counts = get_sidebar_counts(db_session, important_threshold=70)
     assert enabled.id in counts.sources
     assert disabled.id not in counts.sources
+
+
+# ---------------------------------------------------------------------------
+# get_sidebar_counts — marker fields: has_new, has_priority, last_activity
+# ---------------------------------------------------------------------------
+
+
+def test_sidebar_counts_category_all_read_has_new_false(db_session):
+    src = make_source(db_session)
+    make_category(db_session, name="tech")
+    make_article(db_session, source_id=src.id, dedup_key="k1", categories=["tech"], is_read=True)
+    make_article(db_session, source_id=src.id, dedup_key="k2", categories=["tech"], is_read=True)
+
+    counts = get_sidebar_counts(db_session, important_threshold=70)
+    assert counts.categories["tech"].has_new is False
+    assert counts.categories["tech"].has_priority is False
+
+
+def test_sidebar_counts_category_unread_low_importance_has_new_not_priority(db_session):
+    src = make_source(db_session)
+    make_category(db_session, name="tech")
+    make_article(
+        db_session,
+        source_id=src.id,
+        categories=["tech"],
+        is_read=False,
+        importance_score=50,
+    )
+
+    counts = get_sidebar_counts(db_session, important_threshold=70)
+    assert counts.categories["tech"].has_new is True
+    assert counts.categories["tech"].has_priority is False
+
+
+def test_sidebar_counts_category_unread_high_importance_both_markers(db_session):
+    src = make_source(db_session)
+    make_category(db_session, name="tech")
+    make_article(
+        db_session,
+        source_id=src.id,
+        categories=["tech"],
+        is_read=False,
+        importance_score=80,
+    )
+
+    counts = get_sidebar_counts(db_session, important_threshold=70)
+    assert counts.categories["tech"].has_new is True
+    assert counts.categories["tech"].has_priority is True
+
+
+def test_sidebar_counts_category_last_activity_max_retrieved_at(db_session):
+    from datetime import timedelta
+
+    src = make_source(db_session)
+    make_category(db_session, name="tech")
+
+    dt_old = datetime(2025, 1, 1, tzinfo=timezone.utc)
+    dt_new = datetime(2025, 6, 1, tzinfo=timezone.utc)
+
+    # Read article with the newer retrieved_at — last_activity must include read articles
+    make_article(
+        db_session, source_id=src.id, dedup_key="k1",
+        categories=["tech"], is_read=True, retrieved_at=dt_new,
+    )
+    # Unread article with the older retrieved_at
+    make_article(
+        db_session, source_id=src.id, dedup_key="k2",
+        categories=["tech"], is_read=False, retrieved_at=dt_old,
+    )
+
+    counts = get_sidebar_counts(db_session, important_threshold=70)
+    assert counts.categories["tech"].last_activity is not None
+    assert counts.categories["tech"].last_activity.date() == dt_new.date()
+
+
+def test_sidebar_counts_source_has_priority_marker(db_session):
+    src = make_source(db_session)
+    make_article(db_session, source_id=src.id, is_read=False, importance_score=80)
+
+    counts = get_sidebar_counts(db_session, important_threshold=70)
+    assert counts.sources[src.id].has_new is True
+    assert counts.sources[src.id].has_priority is True
+
+
+def test_sidebar_counts_source_has_new_not_priority(db_session):
+    src = make_source(db_session)
+    make_article(db_session, source_id=src.id, is_read=False, importance_score=50)
+
+    counts = get_sidebar_counts(db_session, important_threshold=70)
+    assert counts.sources[src.id].has_new is True
+    assert counts.sources[src.id].has_priority is False
+
+
+def test_sidebar_counts_smart_view_has_priority_marker(db_session):
+    src = make_source(db_session)
+    make_article(db_session, source_id=src.id, is_read=False, importance_score=80)
+
+    counts = get_sidebar_counts(db_session, important_threshold=70)
+    assert counts.smart["all"].has_new is True
+    assert counts.smart["all"].has_priority is True
 
 
 # ---------------------------------------------------------------------------
