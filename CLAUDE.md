@@ -187,7 +187,7 @@ At process startup, every service calls `aggregator_common.load_env()` (python-d
 | `CLUSTERER_ARCHIVE_AGE_DAYS` | `30` | Days of dormancy before a thread is archived |
 | `CLUSTERER_BATCH_SIZE` | `20` | Maximum articles processed per clustering cycle |
 | `CLUSTERER_TITLE_JACCARD_THRESHOLD` | `0.7` | Minimum token Jaccard similarity for near-duplicate title detection |
-| `CLUSTERER_SURFACE_MIN_GRADE` | `66` | Minimum grade (0–100) a thread must reach to be surfaced in the thread view |
+| `CLUSTERER_SURFACE_MIN_GRADE` | `80` | Minimum grade (0–100) for a single-source thread to surface on its own (multi-source clusters surface via critical mass regardless) |
 | `CLUSTERER_SURFACE_MIN_SOURCES` | `2` | Minimum distinct source count required to surface a thread |
 | `CLUSTERER_SURFACE_MIN_MEMBERS` | `3` | Minimum article member count required to surface a thread |
 | `CLUSTERER_MERGE_SIMILARITY_FLOOR` | `0.35` | Minimum composite similarity score required to consider merging two threads |
