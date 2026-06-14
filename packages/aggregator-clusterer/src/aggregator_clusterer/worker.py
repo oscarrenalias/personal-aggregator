@@ -213,6 +213,14 @@ def _run_one_cycle(
                 else:
                     candidates = get_candidates(work_session, art, settings)
                     result = classify_article(art, candidates, work_session, settings)
+                    if result.is_error:
+                        logger.warning(
+                            "Classification error for article %d (%s); skipping — article stays unassigned for retry",
+                            art.id,
+                            result.reason,
+                        )
+                        work_session.commit()
+                        continue
                     process_classification(work_session, art, result, settings)
 
                 # Flush so the ThreadMembership row has its IDs, then read it
