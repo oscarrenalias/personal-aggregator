@@ -212,7 +212,8 @@ def _run_one_cycle(
                     process_classification(work_session, art, dedup, settings)
                 else:
                     candidates = get_candidates(work_session, art, settings)
-                    result = classify_article(art, candidates, work_session, settings)
+                    top_n = min(settings.clusterer_max_classifier_candidates, len(candidates))
+                    result = classify_article(art, candidates[:top_n], work_session, settings)
                     if result.is_error:
                         logger.warning(
                             "Classification error for article %d (%s); skipping — article stays unassigned for retry",
