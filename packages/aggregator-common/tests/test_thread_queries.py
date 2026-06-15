@@ -276,3 +276,53 @@ class TestGetThreadDismissed:
 
         assert result is not None
         assert result.id == thread.id
+
+
+# ---------------------------------------------------------------------------
+# ThreadMemberResult.published_at field
+# ---------------------------------------------------------------------------
+
+
+class TestGetThreadMembersPublishedAt:
+    def test_published_at_uses_feed_published_at_when_present(self, session: Session):
+        src = _make_source(session, "-pub-feed")
+        article = _make_article(session, src.id, "pub-feed-art1")
+        thread = _make_thread(session, "-pub-feed", surfaced=True)
+        _make_membership(session, thread.id, article.id)
+
+        members = queries.get_thread_members(session, thread.id)
+
+        assert len(members) == 1
+        assert members[0].published_at == _NOW.isoformat()
+
+    def test_published_at_falls_back_to_retrieved_at_when_feed_published_at_null(self, session: Session):
+        src = _make_source(session, "-pub-fallback")
+        article = Article(
+            source_id=src.id,
+            dedup_key="pub-fallback-art1",
+            status="ready",
+            raw_payload={"link": "https://tq-example.com/pub-fallback-art1"},
+            retrieved_at=_NOW,
+            feed_published_at=None,
+            clean_title="Fallback Article",
+        )
+        session.add(article)
+        session.flush()
+        thread = _make_thread(session, "-pub-fallback", surfaced=True)
+        _make_membership(session, thread.id, article.id)
+
+        members = queries.get_thread_members(session, thread.id)
+
+        assert len(members) == 1
+        assert members[0].published_at == _NOW.isoformat()
+
+    def test_published_at_field_present_on_result(self, session: Session):
+        src = _make_source(session, "-pub-field")
+        article = _make_article(session, src.id, "pub-field-art1")
+        thread = _make_thread(session, "-pub-field", surfaced=True)
+        _make_membership(session, thread.id, article.id)
+
+        members = queries.get_thread_members(session, thread.id)
+
+        assert len(members) == 1
+        assert hasattr(members[0], "published_at")

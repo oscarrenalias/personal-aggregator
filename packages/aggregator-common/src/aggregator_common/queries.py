@@ -112,6 +112,7 @@ class ThreadMemberResult:
     clean_title: Optional[str]
     url: Optional[str]
     source_name: Optional[str] = None
+    published_at: Optional[str] = None
 
 
 @dataclass
@@ -493,6 +494,10 @@ def get_thread_members(session: Session, thread_id: int) -> List[ThreadMemberRes
     ).all()
     articles = [a for _, a in rows]
     source_names = _resolve_source_names(articles, session)
+    def _published_at(a: Article) -> Optional[str]:
+        ts = a.feed_published_at or a.retrieved_at
+        return ts.isoformat() if ts else None
+
     return [
         ThreadMemberResult(
             id=tm.id,
@@ -507,6 +512,7 @@ def get_thread_members(session: Session, thread_id: int) -> List[ThreadMemberRes
             clean_title=a.clean_title or a.feed_title,
             url=_article_url(a),
             source_name=source_names.get(a.source_id),
+            published_at=_published_at(a),
         )
         for tm, a in rows
     ]
