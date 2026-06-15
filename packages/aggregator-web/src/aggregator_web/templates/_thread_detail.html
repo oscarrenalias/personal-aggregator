@@ -28,8 +28,23 @@
 <div id="thread-detail" class="thread-detail">
   <div class="thread-detail-content">
 
-    {# ── (1) Title + tier badge ───────────────────────────────── #}
+    {# ── (1) Title + tier badge + toolbar ────────────────────── #}
     <header class="thread-detail-header">
+      <div class="detail-reader-toolbar">
+        {% if thread.dismissed %}
+        <button class="toolbar-btn btn-restore"
+                hx-post="/threads/{{ thread.id }}/restore"
+                hx-on:htmx:after-request="if(event.detail.successful) window.location.href='/threads'"
+                aria-label="Restore thread"
+                title="Restore thread">Restore</button>
+        {% else %}
+        <button class="toolbar-btn btn-dismiss"
+                hx-post="/threads/{{ thread.id }}/dismiss"
+                hx-on:htmx:after-request="if(event.detail.successful) window.location.href='/threads'"
+                aria-label="Not interested"
+                title="Not interested">Not interested</button>
+        {% endif %}
+      </div>
       {% if thread.tier %}
       <div class="thread-detail-meta">
         <span class="tier-badge tier-badge-{{ thread.tier }}">

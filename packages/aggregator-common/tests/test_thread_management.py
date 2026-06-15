@@ -476,3 +476,17 @@ def test_migration_dismissed_column_upgrade(migration_engine):
     inspector = inspect(engine)
     columns = {col["name"] for col in inspector.get_columns("threads")}
     assert "dismissed" in columns
+
+
+def test_migration_dismissed_column_downgrade(migration_engine):
+    """Downgrade to a2b3c4d5e6f7 (parent of b2c3d4e5f6a7) removes dismissed column."""
+    from alembic import command
+
+    engine, alembic_cfg = migration_engine
+    command.upgrade(alembic_cfg, "head")
+    command.downgrade(alembic_cfg, "a2b3c4d5e6f7")
+    inspector = inspect(engine)
+    columns = {col["name"] for col in inspector.get_columns("threads")}
+    assert "dismissed" not in columns
+    # Re-upgrade so subsequent migration tests still have a valid head state
+    command.upgrade(alembic_cfg, "head")
