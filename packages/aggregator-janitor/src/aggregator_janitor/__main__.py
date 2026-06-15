@@ -2,17 +2,18 @@ import sys
 
 from aggregator_common import load_env
 from aggregator_common.logging_setup import configure_logging
-from aggregator_common.config import Settings
+
+from aggregator_janitor.config import JanitorSettings
 
 
 def main() -> None:
     load_env()
-    settings = Settings()
+    settings = JanitorSettings()
     configure_logging(settings, stream=sys.stdout)
 
-    import logging
-    log = logging.getLogger(__name__)
-    log.info("aggregator-janitor starting up (stub)")
+    from aggregator_janitor.janitor import run
+
+    run(settings)
 
 
 if __name__ == "__main__":
