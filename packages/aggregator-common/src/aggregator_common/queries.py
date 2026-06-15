@@ -470,6 +470,7 @@ def list_threads(
         ).all()
         member_counts = {row.thread_id: row.cnt for row in rows}
 
+        # DISTINCT ON with importance_score DESC + feed_published_at DESC picks one representative image per thread.
         img_rows = session.execute(
             select(ThreadMembership.thread_id, Article.header_image_url)
             .join(Article, ThreadMembership.article_id == Article.id)
@@ -502,6 +503,7 @@ def get_thread(session: Session, thread_id: int) -> Optional[ThreadResult]:
             ThreadMembership.suppressed == False,
         )
     ).scalar_one()
+    # Highest importance_score wins; most-recent feed_published_at breaks ties.
     image_url = session.execute(
         select(Article.header_image_url)
         .join(ThreadMembership, ThreadMembership.article_id == Article.id)

@@ -168,11 +168,7 @@ def _pick_topic_image(refs: list, image_map: dict) -> Optional[str]:
 
 
 def _attach_brief_images(briefs: List[Brief], session: Session) -> None:
-    """Batch-fetch header images for all brief topic refs.
-
-    Issues a single DB query regardless of brief/topic count.
-    Attaches image_url to each BriefTopic and hero_image_url to each Brief.
-    """
+    """Single DB query for all brief topic images regardless of brief/topic count; avoids N+1 per topic."""
     all_article_ids: set = set()
     for brief in briefs:
         for topic in brief.topics:
