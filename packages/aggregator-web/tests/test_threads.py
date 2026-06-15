@@ -501,3 +501,55 @@ class TestThreadDetailPublishedAt:
         assert response.status_code == 200
         # The · separator must appear between published and added
         assert " · " in response.text
+
+
+class TestThreadDismissUIConsolidation:
+    """Regression tests: dismiss consolidated to detail only (B-b3558c19).
+
+    The per-row dismiss button was removed from the thread list card.
+    The detail dismiss button must use HTMX in-place (no page reload).
+    """
+
+    def test_thread_list_has_no_per_row_dismiss_button(self, client, db_session):
+        _make_thread(db_session, title="No Row Dismiss Thread", surfaced=True)
+        response = client.get("/threads", headers={"HX-Request": "true"})
+        assert response.status_code == 200
+        assert "thread-dismiss-btn" not in response.text
+
+    def test_thread_list_active_view_has_no_dismiss_x_control(self, client, db_session):
+        _make_thread(db_session, title="No X Control Thread", surfaced=True)
+        response = client.get("/threads", headers={"HX-Request": "true"})
+        assert response.status_code == 200
+        # The ✕ symbol or aria-label that was on the per-row dismiss button
+        assert "&#x2715;" not in response.text
+        assert 'aria-label="Not interested"' not in response.text
+
+    def test_thread_list_dismissed_view_still_shows_restore_button(self, client, db_session):
+        thread = _make_thread(db_session, title="Dismissed Thread For Restore", surfaced=True)
+        client.post(f"/threads/{thread.id}/dismiss")
+        response = client.get("/threads?show_dismissed=1", headers={"HX-Request": "true"})
+        assert response.status_code == 200
+        assert "thread-restore-btn" in response.text
+        assert "Restore" in response.text
+
+    def test_thread_detail_dismiss_uses_htmx_target_reader_content(self, client, db_session):
+        thread = _make_thread(db_session, title="Detail Dismiss HTMX Thread")
+        response = client.get(f"/threads/{thread.id}", headers={"HX-Request": "true"})
+        assert response.status_code == 200
+        html = response.text
+        # Detail dismiss button must target #reader-content for in-place clearing
+        assert 'hx-target="#reader-content"' in html
+        assert 'hx-swap="innerHTML"' in html
+
+    def test_thread_detail_dismiss_has_no_page_reload(self, client, db_session):
+        thread = _make_thread(db_session, title="No Page Reload Thread")
+        response = client.get(f"/threads/{thread.id}", headers={"HX-Request": "true"})
+        assert response.status_code == 200
+        # The old full-page-redirect handler must be gone
+        assert "window.location.href" not in response.text
+
+    def test_thread_detail_dismiss_button_has_toolbar_btn_class(self, client, db_session):
+        thread = _make_thread(db_session, title="Styled Dismiss Button Thread")
+        response = client.get(f"/threads/{thread.id}", headers={"HX-Request": "true"})
+        assert response.status_code == 200
+        assert "toolbar-btn btn-dismiss" in response.text

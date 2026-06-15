@@ -40,7 +40,9 @@
         {% else %}
         <button class="toolbar-btn btn-dismiss"
                 hx-post="/threads/{{ thread.id }}/dismiss"
-                hx-on:htmx:after-request="if(event.detail.successful) window.location.href='/threads'"
+                hx-target="#reader-content"
+                hx-swap="innerHTML"
+                hx-on:htmx:after-request="if(event.detail.successful) document.body.classList.remove('reader-open')"
                 aria-label="Not interested"
                 title="Not interested">Not interested</button>
         {% endif %}

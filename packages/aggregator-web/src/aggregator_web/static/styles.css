@@ -1007,6 +1007,15 @@ button {
   color: var(--c-accent-light);
 }
 
+/* Text-label variants: auto width, readable padding, no text wrap */
+.toolbar-btn.btn-dismiss,
+.toolbar-btn.btn-restore {
+  width: auto;
+  padding: 0 10px;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
 .detail-chips {
   margin-bottom: 12px;
 }
@@ -1894,21 +1903,6 @@ button {
   border: 1px solid transparent;
   cursor: pointer;
   transition: opacity var(--t-fast), background var(--t-fast), border-color var(--t-fast), color var(--t-fast);
-}
-
-.thread-dismiss-btn {
-  color: var(--c-text-muted);
-  opacity: 0;
-}
-
-.thread-card:hover .thread-dismiss-btn {
-  opacity: 1;
-}
-
-.thread-dismiss-btn:hover {
-  background: var(--c-surface-2);
-  border-color: var(--c-border);
-  color: var(--c-text-2);
 }
 
 .thread-restore-btn {
