@@ -147,6 +147,62 @@ def _enrich_article(article: Article, session: Session) -> None:
         article.source_name = ""  # type: ignore[attr-defined]
 
 
+def _pick_topic_image(refs: list, image_map: dict) -> Optional[str]:
+    """Pick best header image for a topic's refs (highest importance, most-recent tie-break)."""
+    candidates = []
+    for ref in refs:
+        if ref.get("internal") and ref.get("article_id") is not None:
+            row = image_map.get(int(ref["article_id"]))
+            if row and row["header_image_url"]:
+                candidates.append(row)
+    if not candidates:
+        return None
+    candidates.sort(
+        key=lambda r: (
+            r["importance_score"] if r["importance_score"] is not None else -1,
+            r["feed_published_at"].timestamp() if r["feed_published_at"] is not None else 0.0,
+        ),
+        reverse=True,
+    )
+    return candidates[0]["header_image_url"]
+
+
+def _attach_brief_images(briefs: List[Brief], session: Session) -> None:
+    """Single DB query for all brief topic images regardless of brief/topic count; avoids N+1 per topic."""
+    all_article_ids: set = set()
+    for brief in briefs:
+        for topic in brief.topics:
+            for ref in topic.topic_refs or []:
+                if ref.get("internal") and ref.get("article_id") is not None:
+                    all_article_ids.add(int(ref["article_id"]))
+
+    image_map: dict = {}
+    if all_article_ids:
+        rows = session.execute(
+            select(
+                Article.id,
+                Article.header_image_url,
+                Article.importance_score,
+                Article.feed_published_at,
+            ).where(Article.id.in_(all_article_ids))
+        ).all()
+        for row in rows:
+            image_map[row.id] = {
+                "header_image_url": row.header_image_url,
+                "importance_score": row.importance_score,
+                "feed_published_at": row.feed_published_at,
+            }
+
+    for brief in briefs:
+        brief_hero: Optional[str] = None
+        for topic in brief.topics:
+            img = _pick_topic_image(topic.topic_refs or [], image_map)
+            topic.image_url = img  # type: ignore[attr-defined]
+            if img and brief_hero is None:
+                brief_hero = img
+        brief.hero_image_url = brief_hero  # type: ignore[attr-defined]
+
+
 def _render_interaction_response(
     request: Request,
     article: Article,
@@ -602,6 +658,7 @@ def today(
         ).scalar_one_or_none()
         is not None
     )
+    _attach_brief_images(briefs, db)
     selected_id = briefs[0].id if briefs else None
     return templates.TemplateResponse(
         request,
@@ -645,6 +702,7 @@ def today_refresh(
             .options(selectinload(Brief.topics))
         ).scalars().all()
     )
+    _attach_brief_images(briefs, db)
     selected_id = briefs[0].id if briefs else None
     return templates.TemplateResponse(
         request,
@@ -666,10 +724,11 @@ def brief_detail_view(
     ).scalar_one_or_none()
     if brief is None:
         raise HTTPException(status_code=404, detail="Brief not found")
+    _attach_brief_images([brief], db)
     return templates.TemplateResponse(
         request,
         "_brief_detail.html",
-        {"brief": brief},
+        {"brief": brief, "brief_hero_image_url": brief.hero_image_url},
     )
 
 

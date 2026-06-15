@@ -47,4 +47,13 @@
 
   </div>
 
+  {% if thread.image_url %}
+  <div class="thread-thumb">
+    <img src="{{ thread.image_url | e }}"
+         alt=""
+         loading="lazy"
+         onerror="this.parentElement.style.display='none'">
+  </div>
+  {% endif %}
+
 </article>

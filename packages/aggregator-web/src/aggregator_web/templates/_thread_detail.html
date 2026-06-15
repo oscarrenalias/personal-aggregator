@@ -26,6 +26,18 @@
 {% set suppressed_members = members | selectattr("suppressed") | list %}
 
 <div id="thread-detail" class="thread-detail">
+
+  {# ── Hero image ──────────────────────────────────────────── #}
+  {% if thread.image_url %}
+  <div class="detail-hero">
+    <img src="{{ thread.image_url | e }}"
+         alt=""
+         loading="lazy"
+         decoding="async"
+         onerror="this.closest('.detail-hero').remove()">
+  </div>
+  {% endif %}
+
   <div class="thread-detail-content">
 
     {# ── (1) Title + tier badge + toolbar ────────────────────── #}
