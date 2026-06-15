@@ -18,7 +18,7 @@ from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session, selectinload
 
 from aggregator_common.db import SessionFactory, get_session
-from aggregator_common.management import enqueue_recluster
+from aggregator_common.management import enqueue_recluster, set_thread_dismissed
 from aggregator_common.models import Article, Brief, BriefTopic, Category, Source
 from aggregator_common.queries import (
     get_thread,
@@ -684,12 +684,13 @@ def _normalize_thread_sort(sort: str) -> str:
 def threads_index(
     request: Request,
     sort: str = "importance",
+    show_dismissed: bool = False,
     hx_request: Optional[str] = Header(None, alias="HX-Request"),
     db: Session = Depends(get_db),
 ) -> Response:
     sort = _normalize_thread_sort(sort)
-    threads = list_threads(db, sort=sort)
-    ctx = {"threads": threads, "sort": sort, "base_url": "/threads"}
+    threads = list_threads(db, sort=sort, include_dismissed=show_dismissed)
+    ctx = {"threads": threads, "sort": sort, "base_url": "/threads", "show_dismissed": show_dismissed}
     if hx_request:
         return templates.TemplateResponse(request, "_thread_list.html", ctx)
     return templates.TemplateResponse(request, "threads/index.html", ctx)
@@ -717,6 +718,22 @@ def thread_detail(
         "shell.html",
         {"initial_reader_content": initial_content, "initial_reader_open": True},
     )
+
+
+@app.post("/threads/{thread_id}/dismiss", status_code=200)
+def thread_dismiss(thread_id: int, db: Session = Depends(get_db)) -> Response:
+    thread = set_thread_dismissed(db, thread_id, True)
+    if thread is None:
+        raise HTTPException(status_code=404, detail="Thread not found")
+    return Response(status_code=200, headers={"HX-Trigger": "refreshThreadList"})
+
+
+@app.post("/threads/{thread_id}/restore", status_code=200)
+def thread_restore(thread_id: int, db: Session = Depends(get_db)) -> Response:
+    thread = set_thread_dismissed(db, thread_id, False)
+    if thread is None:
+        raise HTTPException(status_code=404, detail="Thread not found")
+    return Response(status_code=200, headers={"HX-Trigger": "refreshThreadList"})
 
 
 @app.post("/threads/recluster", status_code=202)

@@ -100,7 +100,9 @@ def test_surfaced_top_grade_migration_round_trip(roundtrip_db):
     """Migration a2b3c4d5e6f7 adds surfaced/top_grade; downgrade removes them cleanly."""
     cfg = _make_alembic_cfg(roundtrip_db)
 
-    command.upgrade(cfg, "head")
+    # Upgrade exactly to the surfaced/top_grade migration (not "head"), so the test
+    # stays valid when later migrations are stacked on top of it.
+    command.upgrade(cfg, "a2b3c4d5e6f7")
 
     engine = create_engine(roundtrip_db)
     try:
@@ -111,8 +113,10 @@ def test_surfaced_top_grade_migration_round_trip(roundtrip_db):
     finally:
         engine.dispose()
 
-    # Downgrade one step (removes surfaced and top_grade)
-    command.downgrade(cfg, "-1")
+    # Downgrade to the revision before a2b3c4d5e6f7 (removes surfaced and top_grade).
+    # Use an explicit target rather than "-1" so the test is robust to migrations
+    # added after a2b3c4d5e6f7 (e.g. the later 'dismissed' column migration).
+    command.downgrade(cfg, "a8b9c0d1e2f3")
 
     engine = create_engine(roundtrip_db)
     try:
