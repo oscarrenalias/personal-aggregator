@@ -96,6 +96,7 @@ class ThreadResult:
     dismissed: bool = False
     source_count: int = 0
     member_count: int = 0
+    image_url: Optional[str] = None
 
 
 @dataclass
@@ -384,7 +385,7 @@ def get_latest_brief(session: Session) -> Optional[BriefResult]:
     )
 
 
-def _to_thread_result(thread: Thread, member_count: int = 0) -> ThreadResult:
+def _to_thread_result(thread: Thread, member_count: int = 0, image_url: Optional[str] = None) -> ThreadResult:
     return ThreadResult(
         id=thread.id,
         representative_title=thread.representative_title,
@@ -410,6 +411,7 @@ def _to_thread_result(thread: Thread, member_count: int = 0) -> ThreadResult:
         dismissed=thread.dismissed,
         source_count=len(thread.source_list) if thread.source_list else 0,
         member_count=member_count,
+        image_url=image_url,
     )
 
 
@@ -455,6 +457,7 @@ def list_threads(
     threads = list(session.execute(q).scalars().all())
 
     member_counts: Dict[int, int] = {}
+    image_urls: Dict[int, str] = {}
     if threads:
         thread_ids = [t.id for t in threads]
         rows = session.execute(
@@ -467,7 +470,25 @@ def list_threads(
         ).all()
         member_counts = {row.thread_id: row.cnt for row in rows}
 
-    return [_to_thread_result(t, member_counts.get(t.id, 0)) for t in threads]
+        img_rows = session.execute(
+            select(ThreadMembership.thread_id, Article.header_image_url)
+            .join(Article, ThreadMembership.article_id == Article.id)
+            .where(
+                ThreadMembership.thread_id.in_(thread_ids),
+                ThreadMembership.suppressed == False,
+                Article.header_image_url.isnot(None),
+                Article.header_image_url != "",
+            )
+            .distinct(ThreadMembership.thread_id)
+            .order_by(
+                ThreadMembership.thread_id,
+                Article.importance_score.desc().nulls_last(),
+                Article.feed_published_at.desc().nulls_last(),
+            )
+        ).all()
+        image_urls = {row.thread_id: row.header_image_url for row in img_rows}
+
+    return [_to_thread_result(t, member_counts.get(t.id, 0), image_urls.get(t.id)) for t in threads]
 
 
 def get_thread(session: Session, thread_id: int) -> Optional[ThreadResult]:
@@ -481,7 +502,22 @@ def get_thread(session: Session, thread_id: int) -> Optional[ThreadResult]:
             ThreadMembership.suppressed == False,
         )
     ).scalar_one()
-    return _to_thread_result(thread, member_count)
+    image_url = session.execute(
+        select(Article.header_image_url)
+        .join(ThreadMembership, ThreadMembership.article_id == Article.id)
+        .where(
+            ThreadMembership.thread_id == thread_id,
+            ThreadMembership.suppressed == False,
+            Article.header_image_url.isnot(None),
+            Article.header_image_url != "",
+        )
+        .order_by(
+            Article.importance_score.desc().nulls_last(),
+            Article.feed_published_at.desc().nulls_last(),
+        )
+        .limit(1)
+    ).scalar_one_or_none()
+    return _to_thread_result(thread, member_count, image_url)
 
 
 def get_thread_members(session: Session, thread_id: int) -> List[ThreadMemberResult]:
