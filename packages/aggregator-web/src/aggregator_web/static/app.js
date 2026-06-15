@@ -322,6 +322,20 @@ function threadList() {
    script. This file must still be loaded BEFORE the Alpine CDN script so this
    listener is in place before Alpine fires 'alpine:init'. */
 document.addEventListener('alpine:init', () => {
+  /* Global store for sidebar collapse state. Lives outside the per-section x-data
+     components so it survives HTMX innerHTML swaps of #sidebar. */
+  window.Alpine.store('sidebar', {
+    categoriesCollapsed: localStorage.getItem('sidebar.categories.collapsed') === 'true',
+    sourcesCollapsed: localStorage.getItem('sidebar.sources.collapsed') === 'true',
+    toggle(key) {
+      this[key] = !this[key];
+      const storageKey = key === 'categoriesCollapsed'
+        ? 'sidebar.categories.collapsed'
+        : 'sidebar.sources.collapsed';
+      localStorage.setItem(storageKey, this[key]);
+    },
+  });
+
   window.Alpine.data('aggregatorApp', aggregatorApp);
   window.Alpine.data('articleList', articleList);
   window.Alpine.data('briefList', briefList);
