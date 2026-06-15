@@ -1,6 +1,6 @@
-"""Thread consolidation: merge near-duplicates, surface threads, and prune stale ones.
+"""Thread consolidation: merge near-duplicates and surface threads.
 
-Three sequential sub-passes are run by ``run_consolidation_pass`` each cycle:
+Two sequential sub-passes are run by ``run_consolidation_pass`` each cycle:
 
 1. **Merge pass** — finds active thread pairs whose composite entity/topic/FTS
    similarity meets ``CLUSTERER_MERGE_SIMILARITY_FLOOR``, confirms duplicates via
@@ -11,18 +11,15 @@ Three sequential sub-passes are run by ``run_consolidation_pass`` each cycle:
    or member count clears the configured thresholds.  See ``scoring.compute_surfaced``
    for the exact OR-conditions.
 
-3. **Retention prune** — hard-deletes threads whose ``last_updated`` timestamp is
-   older than ``CLUSTERER_THREAD_RETENTION_DAYS``.  Member rows are removed via
-   DB-level CASCADE; articles are never touched.
+Hard deletion of expired threads is handled by the dedicated janitor service.
 """
 from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
 from typing import Callable
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from aggregator_common.management import merge_threads
@@ -279,44 +276,21 @@ def run_surfacing_pass(session: Session, settings: ClustererSettings) -> int:
     return updated
 
 
-def run_retention_prune(session: Session, settings: ClustererSettings) -> int:
-    """Delete threads whose last_updated is older than the retention window.
-
-    ThreadMembership rows are removed via DB-level CASCADE. The underlying
-    articles are never touched.  Returns the count of deleted threads.
-    """
-    cutoff = datetime.now(timezone.utc) - timedelta(days=settings.clusterer_thread_retention_days)
-    expired_ids: list[int] = list(
-        session.execute(
-            select(Thread.id).where(Thread.last_updated < cutoff)
-        ).scalars().all()
-    )
-    if not expired_ids:
-        return 0
-    session.execute(delete(Thread).where(Thread.id.in_(expired_ids)))
-    logger.info(
-        "retention prune: deleted %d threads with last_updated before %s",
-        len(expired_ids),
-        cutoff.date(),
-    )
-    return len(expired_ids)
-
-
 def run_consolidation_pass(
     session: Session,
     settings: ClustererSettings,
     llm_merge_fn: Callable[[Thread, Thread], bool],
 ) -> ConsolidationResult:
-    """Run all three consolidation sub-passes in order and return a summary.
+    """Run merge and surfacing sub-passes in order and return a summary.
 
-    Calls run_merge_pass, run_surfacing_pass, and run_retention_prune sequentially.
+    Calls run_merge_pass and run_surfacing_pass sequentially. Hard deletion of
+    expired threads is handled by the dedicated janitor service, not here.
     The session is not committed here — callers are responsible for commit/rollback.
     """
     merges = run_merge_pass(session, settings, llm_merge_fn)
     curated = run_surfacing_pass(session, settings)
-    pruned = run_retention_prune(session, settings)
     logger.info(
-        "consolidation pass complete: merges=%d surfaced=%d pruned=%d",
-        merges, curated, pruned,
+        "consolidation pass complete: merges=%d surfaced=%d",
+        merges, curated,
     )
-    return ConsolidationResult(merges=merges, curated=curated, pruned=pruned)
+    return ConsolidationResult(merges=merges, curated=curated, pruned=0)

@@ -148,5 +148,20 @@ services:
         condition: service_completed_successfully
     restart: unless-stopped
 
+  janitor:
+    build:
+      context: .
+      dockerfile: packages/aggregator-janitor/Dockerfile
+    image: personal-aggregator/aggregator-janitor:dev
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://aggregator:aggregator@postgres:5432/aggregator
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
 volumes:
   postgres_data:

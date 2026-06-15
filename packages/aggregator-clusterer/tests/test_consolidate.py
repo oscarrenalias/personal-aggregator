@@ -3,18 +3,15 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import select
-
 from aggregator_clusterer.config import ClustererSettings
 from aggregator_clusterer.consolidate import (
     ConsolidationResult,
     find_merge_candidates,
     run_consolidation_pass,
     run_merge_pass,
-    run_retention_prune,
     run_surfacing_pass,
 )
-from aggregator_common.models import Article, Thread, ThreadMembership
+from aggregator_common.models import ThreadMembership
 
 from .conftest import make_article, make_source, make_thread
 
@@ -226,85 +223,6 @@ class TestRunSurfacingPass:
         assert thread.surfaced == surfaced_after_first
 
 
-class TestRunRetentionPrune:
-    def test_empty_db_returns_zero(self, db_session):
-        count = run_retention_prune(db_session, _SETTINGS)
-        assert count == 0
-
-    def test_recent_thread_not_deleted(self, db_session):
-        make_thread(db_session, title="Recent Thread",
-                    last_updated=datetime.now(tz=timezone.utc) - timedelta(days=10))
-        count = run_retention_prune(db_session, _SETTINGS)
-        assert count == 0
-
-    def test_thread_older_than_retention_window_is_deleted(self, db_session):
-        old_time = datetime.now(tz=timezone.utc) - timedelta(days=31)
-        thread = make_thread(db_session, title="Old Thread", last_updated=old_time)
-        thread_id = thread.id
-
-        count = run_retention_prune(db_session, _SETTINGS)
-        db_session.flush()
-
-        assert count == 1
-        remaining = db_session.execute(
-            select(Thread).where(Thread.id == thread_id)
-        ).scalar_one_or_none()
-        assert remaining is None
-
-    def test_memberships_cascade_deleted_articles_untouched(self, db_session):
-        """Thread deletion removes ThreadMembership rows but leaves Article rows intact."""
-        old_time = datetime.now(tz=timezone.utc) - timedelta(days=31)
-        src = make_source(db_session, url="https://prune-cascade.test/feed.xml")
-        thread = make_thread(db_session, title="Prunable Thread", last_updated=old_time)
-        article = make_article(db_session, source_id=src.id, dedup_key="prune-art1")
-        db_session.add(ThreadMembership(
-            thread_id=thread.id,
-            article_id=article.id,
-            suppressed=False,
-            assigned_at=datetime.now(tz=timezone.utc),
-        ))
-        db_session.commit()
-
-        article_id = article.id
-        thread_id = thread.id
-
-        run_retention_prune(db_session, _SETTINGS)
-        db_session.flush()
-
-        # Thread is gone
-        remaining_thread = db_session.execute(
-            select(Thread).where(Thread.id == thread_id)
-        ).scalar_one_or_none()
-        assert remaining_thread is None
-
-        # Membership is gone (CASCADE)
-        remaining_membership = db_session.execute(
-            select(ThreadMembership).where(ThreadMembership.thread_id == thread_id)
-        ).scalar_one_or_none()
-        assert remaining_membership is None
-
-        # Article is intact
-        remaining_article = db_session.execute(
-            select(Article).where(Article.id == article_id)
-        ).scalar_one_or_none()
-        assert remaining_article is not None
-
-    def test_thread_at_exact_boundary_not_deleted(self, db_session):
-        """Thread last_updated exactly at the retention cutoff (not before) is kept."""
-        retention_days = _SETTINGS.clusterer_thread_retention_days
-        # Exactly at cutoff — the filter is strict less-than, so this thread survives
-        at_cutoff = datetime.now(tz=timezone.utc) - timedelta(days=retention_days)
-        thread = make_thread(db_session, title="Boundary Thread", last_updated=at_cutoff)
-        count = run_retention_prune(db_session, _SETTINGS)
-        # May be 0 or 1 depending on sub-second timing; we verify by checking the DB
-        db_session.flush()
-        if count == 0:
-            remaining = db_session.execute(
-                select(Thread).where(Thread.id == thread.id)
-            ).scalar_one_or_none()
-            assert remaining is not None
-
-
 class TestRunConsolidationPass:
     def test_returns_consolidation_result_dataclass(self, db_session):
         result = run_consolidation_pass(db_session, _SETTINGS, _NEVER_MERGE)
@@ -313,13 +231,14 @@ class TestRunConsolidationPass:
         assert result.curated == 0
         assert result.pruned == 0
 
-    def test_pruned_count_reflects_deleted_threads(self, db_session):
+    def test_pruned_always_zero(self, db_session):
+        """Consolidation pass never deletes threads; pruned is always 0."""
         old_time = datetime.now(tz=timezone.utc) - timedelta(days=31)
         make_thread(db_session, title="Old 1", last_updated=old_time)
         make_thread(db_session, title="Old 2", last_updated=old_time)
 
         result = run_consolidation_pass(db_session, _SETTINGS, _NEVER_MERGE)
-        assert result.pruned == 2
+        assert result.pruned == 0
 
     def test_stop_event_does_not_prevent_pass(self, db_session):
         """run_consolidation_pass doesn't check stop_event; it always runs to completion."""
