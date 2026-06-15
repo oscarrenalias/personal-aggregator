@@ -71,6 +71,7 @@ def _make_thread(
     title: str = "Test Thread",
     surfaced: bool = True,
     top_grade: int | None = 75,
+    rolling_summary: str | None = None,
 ) -> Thread:
     thread = Thread(
         representative_title=title,
@@ -82,6 +83,7 @@ def _make_thread(
         source_list=[],
         known_facts=[],
         deltas=[],
+        rolling_summary=rolling_summary,
     )
     session.add(thread)
     session.flush()
@@ -396,36 +398,36 @@ class TestAttachBriefImagesBatching:
 
 
 class TestThreadCardImageRendering:
-    def test_thread_card_shows_thumb_when_image_url_set(self, client, db_session):
-        src = _make_source(db_session, "Card Thumb Source")
-        thread = _make_thread(db_session, title="Thread With Thumb")
+    def test_thread_card_shows_card_image_when_image_url_set(self, client, db_session):
+        src = _make_source(db_session, "Card Image Source")
+        thread = _make_thread(db_session, title="Thread With Image")
         art = _make_article(
-            db_session, src.id, "card-thumb-1",
+            db_session, src.id, "card-img-1",
             importance_score=80,
-            header_image_url="https://example.com/thumb.jpg",
+            header_image_url="https://example.com/card-img.jpg",
         )
         _make_membership(db_session, thread.id, art.id)
 
         response = client.get("/threads", headers={"HX-Request": "true"})
         assert response.status_code == 200
         html = response.text
-        assert "thread-thumb" in html
-        assert "https://example.com/thumb.jpg" in html
+        assert "card-image" in html
+        assert "https://example.com/card-img.jpg" in html
 
-    def test_thread_card_no_thumb_when_image_url_absent(self, client, db_session):
-        _make_thread(db_session, title="Thread No Thumb")
+    def test_thread_card_no_image_container_when_image_url_absent(self, client, db_session):
+        _make_thread(db_session, title="Thread No Image")
 
         response = client.get("/threads", headers={"HX-Request": "true"})
         assert response.status_code == 200
-        assert "thread-thumb" not in response.text
+        assert "card-image" not in response.text
 
-    def test_thread_card_thumb_has_loading_lazy(self, client, db_session):
-        src = _make_source(db_session, "Lazy Thumb Source")
-        thread = _make_thread(db_session, title="Lazy Load Thumb Thread")
+    def test_thread_card_image_has_loading_lazy(self, client, db_session):
+        src = _make_source(db_session, "Lazy Image Source")
+        thread = _make_thread(db_session, title="Lazy Load Image Thread")
         art = _make_article(
-            db_session, src.id, "lazy-thumb-1",
+            db_session, src.id, "lazy-img-1",
             importance_score=80,
-            header_image_url="https://example.com/lazy-thumb.jpg",
+            header_image_url="https://example.com/lazy-img.jpg",
         )
         _make_membership(db_session, thread.id, art.id)
 
@@ -433,19 +435,20 @@ class TestThreadCardImageRendering:
         assert response.status_code == 200
         assert "loading=\"lazy\"" in response.text
 
-    def test_thread_card_thumb_has_onerror_fallback(self, client, db_session):
-        src = _make_source(db_session, "Onerror Thumb Source")
-        thread = _make_thread(db_session, title="Onerror Thumb Thread")
+    def test_thread_card_image_has_onerror_fallback(self, client, db_session):
+        src = _make_source(db_session, "Onerror Image Source")
+        thread = _make_thread(db_session, title="Onerror Image Thread")
         art = _make_article(
-            db_session, src.id, "onerror-thumb-1",
+            db_session, src.id, "onerror-img-1",
             importance_score=80,
-            header_image_url="https://example.com/onerror-thumb.jpg",
+            header_image_url="https://example.com/onerror-img.jpg",
         )
         _make_membership(db_session, thread.id, art.id)
 
         response = client.get("/threads", headers={"HX-Request": "true"})
         assert response.status_code == 200
         assert "onerror" in response.text
+        assert "remove()" in response.text
 
 
 # ---------------------------------------------------------------------------
@@ -637,3 +640,71 @@ class TestBriefDetailImageRendering:
         response = client.get(f"/brief/{brief.id}")
         assert response.status_code == 200
         assert "detail-hero" not in response.text
+
+
+# ---------------------------------------------------------------------------
+# Thread card visual consistency with article card style
+# ---------------------------------------------------------------------------
+
+
+class TestThreadCardVisualConsistency:
+    """Thread list card matches article card style: full-width card-image + rolling_summary snippet."""
+
+    def test_thread_card_uses_card_image_not_thread_thumb(self, client, db_session):
+        src = _make_source(db_session, "Style Img Source")
+        thread = _make_thread(db_session, title="Thread Style Card Image")
+        art = _make_article(
+            db_session, src.id, "style-img-1",
+            importance_score=80,
+            header_image_url="https://example.com/style-img.jpg",
+        )
+        _make_membership(db_session, thread.id, art.id)
+
+        response = client.get("/threads", headers={"HX-Request": "true"})
+        assert response.status_code == 200
+        html = response.text
+        assert "card-image" in html
+        assert "thread-thumb" not in html
+
+    def test_thread_card_no_image_no_card_image_container(self, client, db_session):
+        _make_thread(db_session, title="Thread No Image Container")
+
+        response = client.get("/threads", headers={"HX-Request": "true"})
+        assert response.status_code == 200
+        assert "card-image" not in response.text
+
+    def test_thread_card_shows_rolling_summary_as_card_excerpt(self, client, db_session):
+        _make_thread(
+            db_session,
+            title="Thread With Rolling Summary",
+            rolling_summary="This is the rolling summary of the thread story.",
+        )
+
+        response = client.get("/threads", headers={"HX-Request": "true"})
+        assert response.status_code == 200
+        html = response.text
+        assert "card-excerpt" in html
+        assert "This is the rolling summary" in html
+
+    def test_thread_card_no_excerpt_when_rolling_summary_absent(self, client, db_session):
+        _make_thread(db_session, title="Thread Without Summary")
+
+        response = client.get("/threads", headers={"HX-Request": "true"})
+        assert response.status_code == 200
+        assert "card-excerpt" not in response.text
+
+    def test_thread_card_image_is_positioned_before_card_body(self, client, db_session):
+        src = _make_source(db_session, "Image Order Source")
+        thread = _make_thread(db_session, title="Thread Image Order")
+        art = _make_article(
+            db_session, src.id, "img-order-1",
+            importance_score=80,
+            header_image_url="https://example.com/img-order.jpg",
+        )
+        _make_membership(db_session, thread.id, art.id)
+
+        response = client.get("/threads", headers={"HX-Request": "true"})
+        assert response.status_code == 200
+        html = response.text
+        # card-image must appear before card-body in the markup
+        assert html.index("card-image") < html.index("card-body")
