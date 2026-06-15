@@ -4,6 +4,18 @@
     brief : Brief ORM object with topics loaded
 #}
 <div id="brief-detail" class="brief-detail">
+
+  {# ── Brief hero image ───────────────────────────────────────── #}
+  {% if brief_hero_image_url %}
+  <div class="detail-hero">
+    <img src="{{ brief_hero_image_url | e }}"
+         alt=""
+         loading="lazy"
+         decoding="async"
+         onerror="this.closest('.detail-hero').remove()">
+  </div>
+  {% endif %}
+
   <header class="brief-detail-header">
     <h1 class="brief-detail-headline">{{ brief.headline or "Daily Brief" }}</h1>
     <div class="brief-detail-meta">
@@ -23,6 +35,15 @@
   <div class="today-topics">
     {% for topic in brief.topics %}
     <div class="today-topic">
+      {% if topic.image_url %}
+      <div class="today-topic-image">
+        <img src="{{ topic.image_url | e }}"
+             alt=""
+             loading="lazy"
+             decoding="async"
+             onerror="this.closest('.today-topic-image').remove()">
+      </div>
+      {% endif %}
       <h2 class="today-topic-headline">{{ topic.headline }}</h2>
 
       <div class="today-topic-section">
