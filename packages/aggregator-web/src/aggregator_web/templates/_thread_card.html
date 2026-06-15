@@ -23,6 +23,10 @@
 
   <div class="card-body">
     <div class="card-meta">
+      {% if thread.has_updates %}
+      <span class="sidebar-dot thread-update-dot" aria-label="Updated since last visit" title="Updated since last visit"></span>
+      {% endif %}
+
       {% if thread.source_count %}
       <span class="source-count">{{ thread.source_count }} source{{ 's' if thread.source_count != 1 else '' }}</span>
       {% endif %}

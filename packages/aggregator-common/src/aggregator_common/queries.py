@@ -97,6 +97,7 @@ class ThreadResult:
     source_count: int = 0
     member_count: int = 0
     image_url: Optional[str] = None
+    has_updates: bool = True
 
 
 @dataclass
@@ -386,6 +387,7 @@ def get_latest_brief(session: Session) -> Optional[BriefResult]:
 
 
 def _to_thread_result(thread: Thread, member_count: int = 0, image_url: Optional[str] = None) -> ThreadResult:
+    has_updates = thread.last_viewed_at is None or thread.last_updated > thread.last_viewed_at
     return ThreadResult(
         id=thread.id,
         representative_title=thread.representative_title,
@@ -412,6 +414,7 @@ def _to_thread_result(thread: Thread, member_count: int = 0, image_url: Optional
         source_count=len(thread.source_list) if thread.source_list else 0,
         member_count=member_count,
         image_url=image_url,
+        has_updates=has_updates,
     )
 
 

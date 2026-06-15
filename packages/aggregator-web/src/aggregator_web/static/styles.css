@@ -539,6 +539,11 @@ button {
   background: var(--c-accent-light);
 }
 
+/* Thread list new-content indicator — full accent colour to signal unseen updates */
+.thread-update-dot {
+  background: var(--c-accent);
+}
+
 /* Freshness label — small muted text, pushed to the right by default */
 .sidebar-freshness {
   margin-left: auto;

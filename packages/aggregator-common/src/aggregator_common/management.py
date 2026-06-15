@@ -477,6 +477,20 @@ def set_thread_dismissed(session: Session, thread_id: int, dismissed: bool) -> T
     return thread
 
 
+def mark_thread_viewed(session: Session, thread_id: int) -> Thread:
+    """Stamp last_viewed_at = now(UTC) on a thread.
+
+    Idempotent — calling it multiple times overwrites the timestamp.
+    Raises NotFoundError when thread_id does not exist.
+    """
+    thread = session.get(Thread, thread_id)
+    if thread is None:
+        raise NotFoundError(f"Thread {thread_id} not found.")
+    thread.last_viewed_at = datetime.now(timezone.utc)
+    session.flush()
+    return thread
+
+
 def merge_threads(session: Session, keep_id: int, absorb_id: int) -> Thread:
     """Merge absorb_id into keep_id and return the kept thread.
 
