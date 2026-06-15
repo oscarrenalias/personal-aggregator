@@ -6,7 +6,7 @@ import threading
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import delete, text
+from sqlalchemy import text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from aggregator_common.brief_claim import (
@@ -69,12 +69,6 @@ def _maybe_enqueue_auto_brief(session, settings: BriefSettings, now_utc: datetim
     return inserted
 
 
-def _prune_old_briefs(session, settings: BriefSettings, now_utc: datetime) -> int:
-    cutoff = now_utc - timedelta(days=settings.brief_retention_days)
-    result = session.execute(delete(Brief).where(Brief.created_at < cutoff))
-    return result.rowcount
-
-
 def _run_one_iteration(
     settings: BriefSettings,
     session_factory,
@@ -124,10 +118,6 @@ def _run_one_iteration(
             intro=brief.intro or "",
             generated_at=brief.generated_at or datetime.now(timezone.utc),
         )
-
-        pruned = _prune_old_briefs(session, settings, datetime.now(timezone.utc))
-        if pruned:
-            logger.info("Pruned %d old brief(s)", pruned)
 
         session.commit()
         logger.info("Brief %d completed successfully", brief_id)

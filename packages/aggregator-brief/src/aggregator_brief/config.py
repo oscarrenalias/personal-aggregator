@@ -17,4 +17,3 @@ class BriefSettings(BaseSettings):
     brief_tool_max_calls: int = Field(12, description="Maximum LLM tool calls per brief generation run")
     brief_poll_interval_seconds: int = Field(60, description="Seconds between scheduler poll cycles")
     brief_claim_lease_seconds: int = Field(600, description="Work-claim lease duration for brief jobs in seconds")
-    brief_retention_days: int = Field(30, description="Days to retain completed briefs before pruning")
