@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from aggregator_common.models import Article, ClassificationLabel, Thread
 from aggregator_clusterer import management
-from aggregator_clusterer.classification import ClassificationResult
+from aggregator_clusterer.classification import ClassificationResult, _truncate_title
 from aggregator_clusterer.config import ClustererSettings
 from aggregator_clusterer.dedup import DedupResult
 
@@ -47,7 +47,7 @@ def process_classification(
     if thread_id is None:
         thread = management.create_thread(
             session,
-            representative_title=thread_title or article.clean_title or article.feed_title or "",
+            representative_title=thread_title or _truncate_title(article.clean_title or article.feed_title or ""),
             rolling_summary=article.summary,
             known_facts=[],
             source_list=[article.source_id],
@@ -66,7 +66,7 @@ def process_classification(
             )
             thread = management.create_thread(
                 session,
-                representative_title=thread_title or article.clean_title or article.feed_title or "",
+                representative_title=thread_title or _truncate_title(article.clean_title or article.feed_title or ""),
                 rolling_summary=article.summary,
                 known_facts=[],
                 source_list=[article.source_id],

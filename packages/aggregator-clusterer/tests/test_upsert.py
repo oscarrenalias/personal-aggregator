@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from sqlalchemy import select
 
-from aggregator_clusterer.classification import ClassificationResult
+from aggregator_clusterer.classification import ClassificationResult, _TITLE_LIMIT
 from aggregator_clusterer.config import ClustererSettings
 from aggregator_clusterer.dedup import DedupResult
 from aggregator_clusterer.upsert import process_classification
@@ -227,6 +227,36 @@ class TestProcessClassification:
         db_session.refresh(thread)
 
         assert thread.representative_title == "Story corrects earlier figure to 50"
+
+    def test_new_thread_fallback_article_title_truncated_at_word_boundary(self, db_session):
+        """When no LLM thread_title is provided, a long article clean_title is word-boundary truncated."""
+        src = make_source(db_session, url="https://upsert-trunc.test/feed.xml")
+        # Craft a clean_title longer than _TITLE_LIMIT with spaces so word-boundary truncation applies.
+        long_clean_title = "UK to ban social media for under-16s, with exemptions for messaging apps and new AI chatbots"
+        article = make_article(
+            db_session, source_id=src.id, dedup_key="trunc1",
+            clean_title=long_clean_title,
+        )
+        result = ClassificationResult(
+            label=ClassificationLabel.new_thread,
+            thread_id=None,
+            confidence=0.9,
+            new_facts=[],
+            reason="New story",
+            thread_title=None,  # no LLM title; must fall back to clean_title with truncation
+        )
+        process_classification(db_session, article, result, _SETTINGS)
+        db_session.flush()
+
+        membership = db_session.execute(
+            select(ThreadMembership).where(ThreadMembership.article_id == article.id)
+        ).scalar_one()
+        thread = db_session.get(Thread, membership.thread_id)
+        assert thread.representative_title is not None
+        assert len(thread.representative_title) <= _TITLE_LIMIT + 1
+        assert thread.representative_title.endswith("…")
+        # Must not be a mid-word cut: the char before '…' should complete a word (not be mid-token)
+        assert not thread.representative_title[:-1].endswith(" ")
 
     def test_duplicate_does_not_change_title(self, db_session):
         """DedupResult (duplicate path) leaves representative_title unchanged."""

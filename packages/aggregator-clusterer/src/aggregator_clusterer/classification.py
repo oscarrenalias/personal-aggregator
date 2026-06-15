@@ -66,7 +66,7 @@ Respond with a JSON object only — no markdown, no commentary. Required fields:
 - "confidence": a float between 0.0 and 1.0
 - "new_facts": a list of strings (may be empty) — concrete new facts the article adds to the thread
 - "reason": a brief explanation of the classification
-- "thread_title": a concise (≤90 characters), neutral, objective headline for the thread.
+- "thread_title": a concise, complete-phrase headline (≤80 characters, never ending mid-word), neutral and objective.
   new_thread or related_new_thread: synthesize a title from the article — do not copy the headline verbatim.
   same_thread_new_fact or correction_or_clarification: refresh the title to reflect the latest development.
   All other labels: set to null.
@@ -89,6 +89,18 @@ Only use a thread_id from the presented candidate list — do not invent thread 
 
 _MAX_SUMMARY_CHARS = 400
 _MAX_FACTS_CHARS = 300
+_TITLE_LIMIT = 80
+
+
+def _truncate_title(text: str, limit: int = _TITLE_LIMIT) -> str:
+    """Truncate to the last whole word within limit, appending '…'. Hard-cuts if no space fits."""
+    if len(text) <= limit:
+        return text
+    truncated = text[:limit]
+    last_space = truncated.rfind(" ")
+    if last_space > 0:
+        return truncated[:last_space] + "…"
+    return truncated + "…"
 
 
 def _build_user_message(
@@ -271,7 +283,7 @@ def classify_article(
     reason = str(data.get("reason", ""))
 
     raw_title = data.get("thread_title")
-    thread_title: Optional[str] = str(raw_title)[:90] if raw_title else None
+    thread_title: Optional[str] = _truncate_title(str(raw_title)) if raw_title else None
 
     return ClassificationResult(
         label=label,

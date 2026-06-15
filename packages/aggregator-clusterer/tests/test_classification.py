@@ -5,7 +5,13 @@ import json
 from unittest.mock import MagicMock, patch
 
 from aggregator_clusterer.candidates import CandidateMatch
-from aggregator_clusterer.classification import ClassificationResult, classify_article, is_section_title_blocked
+from aggregator_clusterer.classification import (
+    ClassificationResult,
+    _TITLE_LIMIT,
+    _truncate_title,
+    classify_article,
+    is_section_title_blocked,
+)
 from aggregator_clusterer.config import ClustererSettings
 from aggregator_common.models import ClassificationLabel
 
@@ -204,11 +210,14 @@ class TestClassifyArticle:
 
         assert result.thread_title is None
 
-    def test_thread_title_truncated_to_90_chars(self, db_session):
-        """thread_title longer than 90 chars is truncated."""
+    def test_thread_title_word_boundary_truncation(self, db_session):
+        """A long title with spaces is truncated at the last whole word before the limit."""
         src = make_source(db_session, url="https://cls10.test/feed.xml")
         article = make_article(db_session, source_id=src.id, dedup_key="k1")
-        long_title = "A" * 120
+        # Craft a title that would be cut mid-word by a hard char slice but has a space before the limit.
+        # "UK to ban social media for under-16s, with exemptions for messaging apps and new AI chatbots extra"
+        # With limit=80, the hard slice would cut mid-word; word-boundary should stop at the last space.
+        long_title = "UK to ban social media for under-16s, with exemptions for messaging apps and new AI chatbots"
         payload = {
             "label": "new_thread",
             "thread_id": None,
@@ -222,7 +231,53 @@ class TestClassifyArticle:
             result = classify_article(article, [], db_session, _SETTINGS)
 
         assert result.thread_title is not None
-        assert len(result.thread_title) == 90
+        assert result.thread_title.endswith("…")
+        # Must not end mid-word: the character before '…' should not be a word character mid-token
+        body = result.thread_title[:-1]  # strip the ellipsis
+        assert not body.endswith(" ")  # no trailing space before ellipsis
+        assert len(result.thread_title) <= _TITLE_LIMIT + 1  # TITLE_LIMIT chars + '…'
+
+    def test_thread_title_short_title_unchanged(self, db_session):
+        """A title already within the limit is returned as-is with no spurious ellipsis."""
+        src = make_source(db_session, url="https://cls10b.test/feed.xml")
+        article = make_article(db_session, source_id=src.id, dedup_key="k1b")
+        short_title = "Scientists discover new treatment"
+        payload = {
+            "label": "new_thread",
+            "thread_id": None,
+            "confidence": 0.8,
+            "new_facts": [],
+            "reason": "Test",
+            "thread_title": short_title,
+        }
+        with patch("aggregator_clusterer.classification.litellm.completion") as mock_llm:
+            mock_llm.return_value = _mock_response(json.dumps(payload))
+            result = classify_article(article, [], db_session, _SETTINGS)
+
+        assert result.thread_title == short_title
+        assert not result.thread_title.endswith("…")
+
+    def test_thread_title_no_space_long_token_hard_cut_fallback(self, db_session):
+        """A single long token with no spaces falls back to a hard cut with ellipsis appended."""
+        src = make_source(db_session, url="https://cls10c.test/feed.xml")
+        article = make_article(db_session, source_id=src.id, dedup_key="k1c")
+        long_no_space = "A" * 120
+        payload = {
+            "label": "new_thread",
+            "thread_id": None,
+            "confidence": 0.8,
+            "new_facts": [],
+            "reason": "Test",
+            "thread_title": long_no_space,
+        }
+        with patch("aggregator_clusterer.classification.litellm.completion") as mock_llm:
+            mock_llm.return_value = _mock_response(json.dumps(payload))
+            result = classify_article(article, [], db_session, _SETTINGS)
+
+        assert result.thread_title is not None
+        assert result.thread_title.endswith("…")
+        assert len(result.thread_title) == _TITLE_LIMIT + 1  # hard cut at limit + '…'
+        assert result.thread_title == "A" * _TITLE_LIMIT + "…"
 
     def test_classifier_attaches_to_non_first_candidate(self, db_session):
         """LLM picks the 2nd-ranked candidate; result carries that thread_id, not the top one."""
@@ -334,6 +389,38 @@ class TestClassifyArticle:
         assert result.label == ClassificationLabel.new_thread
         assert result.thread_id is None
         assert result.is_error is True
+
+
+class TestTruncateTitle:
+    """Unit tests for _truncate_title — pure function, no DB needed."""
+
+    def test_short_title_returned_unchanged(self):
+        title = "Short title"
+        assert _truncate_title(title) == title
+
+    def test_title_at_exact_limit_returned_unchanged(self):
+        title = "x" * _TITLE_LIMIT
+        assert _truncate_title(title) == title
+
+    def test_long_title_with_spaces_truncated_at_word_boundary(self):
+        title = ("word " * 20).rstrip()  # 100 chars (20 x "word " - trailing space)
+        result = _truncate_title(title)
+        assert result.endswith("…")
+        assert len(result) <= _TITLE_LIMIT + 1
+        body = result[:-1]
+        assert not body.endswith(" ")
+
+    def test_no_space_long_token_hard_cut(self):
+        title = "A" * 100
+        result = _truncate_title(title)
+        assert result == "A" * _TITLE_LIMIT + "…"
+
+    def test_custom_limit_respected(self):
+        title = "hello world extra"
+        result = _truncate_title(title, limit=11)
+        # "hello world" is 11 chars, fits exactly; "hello world extra" is 17 > 11
+        # hard slice "hello world" has last space at index 5, so truncates to "hello" + "…"
+        assert result == "hello…"
 
 
 class TestIsSectionTitleBlocked:
