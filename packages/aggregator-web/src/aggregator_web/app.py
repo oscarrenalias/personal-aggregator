@@ -769,7 +769,9 @@ def thread_detail(
     members = get_thread_members(db, thread_id)
     ctx = {"thread": thread, "members": members}
     if hx_request:
-        return templates.TemplateResponse(request, "_thread_detail.html", ctx)
+        return templates.TemplateResponse(
+            request, "_thread_detail.html", ctx, headers={"HX-Trigger": "refreshThreadList"}
+        )
     initial_content = Markup(
         templates.get_template("_thread_detail.html").render(**ctx)
     )
