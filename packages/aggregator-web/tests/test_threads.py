@@ -323,6 +323,69 @@ class TestThreadListPolish:
         assert response.status_code == 202
 
 
+class TestThreadDismissRestore:
+    def test_dismiss_returns_200(self, client, db_session):
+        thread = _make_thread(db_session, title="Dismiss Route Test")
+        response = client.post(f"/threads/{thread.id}/dismiss")
+        assert response.status_code == 200
+
+    def test_dismiss_returns_htmx_trigger_header(self, client, db_session):
+        thread = _make_thread(db_session, title="Dismiss Trigger Test")
+        response = client.post(f"/threads/{thread.id}/dismiss")
+        assert response.headers.get("HX-Trigger") == "refreshThreadList"
+
+    def test_restore_returns_200(self, client, db_session):
+        thread = _make_thread(db_session, title="Restore Route Test")
+        response = client.post(f"/threads/{thread.id}/restore")
+        assert response.status_code == 200
+
+    def test_restore_returns_htmx_trigger_header(self, client, db_session):
+        thread = _make_thread(db_session, title="Restore Trigger Test")
+        response = client.post(f"/threads/{thread.id}/restore")
+        assert response.headers.get("HX-Trigger") == "refreshThreadList"
+
+    def test_dismiss_unknown_id_returns_404(self, client, db_session):
+        response = client.post("/threads/999999/dismiss")
+        assert response.status_code == 404
+
+    def test_restore_unknown_id_returns_404(self, client, db_session):
+        response = client.post("/threads/999999/restore")
+        assert response.status_code == 404
+
+    def test_dismiss_sets_thread_dismissed(self, client, db_session):
+        from aggregator_common.models import Thread as ThreadModel
+        thread = _make_thread(db_session, title="Dismiss DB Test")
+        client.post(f"/threads/{thread.id}/dismiss")
+        db_session.expire(thread)
+        db_session.refresh(thread)
+        assert thread.dismissed is True  # type: ignore[attr-defined]
+
+    def test_restore_clears_thread_dismissed(self, client, db_session):
+        from aggregator_common.models import Thread as ThreadModel
+        thread = _make_thread(db_session, title="Restore DB Test")
+        client.post(f"/threads/{thread.id}/dismiss")
+        client.post(f"/threads/{thread.id}/restore")
+        db_session.expire(thread)
+        db_session.refresh(thread)
+        assert thread.dismissed is False  # type: ignore[attr-defined]
+
+
+class TestThreadsShowDismissed:
+    def test_dismissed_thread_hidden_by_default(self, client, db_session):
+        thread = _make_thread(db_session, title="Hidden Dismissed Thread")
+        client.post(f"/threads/{thread.id}/dismiss")
+        response = client.get("/threads", headers={"HX-Request": "true"})
+        assert response.status_code == 200
+        assert "Hidden Dismissed Thread" not in response.text
+
+    def test_show_dismissed_includes_dismissed_threads(self, client, db_session):
+        thread = _make_thread(db_session, title="Shown Dismissed Thread")
+        client.post(f"/threads/{thread.id}/dismiss")
+        response = client.get("/threads?show_dismissed=1", headers={"HX-Request": "true"})
+        assert response.status_code == 200
+        assert "Shown Dismissed Thread" in response.text
+
+
 class TestListThreadsSort:
     """Unit tests for list_threads sort parameter in queries.py."""
 

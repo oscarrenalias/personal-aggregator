@@ -463,6 +463,20 @@ def enqueue_recluster(session: Session) -> None:
     session.flush()
 
 
+def set_thread_dismissed(session: Session, thread_id: int, dismissed: bool) -> Thread | None:
+    """Set the dismissed flag on a thread and return the updated Thread.
+
+    Returns None when thread_id does not exist (not-found signal, no exception).
+    Idempotent: calling with the same dismissed value is a no-op with no error.
+    """
+    thread = session.get(Thread, thread_id)
+    if thread is None:
+        return None
+    thread.dismissed = dismissed
+    session.flush()
+    return thread
+
+
 def merge_threads(session: Session, keep_id: int, absorb_id: int) -> Thread:
     """Merge absorb_id into keep_id and return the kept thread.
 

@@ -2,7 +2,8 @@
   _thread_card.html — Single thread card for the thread list view.
 
   Context (inherited from _thread_list.html include scope):
-    thread : ThreadResult — thread data object
+    thread        : ThreadResult — thread data object
+    show_dismissed: bool — True when in the dismissed-threads view
 #}
 
 <article class="thread-card"
@@ -34,6 +35,22 @@
         {{ thread.representative_title | e }}
       </a>
     </h2>
+
+    {% if show_dismissed %}
+    <button class="thread-action-btn thread-restore-btn"
+            hx-post="/threads/{{ thread.id }}/restore"
+            hx-swap="none"
+            @click.stop
+            title="Restore thread"
+            aria-label="Restore thread">Restore</button>
+    {% else %}
+    <button class="thread-action-btn thread-dismiss-btn"
+            hx-post="/threads/{{ thread.id }}/dismiss"
+            hx-swap="none"
+            @click.stop
+            title="Not interested"
+            aria-label="Not interested">&#x2715;</button>
+    {% endif %}
 
   </div>
 

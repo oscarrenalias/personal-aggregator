@@ -1803,6 +1803,7 @@ button {
 
 /* ── Thread card ─────────────────────────────────────────────── */
 .thread-card {
+  position: relative;
   padding: 10px 12px;
   border-bottom: 1px solid var(--c-border-subtle);
   transition: background var(--t-fast);
@@ -1846,4 +1847,64 @@ button {
 .member-count {
   font-size: 12px;
   color: var(--c-text-muted);
+}
+
+/* Per-row dismiss / restore affordance */
+.thread-action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 4px;
+  padding: 0 6px;
+  height: 22px;
+  font-size: 11px;
+  border-radius: var(--r-sm);
+  background: transparent;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: opacity var(--t-fast), background var(--t-fast), border-color var(--t-fast), color var(--t-fast);
+}
+
+.thread-dismiss-btn {
+  color: var(--c-text-muted);
+  opacity: 0;
+}
+
+.thread-card:hover .thread-dismiss-btn {
+  opacity: 1;
+}
+
+.thread-dismiss-btn:hover {
+  background: var(--c-surface-2);
+  border-color: var(--c-border);
+  color: var(--c-text-2);
+}
+
+.thread-restore-btn {
+  color: var(--c-accent-light);
+  border-color: var(--c-accent-dark);
+}
+
+.thread-restore-btn:hover {
+  background: var(--c-accent-dark);
+  color: var(--c-text);
+}
+
+/* "Dismissed" filter link in thread controls */
+.thread-filter-link {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--c-text-muted);
+  text-decoration: none;
+  padding: 2px 6px;
+  border-radius: var(--r-sm);
+  transition: color var(--t-fast);
+}
+
+.thread-filter-link:hover {
+  color: var(--c-text-2);
+}
+
+.thread-filter-link-active {
+  color: var(--c-accent-light);
 }

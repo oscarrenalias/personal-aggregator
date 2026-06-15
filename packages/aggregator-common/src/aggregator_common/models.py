@@ -257,6 +257,7 @@ class Thread(Base):
     relevance_gate_pass: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
     surfaced: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
     top_grade: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    dismissed: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
 
     members: Mapped[List["ThreadMembership"]] = relationship(
         "ThreadMembership", back_populates="thread", cascade="all, delete-orphan"

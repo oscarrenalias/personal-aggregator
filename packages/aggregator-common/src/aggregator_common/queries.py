@@ -69,6 +69,7 @@ class ThreadResult:
 
     source_count: len(source_list) — distinct sources in the thread (derived, not stored).
     member_count: count of non-suppressed ThreadMembership rows (resolved at query time).
+    dismissed: mirrors Thread.dismissed; never touched by the clusterer so dismissal persists across recomputation.
     """
 
     id: int
@@ -92,6 +93,7 @@ class ThreadResult:
     source_list: Optional[list]
     top_grade: Optional[int] = None
     surfaced: bool = False
+    dismissed: bool = False
     source_count: int = 0
     member_count: int = 0
 
@@ -404,6 +406,7 @@ def _to_thread_result(thread: Thread, member_count: int = 0) -> ThreadResult:
         source_list=thread.source_list,
         top_grade=thread.top_grade,
         surfaced=thread.surfaced,
+        dismissed=thread.dismissed,
         source_count=len(thread.source_list) if thread.source_list else 0,
         member_count=member_count,
     )
@@ -419,13 +422,21 @@ def list_threads(
     sort: ThreadSortMode = "importance",
     limit: int = _DEFAULT_LIMIT,
     offset: int = 0,
+    include_dismissed: bool = False,
 ) -> List[ThreadResult]:
-    """List surfaced threads updated within the last 7 days."""
+    """List surfaced threads updated within the last 7 days.
+
+    By default dismissed threads are excluded. Pass include_dismissed=True to include them
+    (e.g. for a 'Show dismissed' view). get_thread and get_thread_members always return
+    dismissed threads by id regardless of this parameter.
+    """
     cutoff = datetime.now(tz=timezone.utc) - timedelta(days=7)
     filters: list = [
         Thread.surfaced == True,
         Thread.last_updated >= cutoff,
     ]
+    if not include_dismissed:
+        filters.append(Thread.dismissed == False)
     if status is not None:
         filters.append(Thread.status == status)
     order = (

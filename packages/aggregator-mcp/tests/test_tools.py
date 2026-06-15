@@ -1011,3 +1011,84 @@ class TestReclusterTool:
         row = session.get(ClusterState, True)
         assert row is not None
         assert row.recluster_requested is True
+
+
+class TestDismissThreadTool:
+    def test_dismiss_happy_path_returns_thread_dict(self, session: Session):
+        import aggregator_mcp.server as srv
+
+        thread = _make_thread(session, "-dtdismiss")
+        result = srv.dismiss_thread(thread_id=thread.id, dismissed=True)
+
+        assert isinstance(result, dict)
+        assert result.get("dismissed") is True
+        assert result.get("id") == thread.id
+
+    def test_restore_sets_dismissed_false(self, session: Session):
+        import aggregator_mcp.server as srv
+
+        thread = _make_thread(session, "-dtrestore")
+        srv.dismiss_thread(thread_id=thread.id, dismissed=True)
+        result = srv.dismiss_thread(thread_id=thread.id, dismissed=False)
+
+        assert isinstance(result, dict)
+        assert result.get("dismissed") is False
+
+    def test_unknown_thread_id_returns_not_found(self, session: Session):
+        import aggregator_mcp.server as srv
+
+        result = srv.dismiss_thread(thread_id=999_999_600)
+
+        assert isinstance(result, dict)
+        assert result.get("error") == "not_found"
+
+
+class TestListThreadsDismissedField:
+    def test_list_threads_result_includes_dismissed_field(self, session: Session):
+        import aggregator_mcp.server as srv
+
+        _make_thread(session, "-lt-dismfield")
+        results = srv.list_threads()
+
+        assert isinstance(results, list)
+        assert len(results) >= 1
+        assert "dismissed" in results[0]
+
+    def test_list_threads_dismissed_field_false_by_default(self, session: Session):
+        import aggregator_mcp.server as srv
+
+        _make_thread(session, "-lt-dismfalse")
+        results = srv.list_threads()
+
+        matching = [r for r in results if "Test Thread -lt-dismfalse" in r.get("representative_title", "")]
+        assert len(matching) >= 1
+        assert matching[0]["dismissed"] is False
+
+
+class TestGetThreadDismissedField:
+    def test_get_thread_includes_dismissed_field(self, session: Session):
+        import aggregator_mcp.server as srv
+
+        thread = _make_thread(session, "-gt-dismfield")
+        result = srv.get_thread(thread_id=thread.id)
+
+        assert isinstance(result, dict)
+        assert "thread" in result
+        assert "dismissed" in result["thread"]
+
+    def test_get_thread_dismissed_false_by_default(self, session: Session):
+        import aggregator_mcp.server as srv
+
+        thread = _make_thread(session, "-gt-dismfalse2")
+        result = srv.get_thread(thread_id=thread.id)
+
+        assert result["thread"]["dismissed"] is False
+
+    def test_get_thread_dismissed_true_after_dismiss(self, session: Session):
+        import aggregator_mcp.server as srv
+
+        thread = _make_thread(session, "-gt-dismtrue")
+        srv.dismiss_thread(thread_id=thread.id, dismissed=True)
+        result = srv.get_thread(thread_id=thread.id)
+
+        assert result["thread"]["dismissed"] is True
