@@ -211,9 +211,10 @@ def test_sidebar_categories_section_has_collapsible_toggle(db_session, client):
 
 
 def test_sidebar_collapsible_sections_persist_via_localstorage(db_session, client):
-    """Regression: both collapsible sections must read/write localStorage keys so state
-    survives the 60s HTMX sidebar refresh.  The x-data expression must reference the
-    canonical keys 'sidebar.sources.collapsed' and 'sidebar.categories.collapsed'.
+    """Regression: both collapsible sections bind to the global Alpine 'sidebar' store
+    (localStorage-backed in app.js) so collapse state survives the HTMX sidebar refresh
+    (mark-read / 60s poll) without resetting. The /sidebar markup must reference
+    $store.sidebar.sourcesCollapsed and $store.sidebar.categoriesCollapsed.
     """
     src = make_source(db_session, name="My Feed", url="http://myfeed.example.com/feed")
     make_category(db_session, name="tech")
@@ -222,11 +223,13 @@ def test_sidebar_collapsible_sections_persist_via_localstorage(db_session, clien
     assert response.status_code == 200
     html = response.text
 
-    assert "sidebar.sources.collapsed" in html, (
-        "Sources section x-data must reference localStorage key 'sidebar.sources.collapsed'"
+    assert "$store.sidebar.sourcesCollapsed" in html, (
+        "Sources section must bind to the global Alpine store ($store.sidebar.sourcesCollapsed) "
+        "so collapse state survives HTMX sidebar swaps"
     )
-    assert "sidebar.categories.collapsed" in html, (
-        "Categories section x-data must reference localStorage key 'sidebar.categories.collapsed'"
+    assert "$store.sidebar.categoriesCollapsed" in html, (
+        "Categories section must bind to the global Alpine store "
+        "($store.sidebar.categoriesCollapsed) so collapse state survives HTMX sidebar swaps"
     )
 
 
