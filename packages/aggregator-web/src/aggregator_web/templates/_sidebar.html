@@ -139,9 +139,26 @@
 
   <!-- Enabled categories, ordered by sort_order -->
   {% if categories %}
-  <section class="sidebar-section" aria-labelledby="categories-heading">
-    <h2 class="sidebar-section-title" id="categories-heading">Categories</h2>
-    <ul class="sidebar-nav-list" role="list">
+  <section class="sidebar-section" aria-labelledby="categories-heading"
+           x-data="{
+             collapsed: localStorage.getItem('sidebar.categories.collapsed') === 'true',
+             toggle() { this.collapsed = !this.collapsed; localStorage.setItem('sidebar.categories.collapsed', this.collapsed); }
+           }">
+    <h2 class="sidebar-section-title" id="categories-heading">
+      <button type="button"
+              class="sidebar-section-btn"
+              @click="toggle()"
+              :aria-expanded="(!collapsed).toString()"
+              aria-controls="categories-list">
+        Categories
+        <svg class="sidebar-chevron" :class="{ 'is-collapsed': collapsed }"
+             aria-hidden="true" viewBox="0 0 16 16" fill="none"
+             stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="4 6 8 10 12 6"/>
+        </svg>
+      </button>
+    </h2>
+    <ul class="sidebar-nav-list" id="categories-list" x-show="!collapsed" role="list">
       {% for cat in categories %}
       <li>
         <a class="sidebar-link{% if not show_unread_counts %} sidebar-link--stacked{% endif %}"
@@ -164,9 +181,26 @@
 
   <!-- Enabled sources -->
   {% if sources %}
-  <section class="sidebar-section" aria-labelledby="sources-heading">
-    <h2 class="sidebar-section-title" id="sources-heading">Sources</h2>
-    <ul class="sidebar-nav-list" role="list">
+  <section class="sidebar-section" aria-labelledby="sources-heading"
+           x-data="{
+             collapsed: localStorage.getItem('sidebar.sources.collapsed') === 'true',
+             toggle() { this.collapsed = !this.collapsed; localStorage.setItem('sidebar.sources.collapsed', this.collapsed); }
+           }">
+    <h2 class="sidebar-section-title" id="sources-heading">
+      <button type="button"
+              class="sidebar-section-btn"
+              @click="toggle()"
+              :aria-expanded="(!collapsed).toString()"
+              aria-controls="sources-list">
+        Sources
+        <svg class="sidebar-chevron" :class="{ 'is-collapsed': collapsed }"
+             aria-hidden="true" viewBox="0 0 16 16" fill="none"
+             stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="4 6 8 10 12 6"/>
+        </svg>
+      </button>
+    </h2>
+    <ul class="sidebar-nav-list" id="sources-list" x-show="!collapsed" role="list">
       {% for source in sources %}
       <li>
         <a class="sidebar-link"
