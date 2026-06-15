@@ -460,3 +460,44 @@ class TestListThreadsSort:
         results = list_threads(db_session, sort="importance")
         titles = [r.representative_title for r in results]
         assert titles.index("High Grade Older") < titles.index("Low Grade Recent")
+
+
+class TestThreadDetailPublishedAt:
+    """Regression tests: article publication date shown in thread detail member rows."""
+
+    def test_member_row_shows_published_label(self, client, db_session):
+        src = _make_source(db_session, name="Published At Source")
+        thread = _make_thread(db_session, title="Published Date Thread")
+        article = _make_article(db_session, src.id, "pub-at-art1", title="Published At Article")
+        _make_membership(db_session, thread.id, article.id)
+
+        response = client.get(f"/threads/{thread.id}", headers={"HX-Request": "true"})
+
+        assert response.status_code == 200
+        assert "Published" in response.text
+        assert "Added" in response.text
+
+    def test_member_row_published_and_added_are_distinct(self, client, db_session):
+        src = _make_source(db_session, name="Distinct Dates Source")
+        thread = _make_thread(db_session, title="Distinct Dates Thread")
+        article = _make_article(db_session, src.id, "distinct-dates-1", title="Distinct Dates Article")
+        _make_membership(db_session, thread.id, article.id)
+
+        response = client.get(f"/threads/{thread.id}", headers={"HX-Request": "true"})
+
+        assert response.status_code == 200
+        html = response.text
+        assert "member-published-at" in html
+        assert "member-added-at" in html
+
+    def test_member_row_separator_between_dates(self, client, db_session):
+        src = _make_source(db_session, name="Separator Source")
+        thread = _make_thread(db_session, title="Separator Thread")
+        article = _make_article(db_session, src.id, "sep-art-1", title="Separator Article")
+        _make_membership(db_session, thread.id, article.id)
+
+        response = client.get(f"/threads/{thread.id}", headers={"HX-Request": "true"})
+
+        assert response.status_code == 200
+        # The · separator must appear between published and added
+        assert " · " in response.text

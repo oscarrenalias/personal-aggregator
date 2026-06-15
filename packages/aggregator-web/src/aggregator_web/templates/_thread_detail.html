@@ -103,7 +103,7 @@
           <tr>
             <th>Label</th>
             <th>Article</th>
-            <th>Added</th>
+            <th>Dates</th>
           </tr>
         </thead>
         <tbody>
@@ -126,7 +126,9 @@
                 {% if m.source_name %}<span class="member-source">({{ m.source_name | e }})</span> {% endif %}{% if m.clean_title %}{{ m.clean_title | e }}{% else %}(untitled){% endif %}
               </a>
             </td>
-            <td class="member-date">{{ m.assigned_at | timeago }}</td>
+            <td class="member-date">
+              {% if m.published_at %}<span class="member-published-at">Published {{ m.published_at | timeago }}</span> · {% endif %}<span class="member-added-at">Added {{ m.assigned_at | timeago }}</span>
+            </td>
           </tr>
           {% endfor %}
         </tbody>
