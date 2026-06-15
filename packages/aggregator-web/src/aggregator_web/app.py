@@ -18,7 +18,7 @@ from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session, selectinload
 
 from aggregator_common.db import SessionFactory, get_session
-from aggregator_common.management import enqueue_recluster, set_thread_dismissed
+from aggregator_common.management import enqueue_recluster, mark_thread_viewed, set_thread_dismissed
 from aggregator_common.models import Article, Brief, BriefTopic, Category, Source
 from aggregator_common.queries import (
     get_thread,
@@ -765,6 +765,7 @@ def thread_detail(
     thread = get_thread(db, thread_id)
     if thread is None:
         raise HTTPException(status_code=404, detail="Thread not found")
+    mark_thread_viewed(db, thread_id)
     members = get_thread_members(db, thread_id)
     ctx = {"thread": thread, "members": members}
     if hx_request:
