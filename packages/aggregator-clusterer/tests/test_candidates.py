@@ -91,3 +91,55 @@ class TestGetCandidates:
         result = get_candidates(db_session, new_art, settings)
         thread_ids = [c.thread_id for c in result]
         assert old_thread.id not in thread_ids
+
+    def test_aggregate_entity_overlap_union_outranks_latest_member_alone(self, db_session):
+        """Union of all thread members' entities produces a higher overlap than the latest (drifted) member alone.
+
+        Article entities: {A, B}
+        Thread member 1 (earlier): entities {A, B}  — overlaps with article
+        Thread member 2 (latest/drifted): entities {C, D} — no overlap with article
+
+        Single-latest jaccard = 0/4 = 0.0
+        Aggregate union jaccard = 2/4 = 0.5
+        """
+        src = make_source(db_session, url="https://agg-ov.test/feed.xml")
+        article = make_article(
+            db_session, source_id=src.id, dedup_key="agg-art",
+            entities=["entityA", "entityB"],
+        )
+        thread = make_thread(db_session, title="Multi-member thread")
+
+        earlier = make_article(
+            db_session, source_id=src.id, dedup_key="agg-m1",
+            entities=["entityA", "entityB"],
+        )
+        latest = make_article(
+            db_session, source_id=src.id, dedup_key="agg-m2",
+            entities=["entityC", "entityD"],
+        )
+
+        now = datetime.now(tz=timezone.utc)
+        db_session.add(ThreadMembership(
+            thread_id=thread.id,
+            article_id=earlier.id,
+            classification_label=ClassificationLabel.new_thread.value,
+            suppressed=False,
+            assigned_at=now - timedelta(hours=2),
+        ))
+        db_session.add(ThreadMembership(
+            thread_id=thread.id,
+            article_id=latest.id,
+            classification_label=ClassificationLabel.same_thread_new_fact.value,
+            suppressed=False,
+            assigned_at=now,
+        ))
+        db_session.commit()
+
+        result = get_candidates(db_session, article, _SETTINGS)
+        match = next((c for c in result if c.thread_id == thread.id), None)
+        assert match is not None
+
+        # Aggregate union: jaccard({A,B}, {A,B,C,D}) = 2/4 = 0.5
+        # Single-latest: jaccard({A,B}, {C,D}) = 0/4 = 0.0
+        assert match.signals["entity_overlap"] > 0.0
+        assert abs(match.signals["entity_overlap"] - 0.5) < 1e-9

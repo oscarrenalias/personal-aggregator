@@ -58,11 +58,11 @@ def is_section_title_blocked(article: Article, settings: "ClustererSettings") ->
 _LABEL_VALUES = ", ".join(f'"{lbl.value}"' for lbl in ClassificationLabel)
 
 _SYSTEM_PROMPT = """\
-You are a news thread classifier. Given an article and the most relevant existing thread, decide how to classify the article.
+You are a news thread classifier. Given an article and a numbered list of candidate threads, decide how to classify the article.
 
 Respond with a JSON object only — no markdown, no commentary. Required fields:
 - "label": one of [{label_values}]
-- "thread_id": the integer thread id if the article belongs to an existing thread, or null if it starts a new one
+- "thread_id": the integer thread_id of the best-matching candidate thread (must be one of the listed thread_ids), or null if the article starts a new thread
 - "confidence": a float between 0.0 and 1.0
 - "new_facts": a list of strings (may be empty) — concrete new facts the article adds to the thread
 - "reason": a brief explanation of the classification
@@ -82,13 +82,18 @@ Label semantics:
 - related_new_thread: article is related but distinct enough to warrant a new thread
 - irrelevant_or_low_value: article is off-topic or adds no value
 
+When the article fits a candidate thread, set thread_id to that thread's integer id (from the listed candidates).
 Set thread_id to null when label is new_thread or related_new_thread.
+Only use a thread_id from the presented candidate list — do not invent thread ids.
 """.format(label_values=_LABEL_VALUES)
+
+_MAX_SUMMARY_CHARS = 400
+_MAX_FACTS_CHARS = 300
 
 
 def _build_user_message(
     article: Article,
-    top_candidate: Optional[CandidateMatch],
+    candidates: list[CandidateMatch],
     session: Session,
 ) -> str:
     title = article.clean_title or article.feed_title or "(no title)"
@@ -118,31 +123,38 @@ def _build_user_message(
         f"Entities: {entities_str}",
     ]
 
-    if top_candidate is not None:
-        thread = session.execute(
-            select(Thread).where(Thread.id == top_candidate.thread_id)
-        ).scalar_one_or_none()
+    if candidates:
+        candidate_thread_ids = [c.thread_id for c in candidates]
+        thread_rows = session.execute(
+            select(Thread).where(Thread.id.in_(candidate_thread_ids))
+        ).scalars().all()
+        threads_by_id: dict[int, Thread] = {t.id: t for t in thread_rows}
 
-        if thread is not None:
-            lines.append("")
-            lines.append("## Best candidate thread")
-            lines.append(f"thread_id: {thread.id}")
-            lines.append(f"Title: {thread.representative_title}")
-            lines.append(f"Summary: {thread.rolling_summary or '(none)'}")
+        lines.append("")
+        lines.append("## Candidate threads")
+        lines.append("Return the thread_id of the best match, or null if none fits.")
+
+        for i, candidate in enumerate(candidates, start=1):
+            thread = threads_by_id.get(candidate.thread_id)
+            if thread is None:
+                continue
+            rolling_summary = thread.rolling_summary or "(none)"
+            if len(rolling_summary) > _MAX_SUMMARY_CHARS:
+                rolling_summary = rolling_summary[:_MAX_SUMMARY_CHARS] + "…"
             known_facts = thread.known_facts or []
             if known_facts:
                 facts_str = "; ".join(str(f) for f in known_facts)
-                lines.append(f"Known facts: {facts_str}")
+                if len(facts_str) > _MAX_FACTS_CHARS:
+                    facts_str = facts_str[:_MAX_FACTS_CHARS] + "…"
             else:
-                lines.append("Known facts: (none)")
-            lines.append(f"Candidate score: {top_candidate.composite_score:.3f}")
-        else:
+                facts_str = "(none)"
             lines.append("")
-            lines.append("## Best candidate thread")
-            lines.append("(thread not found — classify as new_thread)")
+            lines.append(f"### {i}. thread_id={thread.id}: {thread.representative_title}")
+            lines.append(f"Summary: {rolling_summary}")
+            lines.append(f"Known facts: {facts_str}")
     else:
         lines.append("")
-        lines.append("## Best candidate thread")
+        lines.append("## Candidate threads")
         lines.append("(no candidates — classify as new_thread)")
 
     return "\n".join(lines)
@@ -176,8 +188,10 @@ def classify_article(
     session: Session,
     settings: ClustererSettings,
 ) -> ClassificationResult:
-    top_candidate = candidates[0] if candidates else None
-    user_message = _build_user_message(article, top_candidate, session)
+    max_n = settings.clusterer_max_classifier_candidates
+    top_candidates = candidates[:max_n]
+    presented_ids: set[int] = {c.thread_id for c in top_candidates}
+    user_message = _build_user_message(article, top_candidates, session)
 
     messages = [
         {"role": "system", "content": _SYSTEM_PROMPT},
@@ -224,12 +238,26 @@ def classify_article(
         logger.error("Invalid label in classification response for article_id=%s: %s", article.id, exc)
         return _error_result()
 
-    # thread_id must be None for labels that don't attach to an existing thread
+    # thread_id must be None for labels that don't attach to an existing thread,
+    # and must be one of the presented candidate ids to guard against hallucinated ids.
     raw_thread_id = data.get("thread_id")
     if label in (ClassificationLabel.new_thread, ClassificationLabel.related_new_thread):
         thread_id: Optional[int] = None
     else:
-        thread_id = int(raw_thread_id) if raw_thread_id is not None else None
+        if raw_thread_id is not None:
+            tid = int(raw_thread_id)
+            if tid in presented_ids:
+                thread_id = tid
+            else:
+                logger.warning(
+                    "LLM returned thread_id=%s not in presented candidates %s for article_id=%s; treating as new",
+                    tid,
+                    presented_ids,
+                    article.id,
+                )
+                thread_id = None
+        else:
+            thread_id = None
 
     try:
         confidence = float(data.get("confidence", 0.0))

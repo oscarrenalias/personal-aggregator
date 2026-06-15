@@ -50,3 +50,6 @@ class ClustererSettings(BaseSettings):
     clusterer_surface_min_grade: int = Field(80, description="Minimum top_grade (0–100) for a single-source thread to surface on its own")
     clusterer_surface_min_sources: int = Field(2, description="Minimum distinct sources required to surface a thread")
     clusterer_surface_min_members: int = Field(3, description="Minimum article members required to surface a thread")
+
+    # Classifier candidate limit
+    clusterer_max_classifier_candidates: int = Field(5, description="Maximum candidate threads passed to the LLM classifier per article")
