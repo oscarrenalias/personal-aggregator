@@ -96,7 +96,7 @@ jobs:
           VERSION: ${{ steps.read_version.outputs.version }}
         run: |
           SHORT_SHA="${GITHUB_SHA:0:7}"
-          for SERVICE in retriever processor summarize-rank clusterer admin web brief mcp; do
+          for SERVICE in retriever processor summarize-rank clusterer admin web brief mcp janitor; do
             docker buildx build \
               --platform linux/arm64 \
               --build-arg APP_VERSION="${VERSION}" \
