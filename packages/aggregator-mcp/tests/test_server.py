@@ -22,6 +22,7 @@ EXPECTED_TOOLS = {
     # Thread tools
     "list_threads",
     "get_thread",
+    "dismiss_thread",
     "recluster",
     # Source management
     "add_source",
