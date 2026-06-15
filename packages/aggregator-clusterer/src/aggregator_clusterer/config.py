@@ -38,7 +38,6 @@ class ClustererSettings(BaseSettings):
 
     # Thread lifecycle settings
     clusterer_thread_view_max_age_days: int = Field(7, description="Maximum age in days for threads shown in the default thread view")
-    clusterer_thread_retention_days: int = Field(30, description="Days to retain archived threads before permanent deletion")
 
     # Feed section title blocklist — generic RSS section headings that should not be used as thread titles
     clusterer_section_title_blocklist: List[str] = Field(
