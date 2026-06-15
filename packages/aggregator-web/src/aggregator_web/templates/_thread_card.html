@@ -43,13 +43,6 @@
             @click.stop
             title="Restore thread"
             aria-label="Restore thread">Restore</button>
-    {% else %}
-    <button class="thread-action-btn thread-dismiss-btn"
-            hx-post="/threads/{{ thread.id }}/dismiss"
-            hx-swap="none"
-            @click.stop
-            title="Not interested"
-            aria-label="Not interested">&#x2715;</button>
     {% endif %}
 
   </div>
