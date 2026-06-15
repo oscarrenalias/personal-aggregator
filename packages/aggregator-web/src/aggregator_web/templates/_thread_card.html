@@ -11,6 +11,16 @@
          :class="{ 'is-selected': selectedId === {{ thread.id }} }"
          @click="selectThread({{ thread.id }})">
 
+  {% if thread.image_url %}
+  <div class="card-image">
+    <img src="{{ thread.image_url | e }}"
+         alt=""
+         loading="lazy"
+         decoding="async"
+         onerror="this.closest('.card-image').remove()">
+  </div>
+  {% endif %}
+
   <div class="card-body">
     <div class="card-meta">
       {% if thread.source_count %}
@@ -36,6 +46,10 @@
       </a>
     </h2>
 
+    {% if thread.rolling_summary %}
+    <p class="card-excerpt">{{ thread.rolling_summary | truncate(220) }}</p>
+    {% endif %}
+
     {% if show_dismissed %}
     <button class="thread-action-btn thread-restore-btn"
             hx-post="/threads/{{ thread.id }}/restore"
@@ -46,14 +60,5 @@
     {% endif %}
 
   </div>
-
-  {% if thread.image_url %}
-  <div class="thread-thumb">
-    <img src="{{ thread.image_url | e }}"
-         alt=""
-         loading="lazy"
-         onerror="this.parentElement.style.display='none'">
-  </div>
-  {% endif %}
 
 </article>
