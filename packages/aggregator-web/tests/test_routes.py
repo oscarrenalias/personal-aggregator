@@ -169,6 +169,107 @@ def test_sidebar_smart_view_links_never_have_stacked_class(db_session, client):
     assert "sidebar-link--stacked" not in smart_section
 
 
+def test_sidebar_sources_section_has_collapsible_toggle(db_session, client):
+    """Regression: Sources section must render a real button toggle with aria-expanded
+    and aria-controls so the list can be collapsed/expanded.
+
+    Before the fix: the Sources h2 was plain text with no interactive element.
+    After the fix: a <button class="sidebar-section-btn"> carries aria-expanded and
+    aria-controls="sources-list", and the list has id="sources-list".
+    """
+    src = make_source(db_session, name="My Feed", url="http://myfeed.example.com/feed")
+    make_article(db_session, source_id=src.id, is_read=False)
+    response = client.get("/sidebar")
+    assert response.status_code == 200
+    html = response.text
+
+    assert "sidebar-section-btn" in html, "Sources toggle button class must be present"
+    assert 'aria-controls="sources-list"' in html, "Sources toggle must have aria-controls"
+    assert 'aria-expanded' in html, "Sources toggle must have aria-expanded"
+    assert 'id="sources-list"' in html, "Sources list must carry id='sources-list'"
+
+
+def test_sidebar_categories_section_has_collapsible_toggle(db_session, client):
+    """Regression: Categories section must render a real button toggle with aria-expanded
+    and aria-controls so the list can be collapsed/expanded.
+
+    Before the fix: the Categories h2 was plain text with no interactive element.
+    After the fix: a <button class="sidebar-section-btn"> carries aria-expanded and
+    aria-controls="categories-list", and the list has id="categories-list".
+    """
+    src = make_source(db_session)
+    make_category(db_session, name="technology")
+    make_article(db_session, source_id=src.id, is_read=False, categories=["technology"])
+    response = client.get("/sidebar")
+    assert response.status_code == 200
+    html = response.text
+
+    assert "sidebar-section-btn" in html, "Categories toggle button class must be present"
+    assert 'aria-controls="categories-list"' in html, "Categories toggle must have aria-controls"
+    assert 'aria-expanded' in html, "Categories toggle must have aria-expanded"
+    assert 'id="categories-list"' in html, "Categories list must carry id='categories-list'"
+
+
+def test_sidebar_collapsible_sections_persist_via_localstorage(db_session, client):
+    """Regression: both collapsible sections must read/write localStorage keys so state
+    survives the 60s HTMX sidebar refresh.  The x-data expression must reference the
+    canonical keys 'sidebar.sources.collapsed' and 'sidebar.categories.collapsed'.
+    """
+    src = make_source(db_session, name="My Feed", url="http://myfeed.example.com/feed")
+    make_category(db_session, name="tech")
+    make_article(db_session, source_id=src.id, is_read=False, categories=["tech"])
+    response = client.get("/sidebar")
+    assert response.status_code == 200
+    html = response.text
+
+    assert "sidebar.sources.collapsed" in html, (
+        "Sources section x-data must reference localStorage key 'sidebar.sources.collapsed'"
+    )
+    assert "sidebar.categories.collapsed" in html, (
+        "Categories section x-data must reference localStorage key 'sidebar.categories.collapsed'"
+    )
+
+
+def test_sidebar_collapsible_toggle_has_chevron_svg(db_session, client):
+    """Regression: each collapsible section must include a .sidebar-chevron SVG element
+    that rotates via the 'is-collapsed' CSS class bound with Alpine :class.
+    """
+    src = make_source(db_session, name="My Feed", url="http://myfeed.example.com/feed")
+    make_category(db_session, name="tech")
+    make_article(db_session, source_id=src.id, is_read=False, categories=["tech"])
+    response = client.get("/sidebar")
+    assert response.status_code == 200
+    html = response.text
+
+    assert "sidebar-chevron" in html, "sidebar-chevron class must appear on the toggle SVG"
+    assert "is-collapsed" in html, "Alpine :class binding for 'is-collapsed' must be present"
+
+
+def test_sidebar_smart_views_section_has_no_toggle(db_session, client):
+    """The Smart Views section must NOT get a collapsible toggle — only Sources and
+    Categories are togglable per the bead scope.
+
+    A source and category are created so the sidebar renders all three sections;
+    the test then slices out only the Smart Views section using its heading id.
+    """
+    src = make_source(db_session)
+    make_category(db_session, name="tech")
+    make_article(db_session, source_id=src.id, is_read=False, categories=["tech"])
+    response = client.get("/sidebar")
+    assert response.status_code == 200
+    html = response.text
+
+    # Slice from the Smart Views heading up to (but not including) Categories heading.
+    smart_start = html.find("smart-views-heading")
+    assert smart_start != -1, "smart-views-heading must exist in sidebar"
+    cats_start = html.find("categories-heading")
+    assert cats_start != -1, "categories-heading must exist in sidebar (category was created)"
+    smart_section = html[smart_start:cats_start]
+    assert "sidebar-section-btn" not in smart_section, (
+        "Smart Views section must not have a collapsible toggle button"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Feed routes — smart views
 # ---------------------------------------------------------------------------

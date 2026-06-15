@@ -440,6 +440,37 @@ button {
   padding: 16px 16px 6px;
 }
 
+/* Collapsible section toggle button — resets button chrome, inherits heading styles */
+.sidebar-section-btn {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+}
+
+.sidebar-section-btn:hover {
+  color: var(--c-text-2);
+}
+
+.sidebar-chevron {
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+  color: var(--c-text-muted);
+  transition: transform var(--t-fast);
+}
+
+.sidebar-chevron.is-collapsed {
+  transform: rotate(-90deg);
+}
+
 .sidebar-nav-list {
   list-style: none;
   margin: 0;
