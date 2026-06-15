@@ -312,6 +312,8 @@ function threadList() {
     selectThread(id) {
       this.selectedId = id;
       document.body.classList.add('reader-open');
+      const card = document.querySelector(`[data-thread-id="${id}"]`);
+      card?.querySelector('.thread-update-dot')?.remove();
     },
   };
 }

@@ -145,12 +145,16 @@ class TestThreadDetail:
         assert response.status_code == 200
         assert "<!DOCTYPE html>" in response.text
 
-    def test_htmx_get_thread_detail_emits_refresh_trigger(self, client, db_session):
-        """HTMX GET /threads/{id} must carry HX-Trigger: refreshThreadList so the thread list re-renders and the update dot clears immediately."""
+    def test_htmx_get_thread_detail_does_not_emit_refresh_trigger(self, client, db_session):
+        """HTMX GET /threads/{id} must NOT emit HX-Trigger: refreshThreadList. Opening a
+        thread should not re-render the whole thread list (that caused a jarring flash);
+        the updated-since-visit dot is cleared client-side for just the opened card instead.
+        The view is still recorded server-side via mark_thread_viewed.
+        """
         thread = _make_thread(db_session, title="HX Trigger Thread")
         response = client.get(f"/threads/{thread.id}", headers={"HX-Request": "true"})
         assert response.status_code == 200
-        assert response.headers.get("HX-Trigger") == "refreshThreadList"
+        assert response.headers.get("HX-Trigger") is None
 
     def test_full_page_get_thread_detail_does_not_emit_refresh_trigger(self, client, db_session):
         """Non-HTMX full-page load must NOT carry HX-Trigger (the list renders fresh via shell)."""

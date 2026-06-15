@@ -1989,6 +1989,82 @@ def test_sidebar_category_freshness_phrase_updated_yesterday(db_session, client,
     assert "Updated yesterday" in response.text
 
 
+# ---------------------------------------------------------------------------
+# Thread routes — HX-Trigger header assertions
+# ---------------------------------------------------------------------------
+
+
+def make_thread(session):
+    from datetime import datetime, timezone
+    from aggregator_common.models import Thread
+
+    now = datetime.now(timezone.utc)
+    t = Thread(
+        representative_title="Test Thread",
+        first_seen=now,
+        last_updated=now,
+    )
+    session.add(t)
+    session.flush()
+    session.commit()
+    session.refresh(t)
+    return t
+
+
+def test_get_thread_detail_with_hx_request_does_not_emit_refresh_thread_list(db_session, client):
+    """Regression (B-d7c12486): GET /threads/{id} with HX-Request must NOT emit
+    HX-Trigger: refreshThreadList. The prior bead (B-3788ae67) added that header
+    to clear the updated-since-visit dot, but it caused a jarring full-list flash.
+    Client-side dot removal in selectThread() replaces it.
+    """
+    thread = make_thread(db_session)
+    response = client.get(
+        f"/threads/{thread.id}",
+        headers={"HX-Request": "true"},
+    )
+    assert response.status_code == 200
+    assert response.headers.get("HX-Trigger") != "refreshThreadList", (
+        "GET /threads/{id} must NOT emit HX-Trigger: refreshThreadList "
+        "(dot removal is now handled client-side to avoid a full-list flash)"
+    )
+
+
+def test_get_thread_detail_still_calls_mark_thread_viewed(db_session, client):
+    """Server state must still be updated: last_viewed_at must be stamped on open."""
+    from aggregator_common.models import Thread
+
+    thread = make_thread(db_session)
+    assert thread.last_viewed_at is None
+
+    response = client.get(
+        f"/threads/{thread.id}",
+        headers={"HX-Request": "true"},
+    )
+    assert response.status_code == 200
+
+    db_session.expire_all()
+    refreshed = db_session.get(Thread, thread.id)
+    assert refreshed.last_viewed_at is not None, (
+        "mark_thread_viewed must still stamp last_viewed_at on thread open"
+    )
+
+
+def test_post_thread_dismiss_emits_refresh_thread_list(db_session, client):
+    """POST /threads/{id}/dismiss must still emit HX-Trigger: refreshThreadList."""
+    thread = make_thread(db_session)
+    response = client.post(f"/threads/{thread.id}/dismiss")
+    assert response.status_code == 200
+    assert response.headers.get("HX-Trigger") == "refreshThreadList"
+
+
+def test_post_thread_restore_emits_refresh_thread_list(db_session, client):
+    """POST /threads/{id}/restore must still emit HX-Trigger: refreshThreadList."""
+    thread = make_thread(db_session)
+    response = client.post(f"/threads/{thread.id}/restore")
+    assert response.status_code == 200
+    assert response.headers.get("HX-Trigger") == "refreshThreadList"
+
+
 def test_sidebar_category_freshness_phrase_quiet(db_session, client, monkeypatch):
     """Category with only old articles (more than 1 day ago) renders 'Quiet'."""
     import aggregator_web.app as app_mod
