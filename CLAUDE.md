@@ -4,12 +4,13 @@ Personal RSS reader and news aggregator. Periodically retrieves articles from co
 
 ## Architecture
 
-Eight services communicating **only through shared Postgres state** (no synchronous service-to-service calls). Articles move through a durable state machine; each service finds its pending work by claiming rows.
+Nine services communicating **only through shared Postgres state** (no synchronous service-to-service calls). Articles move through a durable state machine; each service finds its pending work by claiming rows.
 
 ```
 sources → retriever → processor → summarize-rank → clusterer → web UI
                                                               → brief
                                                               → aggregator-mcp (agent interface)
+                                                              → janitor (data retention)
 ```
 
 - **retriever** — polls feeds, persists raw articles, marks them pending processing.
@@ -19,6 +20,7 @@ sources → retriever → processor → summarize-rank → clusterer → web UI
 - **web** — FastAPI + HTMX + Alpine.js read/UI surface + reader operations (mark read, save, search). Served as a PWA; exposed privately over Tailscale (binds `127.0.0.1` by default). Thread dismiss/restore is handled by `POST /threads/{thread_id}/dismiss` and `POST /threads/{thread_id}/restore`; both return an `HX-Trigger: refreshThreadList` header so HTMX reloads the thread list in-place. `GET /threads` accepts a `show_dismissed=true` query param to include dismissed threads in the listing (default: excluded).
 - **brief** — scheduled LLM service that reads ranked articles, generates a structured daily brief (headline + topics + summaries), and persists it to Postgres. Runs once per day at a configurable hour; the web service serves the brief on the Today view.
 - **aggregator-mcp** — FastMCP server exposing the aggregator over the MCP/Streamable HTTP interface for agent integration. Provides tools for searching, listing, and mutating articles; thread tools (`list_threads`, `get_thread`, `dismiss_thread`) — `list_threads` and `get_thread` both expose the `dismissed` field on each thread result, and `dismiss_thread(thread_id, dismissed=True/False)` dismisses or restores a thread; source and category management tools (add/enable/disable/remove — `remove_source` and `remove_category` are destructive); ops/diagnostic tools (`pipeline_status`, `list_stuck`, `list_failures`, `reap_stale_claims`, `retry_failed`, `rerank`, `recluster`); brief tools (`get_daily_brief`, `refresh_brief`); resources including `article://{id}`, `feed://{view}`, `thread://{id}`, `brief://today`, and `status://pipeline` for a quick health snapshot; and prompts including `troubleshoot` for step-by-step pipeline diagnosis and `whats_developing` for surfacing in-progress story threads.
+- **janitor** — scheduled data-retention daemon that runs once per day at `JANITOR_RUN_HOUR` (default 04:00 in `JANITOR_TIMEZONE`). Deletes expired articles (`JANITOR_ARTICLE_RETENTION_DAYS`; unsaved, not in a live thread), archived threads (`JANITOR_THREAD_RETENTION_DAYS`), and completed briefs (`JANITOR_BRIEF_RETENTION_DAYS`). Uses a distinct Postgres advisory lock so it never races the clusterer. Replaces the per-service retention logic previously in clusterer and brief.
 - **admin** — Rich CLI for feed management and operational tasks.
 
 The shared contract lives in `aggregator-common`: SQLAlchemy models, DB access, config, and the **article state machine**. Because services integrate only through the DB, the schema and allowed state transitions are the API — treat them as such.
@@ -50,6 +52,7 @@ packages/
   aggregator-web/               # FastAPI + HTMX + Alpine.js PWA web UI
   aggregator-brief/             # scheduled daily brief generator
   aggregator-mcp/               # FastMCP server — MCP/Streamable HTTP agent interface
+  aggregator-janitor/           # scheduled data-retention daemon
   aggregator-admin/
 docker-compose.yml              # postgres only (app service definitions added per service spec)
 ```
@@ -68,23 +71,24 @@ src/aggregator_common/
   env.py           # load_env() — loads .env into os.environ at startup
   logging_setup.py # configure_logging() — shared log setup for all services
   queries.py       # shared read + mutation helpers (list/search/get articles, mark read/saved, etc.)
+  retention.py     # purge_expired_articles / purge_expired_threads / purge_expired_briefs — called by janitor
   migrations/      # Alembic environment; versions/ holds migration scripts
 ```
 
 ## Containers & tests
 
 - **Runtime:** OrbStack provides the Docker engine. Note it does **not** create `/var/run/docker.sock`; its socket is `~/.orbstack/run/docker.sock`. The `docker` CLI finds it via the active context, but headless test runs must resolve it explicitly (see below).
-- **Dev:** the root `docker-compose.yml` runs the **full stack built from source** (`docker compose up -d --build`): `postgres → migrate → retriever → processor → summarize-rank → clusterer → web → brief`. It keeps the `postgres_data` volume and the host `5432` port so data persists and host tooling (admin CLI, `uv run`) can reach it; the web container binds `127.0.0.1:8000` with `WEB_HOST=0.0.0.0`. This is the dev counterpart to `docker-compose.prod.yml` (which **pulls** released GHCR images instead of building). For fast iteration on a single service, run it on the **host** via `uv run` (e.g. `uv run --all-packages python -m aggregator_web`); takt workers always run on the host.
+- **Dev:** the root `docker-compose.yml` runs the **full stack built from source** (`docker compose up -d --build`): `postgres → migrate → retriever → processor → summarize-rank → clusterer → web → brief → janitor`. It keeps the `postgres_data` volume and the host `5432` port so data persists and host tooling (admin CLI, `uv run`) can reach it; the web container binds `127.0.0.1:8000` with `WEB_HOST=0.0.0.0`. This is the dev counterpart to `docker-compose.prod.yml` (which **pulls** released GHCR images instead of building). For fast iteration on a single service, run it on the **host** via `uv run` (e.g. `uv run --all-packages python -m aggregator_web`); takt workers always run on the host.
 - **Tests:** `pytest` with **testcontainers** — each test session spins up an ephemeral Postgres on a random port. This isolates concurrent takt workers running in parallel worktrees; never assume a shared/fixed test database. The test harness resolves the Docker socket in this order: `DOCKER_HOST` env → `/var/run/docker.sock` → `~/.orbstack/run/docker.sock`, setting `DOCKER_HOST` for testcontainers when it falls through. This makes `pytest`/`takt merge` work for every worker without per-worker env setup.
 - **Deploy:** per-service Dockerfiles + compose. No devcontainers.
 
 ### Production compose (headless backend)
 
-The full production stack (`postgres → migrate → retriever → processor → summarize-rank → clusterer → web → brief`) is managed via `Makefile` targets that wrap `docker-compose.prod.yml`:
+The full production stack (`postgres → migrate → retriever → processor → summarize-rank → clusterer → web → brief → janitor`) is managed via `Makefile` targets that wrap `docker-compose.prod.yml`:
 
 | Command | Effect |
 |---|---|
-| `make build` | Builds all seven arm64 service images (calls `scripts/build-images.sh`) |
+| `make build` | Builds all eight arm64 service images (calls `scripts/build-images.sh`) |
 | `make up` | `docker compose -f docker-compose.prod.yml up -d` |
 | `make down` | `docker compose -f docker-compose.prod.yml down` |
 | `make logs` | `docker compose -f docker-compose.prod.yml logs -f` |
@@ -171,7 +175,6 @@ At process startup, every service calls `aggregator_common.load_env()` (python-d
 | `BRIEF_TOOL_MAX_CALLS` | `12` | Maximum LLM tool calls per brief generation run |
 | `BRIEF_POLL_INTERVAL_SECONDS` | `60` | Seconds between scheduler poll cycles |
 | `BRIEF_CLAIM_LEASE_SECONDS` | `600` | Work-claim lease duration for brief jobs in seconds |
-| `BRIEF_RETENTION_DAYS` | `30` | Days to retain completed briefs before pruning |
 | `CLUSTERER_POLL_INTERVAL_SECONDS` | `60` | Seconds between clusterer poll cycles |
 | `CLUSTERER_CANDIDATE_WINDOW_HOURS_FAST` | `48` | Hours of history for fast-path candidate selection |
 | `CLUSTERER_CANDIDATE_WINDOW_DAYS_SLOW` | `7` | Days of history for slow-path candidate selection |
@@ -194,10 +197,15 @@ At process startup, every service calls `aggregator_common.load_env()` (python-d
 | `CLUSTERER_MERGE_SIMILARITY_FLOOR` | `0.35` | Minimum composite similarity score required to consider merging two threads |
 | `CLUSTERER_MAX_MERGE_CHECKS` | `20` | Maximum candidate thread pairs checked for merging per consolidation cycle |
 | `CLUSTERER_THREAD_VIEW_MAX_AGE_DAYS` | `7` | Maximum age in days for threads shown in the default thread view |
-| `CLUSTERER_THREAD_RETENTION_DAYS` | `30` | Days to retain archived threads before permanent deletion |
 | `CLUSTERER_SECTION_TITLE_BLOCKLIST` | `["top stories","home",…]` | JSON array of RSS section/category titles too generic to use as thread titles |
 | `CLUSTERER_CONSOLIDATION_MIN_INTERVAL_MINUTES` | `10` | Minimum minutes between consolidation passes; explicit recluster bypasses this floor |
 | `CLUSTERER_MAX_CLASSIFIER_CANDIDATES` | `5` | Maximum candidate threads passed to the LLM classifier per article |
+| `JANITOR_ARTICLE_RETENTION_DAYS` | `14` | Days to retain articles before purging (unsaved, not in a live thread) |
+| `JANITOR_THREAD_RETENTION_DAYS` | `30` | Days to retain archived threads before permanent deletion (replaces `CLUSTERER_THREAD_RETENTION_DAYS`) |
+| `JANITOR_BRIEF_RETENTION_DAYS` | `30` | Days to retain completed briefs before pruning (replaces `BRIEF_RETENTION_DAYS`) |
+| `JANITOR_RUN_HOUR` | `4` | Hour of day (in `JANITOR_TIMEZONE`) to run the retention sweep |
+| `JANITOR_TIMEZONE` | `UTC` | Timezone for scheduling the daily retention sweep |
+| `JANITOR_POLL_INTERVAL_SECONDS` | `3600` | Seconds between scheduler poll cycles |
 
 **Per-service config convention:** Each service subclasses `aggregator_common.config.Settings` and adds its own fields using a `<SERVICE>_` prefix (e.g., `PROCESSOR_BATCH_SIZE`, `RETRIEVER_POLL_INTERVAL_SECONDS`). Shared fields live in the base class; service-specific fields never bleed into other services' namespaces.
 
@@ -236,7 +244,7 @@ Versioning and image publishing run entirely in CI — do not bump the version m
 
 **GHCR image paths:**
 
-Images are pushed to `ghcr.io/oscarrenalias/personal-aggregator/aggregator-<service>` for each service (`retriever`, `processor`, `summarize-rank`, `clusterer`, `admin`, `web`, `brief`). Three tags are applied on every successful build:
+Images are pushed to `ghcr.io/oscarrenalias/personal-aggregator/aggregator-<service>` for each service (`retriever`, `processor`, `summarize-rank`, `clusterer`, `admin`, `web`, `brief`, `janitor`). Three tags are applied on every successful build:
 
 | Tag | When to use |
 |---|---|

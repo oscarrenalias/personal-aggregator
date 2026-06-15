@@ -1,22 +1,27 @@
 # Personal Aggregator — Raspberry Pi Deployment
 
 Runs the headless aggregator stack (postgres → migrate → retriever → processor →
-summarize-rank → clusterer) as a systemd-managed Docker Compose service.
+summarize-rank → clusterer → brief → janitor) as a systemd-managed Docker Compose service.
 The **clusterer** groups ranked articles into threads; it depends on summarize-rank
 having completed scoring before articles are clustered. No separate operational
-actions are needed — it starts automatically with the rest of the stack.
+actions are needed — all services start automatically with the rest of the stack.
 
 After each normal clustering cycle the clusterer runs a **consolidation pass** that
-performs three sub-steps in order: (1) a **merge pass** — near-duplicate active threads
+performs two sub-steps in order: (1) a **merge pass** — near-duplicate active threads
 whose composite entity/topic/FTS similarity meets `CLUSTERER_MERGE_SIMILARITY_FLOOR` are
 confirmed by the LLM and absorbed into a single thread (up to `CLUSTERER_MAX_MERGE_CHECKS`
 LLM calls per cycle); (2) a **surfacing pass** — every active thread is re-scored with a
 deterministic grade (0–100) and marked `surfaced=true` when it meets
 `CLUSTERER_SURFACE_MIN_GRADE`, `CLUSTERER_SURFACE_MIN_SOURCES`, and
-`CLUSTERER_SURFACE_MIN_MEMBERS`; (3) a **retention prune** — threads whose
-`last_updated` is older than `CLUSTERER_THREAD_RETENTION_DAYS` days are permanently
-deleted (article rows are not affected). The pass is idempotent: re-running it on an
+`CLUSTERER_SURFACE_MIN_MEMBERS`. The pass is idempotent: re-running it on an
 already-curated set produces no further changes.
+
+The **janitor** service runs a **data-retention sweep** once per day at `JANITOR_RUN_HOUR`
+(default 04:00 in `JANITOR_TIMEZONE`). It permanently deletes expired articles
+(unsaved and not in a live thread, older than `JANITOR_ARTICLE_RETENTION_DAYS` days),
+archived threads older than `JANITOR_THREAD_RETENTION_DAYS` days, and completed briefs
+older than `JANITOR_BRIEF_RETENTION_DAYS` days. It uses a distinct Postgres advisory lock
+so it never races the clusterer.
 
 ---
 
