@@ -79,7 +79,13 @@ def _reconcile_references(session: Session, raw_refs: list[dict]) -> list[dict]:
     return out
 
 
-def _call_llm(messages: list[dict], settings: BriefSettings, *, force_submit: bool = False) -> Any:
+def _call_llm(
+    messages: list[dict],
+    settings: BriefSettings,
+    *,
+    force_submit: bool = False,
+    ref_id: str | None = None,
+) -> Any:
     # On the final iteration we force submit_brief so the loop always yields a
     # brief instead of failing when the model keeps exploring with search/get
     # tools. The seed message already carries the top candidate articles, so the
@@ -97,6 +103,7 @@ def _call_llm(messages: list[dict], settings: BriefSettings, *, force_submit: bo
         max_tokens=settings.brief_llm_max_output_tokens,
         temperature=settings.brief_llm_temperature,
         timeout=settings.brief_llm_timeout_seconds,
+        metadata={"service": "brief", "operation": "generate", "ref_id": ref_id},
     )
 
 
@@ -130,9 +137,10 @@ def generate_brief(session: Session, brief: Brief, settings: BriefSettings) -> N
     submit_payload: dict | None = None
     last_response: Any = None
 
+    brief_ref_id = str(brief.id)
     for _iteration in range(settings.brief_tool_max_calls):
         force_submit = _iteration == settings.brief_tool_max_calls - 1
-        response = _call_llm(messages, settings, force_submit=force_submit)
+        response = _call_llm(messages, settings, force_submit=force_submit, ref_id=brief_ref_id)
         last_response = response
         assistant_message = response.choices[0].message
         messages.append(_to_assistant_dict(assistant_message))
@@ -196,7 +204,7 @@ def generate_brief(session: Session, brief: Brief, settings: BriefSettings) -> N
                 f"Validation errors:\n{first_exc}"
             ),
         })
-        corrective_response = _call_llm(messages, settings)
+        corrective_response = _call_llm(messages, settings, ref_id=brief_ref_id)
         last_response = corrective_response
         corrective_message = corrective_response.choices[0].message
         corrective_payload = _extract_submit(corrective_message.tool_calls or [])
