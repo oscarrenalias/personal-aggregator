@@ -1,9 +1,10 @@
+import uuid
 from datetime import datetime
 from enum import Enum as PyEnum
 from typing import List, Optional
 
-from sqlalchemy import BigInteger, Boolean, CheckConstraint, Enum, Float, ForeignKey, Integer, Text, UniqueConstraint, func
-from sqlalchemy.dialects.postgresql import JSONB, TIMESTAMP, TSVECTOR
+from sqlalchemy import BigInteger, Boolean, CheckConstraint, Enum, Float, ForeignKey, Index, Integer, Numeric, Text, UniqueConstraint, func
+from sqlalchemy.dialects.postgresql import JSONB, TIMESTAMP, TSVECTOR, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy.schema import Identity
 
@@ -308,3 +309,36 @@ class ClusterState(Base):
     requested_at: Mapped[Optional[datetime]] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
     dirty: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
     last_consolidated_at: Mapped[Optional[datetime]] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
+
+
+class LlmCall(Base):
+    __tablename__ = "llm_calls"
+    __table_args__ = (
+        Index("ix_llm_calls_created_at", "created_at"),
+        Index("ix_llm_calls_service_created_at", "service", "created_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid()
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
+    )
+    service: Mapped[str] = mapped_column(Text, nullable=False)
+    operation: Mapped[str] = mapped_column(Text, nullable=False)
+    model: Mapped[str] = mapped_column(Text, nullable=False)
+    prompt_tokens: Mapped[int] = mapped_column(Integer, nullable=False)
+    completion_tokens: Mapped[int] = mapped_column(Integer, nullable=False)
+    total_tokens: Mapped[int] = mapped_column(Integer, nullable=False)
+    cached_tokens: Mapped[int] = mapped_column(Integer, nullable=False)
+    cost_usd: Mapped[Optional[float]] = mapped_column(Numeric(precision=12, scale=8), nullable=True)
+    latency_ms: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False)
+    error_type: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    finish_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    num_tool_calls: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    tool_names: Mapped[Optional[list]] = mapped_column(JSONB, nullable=True)
+    ref_id: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    request_id: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    prompt_preview: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    prompt_hash: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
