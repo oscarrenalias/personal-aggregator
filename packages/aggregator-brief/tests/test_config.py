@@ -4,7 +4,8 @@ from aggregator_brief.config import BriefSettings
 
 
 class TestBriefSettingsDefaults:
-    def test_default_model(self):
+    def test_default_model(self, monkeypatch):
+        monkeypatch.delenv("BRIEF_LLM_MODEL", raising=False)
         s = BriefSettings()
         assert s.brief_llm_model == "gpt-4.1"
 
