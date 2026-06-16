@@ -51,7 +51,7 @@ def process_article(
 
         now = datetime.now(UTC)
         try:
-            result, usage_dict = rank(article_input, interest_profile_text, settings, enabled_categories)
+            result, usage_dict = rank(article_input, interest_profile_text, settings, enabled_categories, article_id=article_id)
         except Exception as exc:
             logger.warning("Ranking failed for article %d: %s", article_id, exc)
             fail(
