@@ -17,6 +17,3 @@ class Settings(BaseSettings):
     langfuse_public_key: Optional[str] = Field(None, description="Langfuse public key (enables Langfuse callback when all three keys are set)")
     langfuse_secret_key: Optional[str] = Field(None, description="Langfuse secret key")
     langfuse_host: Optional[str] = Field(None, description="Langfuse host URL (defaults to Langfuse cloud when omitted)")
-
-    # Janitor retention
-    janitor_llm_telemetry_retention_days: int = Field(30, description="Days to retain llm_calls rows before pruning")

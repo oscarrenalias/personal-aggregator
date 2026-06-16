@@ -13,7 +13,7 @@ import pytest
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
-from aggregator_common.llm_telemetry import LlmTelemetryLogger, _classify_error, setup_llm_telemetry
+from aggregator_common.llm_telemetry import LlmTelemetryLogger, _classify_error, _extract_first_user_text, setup_llm_telemetry
 from aggregator_common.models import LlmCall
 
 _NOW = datetime.now(timezone.utc)
@@ -283,3 +283,115 @@ class TestSetupLlmTelemetry:
                 langfuse_host=None,
             )
         setup_llm_telemetry(settings)  # must not raise
+
+    def test_capture_prompts_flag_passed_to_logger(self):
+        import litellm
+        from aggregator_common.config import Settings
+
+        original = list(litellm.callbacks)
+        try:
+            with patch.dict(os.environ, {
+                "DATABASE_URL": "postgresql://x:x@localhost/test",
+                "LLM_TELEMETRY_CAPTURE_PROMPTS": "true",
+            }):
+                settings = Settings(llm_telemetry_enabled=True)
+            litellm.callbacks = [cb for cb in litellm.callbacks if not isinstance(cb, LlmTelemetryLogger)]
+            with patch("aggregator_common.db.SessionFactory", MagicMock()):
+                setup_llm_telemetry(settings)
+            registered = [cb for cb in litellm.callbacks if isinstance(cb, LlmTelemetryLogger)]
+            assert len(registered) == 1
+            assert registered[0]._capture_prompts is True
+        finally:
+            litellm.callbacks = original
+
+
+# ---------------------------------------------------------------------------
+# _extract_first_user_text
+# ---------------------------------------------------------------------------
+
+class TestExtractFirstUserText:
+    def test_string_content(self):
+        messages = [{"role": "system", "content": "sys"}, {"role": "user", "content": "hello"}]
+        assert _extract_first_user_text(messages) == "hello"
+
+    def test_multipart_content(self):
+        messages = [{"role": "user", "content": [{"type": "text", "text": "hi there"}, {"type": "image_url", "image_url": "..."}]}]
+        assert _extract_first_user_text(messages) == "hi there"
+
+    def test_no_user_message(self):
+        messages = [{"role": "system", "content": "sys"}]
+        assert _extract_first_user_text(messages) == ""
+
+    def test_empty_messages(self):
+        assert _extract_first_user_text([]) == ""
+
+
+# ---------------------------------------------------------------------------
+# Prompt capture
+# ---------------------------------------------------------------------------
+
+class TestPromptCapture:
+    def test_capture_disabled_by_default(self, db_session_factory, session):
+        logger = LlmTelemetryLogger(db_session_factory)
+        kwargs = {
+            **_make_kwargs(),
+            "messages": [{"role": "user", "content": "sensitive question"}],
+        }
+        response = _make_response()
+        with patch("aggregator_common.llm_telemetry.litellm.completion_cost", return_value=0.0):
+            asyncio.run(logger.async_log_success_event(kwargs, response, _START, _NOW))
+
+        row = session.execute(select(LlmCall)).scalars().first()
+        assert row is not None
+        assert row.prompt_preview is None
+        assert row.prompt_hash is None
+
+    def test_capture_enabled_writes_preview_and_hash(self, db_session_factory, session):
+        import hashlib
+        logger = LlmTelemetryLogger(db_session_factory, capture_prompts=True)
+        user_text = "What is the capital of France?"
+        kwargs = {
+            **_make_kwargs(),
+            "messages": [{"role": "user", "content": user_text}],
+        }
+        response = _make_response()
+        with patch("aggregator_common.llm_telemetry.litellm.completion_cost", return_value=0.0):
+            asyncio.run(logger.async_log_success_event(kwargs, response, _START, _NOW))
+
+        row = session.execute(select(LlmCall)).scalars().first()
+        assert row is not None
+        assert row.prompt_preview == user_text
+        assert row.prompt_hash == hashlib.sha256(user_text.encode()).hexdigest()
+
+    def test_capture_truncates_long_content(self, db_session_factory, session):
+        logger = LlmTelemetryLogger(db_session_factory, capture_prompts=True)
+        long_text = "x" * 1000
+        kwargs = {
+            **_make_kwargs(),
+            "messages": [{"role": "user", "content": long_text}],
+        }
+        response = _make_response()
+        with patch("aggregator_common.llm_telemetry.litellm.completion_cost", return_value=0.0):
+            asyncio.run(logger.async_log_success_event(kwargs, response, _START, _NOW))
+
+        row = session.execute(select(LlmCall)).scalars().first()
+        assert row is not None
+        assert row.prompt_preview == "x" * 500
+        # hash is of the full text, not truncated
+        import hashlib
+        assert row.prompt_hash == hashlib.sha256(long_text.encode()).hexdigest()
+
+    def test_capture_no_user_message_leaves_null(self, db_session_factory, session):
+        logger = LlmTelemetryLogger(db_session_factory, capture_prompts=True)
+        kwargs = {
+            **_make_kwargs(),
+            "messages": [{"role": "system", "content": "You are a helpful assistant."}],
+        }
+        response = _make_response()
+        with patch("aggregator_common.llm_telemetry.litellm.completion_cost", return_value=0.0):
+            asyncio.run(logger.async_log_success_event(kwargs, response, _START, _NOW))
+
+        row = session.execute(select(LlmCall)).scalars().first()
+        assert row is not None
+        assert row.prompt_preview is None
+        assert row.prompt_hash is None

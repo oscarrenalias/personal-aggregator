@@ -16,7 +16,6 @@ def test_defaults_without_db_url():
     assert s.langfuse_public_key is None
     assert s.langfuse_secret_key is None
     assert s.langfuse_host is None
-    assert s.janitor_llm_telemetry_retention_days == 30
 
 
 def test_env_overrides():
@@ -29,7 +28,6 @@ def test_env_overrides():
         "LANGFUSE_PUBLIC_KEY": "pub-key",
         "LANGFUSE_SECRET_KEY": "sec-key",
         "LANGFUSE_HOST": "https://langfuse.example.com",
-        "JANITOR_LLM_TELEMETRY_RETENTION_DAYS": "60",
     }
     with patch.dict(os.environ, overrides, clear=False):
         s = Settings()
@@ -39,4 +37,3 @@ def test_env_overrides():
     assert s.langfuse_public_key == "pub-key"
     assert s.langfuse_secret_key == "sec-key"
     assert s.langfuse_host == "https://langfuse.example.com"
-    assert s.janitor_llm_telemetry_retention_days == 60
