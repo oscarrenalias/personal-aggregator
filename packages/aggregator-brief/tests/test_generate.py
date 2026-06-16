@@ -202,7 +202,7 @@ class TestForcedSubmitOnFinalIteration:
 
         seen_force = []
 
-        def fake_call(messages, settings, *, force_submit=False):
+        def fake_call(messages, settings, *, force_submit=False, ref_id=None):
             seen_force.append(force_submit)
             return submit if force_submit else search
 
