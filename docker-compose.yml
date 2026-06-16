@@ -82,6 +82,9 @@ services:
     env_file: .env
     environment:
       DATABASE_URL: postgresql://aggregator:aggregator@postgres:5432/aggregator
+      # Dev-only: use the cheaper model to minimize token cost (overrides .env;
+      # set here rather than repo-root .env, which the test suite reads).
+      CLUSTERER_LLM_MODEL: gpt-4.1-mini
     depends_on:
       postgres:
         condition: service_healthy
@@ -99,6 +102,9 @@ services:
     env_file: .env
     environment:
       DATABASE_URL: postgresql://aggregator:aggregator@postgres:5432/aggregator
+      # Dev-only: use the cheaper model to minimize token cost (overrides .env;
+      # set here rather than repo-root .env, which the test suite reads).
+      BRIEF_LLM_MODEL: gpt-4.1-mini
     depends_on:
       postgres:
         condition: service_healthy
