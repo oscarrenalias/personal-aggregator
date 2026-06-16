@@ -1,6 +1,7 @@
 """LLM telemetry: LiteLLM CustomLogger that persists one LlmCall row per completion."""
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import logging
 from typing import Any
@@ -53,7 +54,7 @@ class LlmTelemetryLogger(CustomLogger):
         self._session_factory = session_factory
         self._capture_prompts = capture_prompts
 
-    async def async_log_success_event(
+    def log_success_event(
         self, kwargs: dict, response_obj: Any, start_time: Any, end_time: Any
     ) -> None:
         try:
@@ -152,7 +153,7 @@ class LlmTelemetryLogger(CustomLogger):
         except Exception as exc:
             logger.debug("LlmTelemetryLogger: failed to write success row: %s", exc)
 
-    async def async_log_failure_event(
+    def log_failure_event(
         self, kwargs: dict, response_obj: Any, start_time: Any, end_time: Any
     ) -> None:
         try:
@@ -203,6 +204,20 @@ class LlmTelemetryLogger(CustomLogger):
 
         except Exception as exc:
             logger.debug("LlmTelemetryLogger: failed to write failure row: %s", exc)
+
+    # Async wrappers for the acompletion path: LiteLLM invokes these for async
+    # completions. Offload the sync write to a thread so it never blocks the loop.
+    # (Sync litellm.completion() — what all our services use — calls the sync
+    # handlers above directly, where a blocking DB write is harmless.)
+    async def async_log_success_event(
+        self, kwargs: dict, response_obj: Any, start_time: Any, end_time: Any
+    ) -> None:
+        await asyncio.to_thread(self.log_success_event, kwargs, response_obj, start_time, end_time)
+
+    async def async_log_failure_event(
+        self, kwargs: dict, response_obj: Any, start_time: Any, end_time: Any
+    ) -> None:
+        await asyncio.to_thread(self.log_failure_event, kwargs, response_obj, start_time, end_time)
 
 
 def setup_llm_telemetry(settings: Settings) -> None:

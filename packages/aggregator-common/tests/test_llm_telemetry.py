@@ -395,3 +395,43 @@ class TestPromptCapture:
         assert row is not None
         assert row.prompt_preview is None
         assert row.prompt_hash is None
+
+
+# ---------------------------------------------------------------------------
+# End-to-end: telemetry must fire through a real (mocked) sync litellm.completion.
+# Regression for the bug where only async handlers existed, so the SYNC handler
+# LiteLLM actually calls for litellm.completion() never fired and no row was written.
+# ---------------------------------------------------------------------------
+
+class TestFiresThroughLiteLLMCompletion:
+    def test_sync_completion_persists_row_with_metadata(self, db_session_factory, session):
+        import time
+        import litellm
+
+        logger = LlmTelemetryLogger(db_session_factory)
+        original = list(litellm.callbacks)
+        litellm.callbacks = [logger]
+        try:
+            litellm.completion(
+                model="gpt-4.1-mini",
+                messages=[{"role": "user", "content": "hi"}],
+                mock_response="ok",
+                metadata={"service": "clusterer", "operation": "classify", "ref_id": "7"},
+            )
+            # The sync success callback runs as part of litellm.completion(); poll briefly.
+            row = None
+            for _ in range(20):
+                session.rollback()  # fresh READ COMMITTED snapshot each poll
+                row = session.execute(
+                    select(LlmCall).where(LlmCall.service == "clusterer")
+                ).scalars().first()
+                if row is not None:
+                    break
+                time.sleep(0.1)
+        finally:
+            litellm.callbacks = original
+
+        assert row is not None, "litellm.completion() did not persist a telemetry row (sync handler missing?)"
+        assert row.operation == "classify"
+        assert row.ref_id == "7"
+        assert row.status == "success"
