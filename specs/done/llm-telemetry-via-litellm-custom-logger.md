@@ -5,7 +5,7 @@ description: "LLM telemetry: a LiteLLM CustomLogger persists one row per complet
 dependencies: null
 priority: medium
 complexity: null
-status: planned
+status: done
 tags:
 - observability
 - llm
