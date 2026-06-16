@@ -10,6 +10,7 @@ from aggregator_common.db import SessionFactory as _DefaultSessionFactory
 from aggregator_common.retention import (
     purge_expired_articles,
     purge_expired_briefs,
+    purge_expired_llm_calls,
     purge_expired_threads,
 )
 
@@ -40,13 +41,15 @@ def _run_retention(settings: JanitorSettings, session_factory) -> None:
         articles_deleted = purge_expired_articles(session, settings.janitor_article_retention_days)
         threads_deleted = purge_expired_threads(session, settings.janitor_thread_retention_days)
         briefs_deleted = purge_expired_briefs(session, settings.janitor_brief_retention_days)
+        llm_calls_deleted = purge_expired_llm_calls(session, settings.janitor_llm_telemetry_retention_days)
 
         session.commit()
         logger.info(
-            "Retention sweep complete: articles=%d threads=%d briefs=%d",
+            "Retention sweep complete: articles=%d threads=%d briefs=%d llm_calls=%d",
             articles_deleted,
             threads_deleted,
             briefs_deleted,
+            llm_calls_deleted,
         )
     except Exception:
         session.rollback()
