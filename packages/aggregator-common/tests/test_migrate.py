@@ -129,3 +129,40 @@ def test_surfaced_top_grade_migration_round_trip(roundtrip_db):
 
     # Upgrade back to head to leave DB in a clean state
     command.upgrade(cfg, "head")
+
+
+def test_llm_calls_migration_round_trip(roundtrip_db):
+    """Migration e5f6a7b8c9d0 creates llm_calls table; downgrade removes it cleanly."""
+    cfg = _make_alembic_cfg(roundtrip_db)
+
+    command.upgrade(cfg, "e5f6a7b8c9d0")
+
+    engine = create_engine(roundtrip_db)
+    try:
+        inspector = inspect(engine)
+        tables = set(inspector.get_table_names())
+        assert "llm_calls" in tables, "upgrade should create llm_calls table"
+        columns = {c["name"] for c in inspector.get_columns("llm_calls")}
+        for expected_col in (
+            "id", "created_at", "service", "operation", "model",
+            "prompt_tokens", "completion_tokens", "total_tokens", "cached_tokens",
+            "cost_usd", "latency_ms", "status", "error_type", "finish_reason",
+            "num_tool_calls", "tool_names", "ref_id", "request_id",
+        ):
+            assert expected_col in columns, f"upgrade should create column {expected_col!r}"
+    finally:
+        engine.dispose()
+
+    # Downgrade removes the llm_calls table (back to c4d5e6f7a8b9)
+    command.downgrade(cfg, "c4d5e6f7a8b9")
+
+    engine = create_engine(roundtrip_db)
+    try:
+        inspector = inspect(engine)
+        tables = set(inspector.get_table_names())
+        assert "llm_calls" not in tables, "downgrade should drop llm_calls table"
+    finally:
+        engine.dispose()
+
+    # Restore head for any subsequent tests
+    command.upgrade(cfg, "head")

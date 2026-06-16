@@ -2,6 +2,7 @@ import argparse
 import sys
 
 from aggregator_common import load_env
+from aggregator_common.llm_telemetry import setup_llm_telemetry
 from aggregator_common.logging_setup import configure_logging
 from aggregator_summarize_rank.config import SummarizeRankSettings
 
@@ -18,6 +19,7 @@ def main() -> None:
 
     settings = SummarizeRankSettings()
     configure_logging(settings, stream=sys.stdout)
+    setup_llm_telemetry(settings)
 
     if args.once:
         from aggregator_summarize_rank.loop import run_once

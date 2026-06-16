@@ -4,7 +4,7 @@ from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Literal, Optional
 
-from sqlalchemy import and_, exists, func, or_, select
+from sqlalchemy import and_, exists, func, or_, select, text
 from sqlalchemy.orm import Session
 
 from aggregator_common.models import Article, Brief, BriefTopic, Category, InterestProfile, Source, Thread, ThreadMembership
@@ -588,6 +588,69 @@ def count_suppressed_today(session: Session) -> int:
             ThreadMembership.assigned_at >= today_midnight,
         )
     ).scalar_one()
+
+
+@dataclass
+class LlmStatResult:
+    service: str
+    model: str
+    request_count: int
+    total_cost_usd: Optional[float]
+    avg_cost_usd: Optional[float]
+    avg_prompt_tokens: Optional[float]
+    p95_prompt_tokens: Optional[float]
+    avg_completion_tokens: Optional[float]
+    truncated_count: int
+    error_count: int
+    error_pct: Optional[float]
+    avg_tool_calls: Optional[float]
+    max_tool_calls: Optional[int]
+
+
+def llm_stats(session: Session, days: int) -> List[LlmStatResult]:
+    """Aggregate LLM call stats grouped by (service, model) over the last N days."""
+    sql = text("""
+        SELECT
+            service,
+            model,
+            COUNT(*) AS request_count,
+            SUM(cost_usd) AS total_cost_usd,
+            AVG(cost_usd) AS avg_cost_usd,
+            AVG(prompt_tokens) AS avg_prompt_tokens,
+            percentile_cont(0.95) WITHIN GROUP (ORDER BY prompt_tokens) AS p95_prompt_tokens,
+            AVG(completion_tokens) AS avg_completion_tokens,
+            COUNT(*) FILTER (WHERE finish_reason = 'length') AS truncated_count,
+            COUNT(*) FILTER (WHERE status = 'error') AS error_count,
+            ROUND(
+                100.0 * COUNT(*) FILTER (WHERE status = 'error') / COUNT(*),
+                2
+            ) AS error_pct,
+            AVG(num_tool_calls) AS avg_tool_calls,
+            MAX(num_tool_calls) AS max_tool_calls
+        FROM llm_calls
+        WHERE created_at >= NOW() - INTERVAL '1 day' * :days
+        GROUP BY service, model
+        ORDER BY service, model
+    """)
+    rows = session.execute(sql, {"days": days}).mappings().all()
+    return [
+        LlmStatResult(
+            service=row["service"],
+            model=row["model"],
+            request_count=int(row["request_count"]),
+            total_cost_usd=float(row["total_cost_usd"]) if row["total_cost_usd"] is not None else None,
+            avg_cost_usd=float(row["avg_cost_usd"]) if row["avg_cost_usd"] is not None else None,
+            avg_prompt_tokens=float(row["avg_prompt_tokens"]) if row["avg_prompt_tokens"] is not None else None,
+            p95_prompt_tokens=float(row["p95_prompt_tokens"]) if row["p95_prompt_tokens"] is not None else None,
+            avg_completion_tokens=float(row["avg_completion_tokens"]) if row["avg_completion_tokens"] is not None else None,
+            truncated_count=int(row["truncated_count"]),
+            error_count=int(row["error_count"]),
+            error_pct=float(row["error_pct"]) if row["error_pct"] is not None else None,
+            avg_tool_calls=float(row["avg_tool_calls"]) if row["avg_tool_calls"] is not None else None,
+            max_tool_calls=int(row["max_tool_calls"]) if row["max_tool_calls"] is not None else None,
+        )
+        for row in rows
+    ]
 
 
 def enqueue_brief(session: Session) -> dict:

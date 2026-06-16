@@ -51,6 +51,7 @@ def rank(
     interest_profile_text: str,
     settings: SummarizeRankSettings,
     enabled_categories: Sequence[_CategoryEntry] | None = None,
+    article_id: int | None = None,
 ) -> tuple[RankResult, dict]:
     messages = build_messages(article_input, interest_profile_text, settings, enabled_categories)
     prompt_version = get_prompt_version()
@@ -64,6 +65,7 @@ def rank(
             max_tokens=settings.llm_max_output_tokens,
             temperature=settings.llm_temperature,
             timeout=settings.llm_timeout_seconds,
+            metadata={"service": "summarize_rank", "operation": "rank", "ref_id": str(article_id) if article_id is not None else None},
         )
         try:
             result = _parse_rank_result(response)

@@ -65,6 +65,7 @@ def _make_llm_merge_fn(settings: ClustererSettings) -> Callable[[Thread, Thread]
                 max_tokens=128,
                 temperature=0.0,
                 timeout=settings.clusterer_llm_timeout_seconds,
+                metadata={"service": "clusterer", "operation": "merge"},
             )
             content = response.choices[0].message.content or ""
             data = json.loads(content)

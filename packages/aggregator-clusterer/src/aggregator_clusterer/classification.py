@@ -217,6 +217,7 @@ def classify_article(
             max_tokens=settings.clusterer_llm_max_output_tokens,
             temperature=settings.clusterer_llm_temperature,
             timeout=settings.clusterer_llm_timeout_seconds,
+            metadata={"service": "clusterer", "operation": "classify", "ref_id": str(article.id)},
         )
     except Exception as exc:
         logger.error("LLM call failed during article classification (article_id=%s): %s", article.id, exc)

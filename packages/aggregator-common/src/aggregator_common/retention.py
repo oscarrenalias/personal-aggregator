@@ -10,7 +10,7 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
-from aggregator_common.models import Article, Brief, Thread, ThreadMembership
+from aggregator_common.models import Article, Brief, LlmCall, Thread, ThreadMembership
 
 
 def purge_expired_articles(session: Session, retention_days: int) -> int:
@@ -96,4 +96,24 @@ def purge_expired_briefs(session: Session, retention_days: int) -> int:
         return 0
 
     session.execute(delete(Brief).where(Brief.id.in_(expired_ids)))
+    return len(expired_ids)
+
+
+def purge_expired_llm_calls(session: Session, retention_days: int) -> int:
+    """Delete llm_calls rows older than the retention window.
+
+    Returns the number of rows deleted.
+    """
+    cutoff = datetime.now(timezone.utc) - timedelta(days=retention_days)
+
+    expired_ids: list = list(
+        session.execute(
+            select(LlmCall.id).where(LlmCall.created_at < cutoff)
+        ).scalars().all()
+    )
+
+    if not expired_ids:
+        return 0
+
+    session.execute(delete(LlmCall).where(LlmCall.id.in_(expired_ids)))
     return len(expired_ids)

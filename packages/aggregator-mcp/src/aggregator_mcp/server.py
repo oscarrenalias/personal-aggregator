@@ -629,6 +629,40 @@ def pipeline_status_resource() -> dict:
         return ops.pipeline_status(session)
 
 
+@mcp.resource("status://llm")
+def llm_status_resource() -> dict:
+    """LLM call stats aggregated over the last 7 days, grouped by service and model.
+
+    Returns a dict with:
+    - days: the lookback window (always 7)
+    - stats: list of per-(service, model) aggregates. Each entry contains service,
+      model, request_count, total_cost_usd, avg_cost_usd, avg_prompt_tokens,
+      p95_prompt_tokens, avg_completion_tokens, truncated_count, error_count,
+      error_pct, avg_tool_calls, max_tool_calls.
+
+    No raw prompt text is included.
+    """
+    days = 7
+    with get_session() as session:
+        results = queries.llm_stats(session, days=days)
+    return {"days": days, "stats": [asdict(r) for r in results]}
+
+
+@mcp.tool()
+def llm_stats(days: int = 7) -> dict:
+    """Return LLM call statistics aggregated over the last N days (default 7).
+
+    Grouped by (service, model). Each entry in stats contains: service, model,
+    request_count, total_cost_usd, avg_cost_usd, avg_prompt_tokens, p95_prompt_tokens,
+    avg_completion_tokens, truncated_count, error_count, error_pct, avg_tool_calls,
+    max_tool_calls. No raw prompt text is included.
+    """
+    days = max(1, min(days, 90))
+    with get_session() as session:
+        results = queries.llm_stats(session, days=days)
+    return {"days": days, "stats": [asdict(r) for r in results]}
+
+
 @mcp.prompt()
 def troubleshoot() -> str:
     return (
