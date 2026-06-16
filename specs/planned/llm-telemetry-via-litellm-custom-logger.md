@@ -159,3 +159,23 @@ call it from the janitor sweep; new `JANITOR_LLM_TELEMETRY_RETENTION_DAYS` (defa
 - **Write path**: one INSERT per call via a dedicated session (proposed). If volume ever grows,
   batch/async-queue — not needed at ~1k calls/day.
 - **MCP exposure**: read-only summary only (no raw prompts over MCP).
+
+## Implementation notes (from spec review)
+
+- **Async-loop safety (critical):** `async_log_success_event` runs on LiteLLM's event loop. The
+  DB write uses the **sync** SQLAlchemy session factory, so it MUST run off the loop —
+  `await asyncio.to_thread(_write_row, ...)` (or an executor) — so a slow/failing DB write can
+  never block or stall LiteLLM's loop. Session **acquisition, INSERT, and commit** are all inside
+  the swallow boundary (one broad try/except that logs-and-drops). A test should force an
+  exception in the write path and assert the completion still succeeds and nothing propagates.
+- **LiteLLM registration surfaces:** the `CustomLogger` *instance* → `litellm.callbacks`; the
+  string `"langfuse"` → `litellm.success_callback`. Don't conflate the two.
+- **Defensive field extraction:** `cost` (`litellm.completion_cost`), `cached_tokens`
+  (`usage.prompt_tokens_details.cached_tokens`), `finish_reason`, and `tool_calls` locations vary
+  by provider/LiteLLM version — extract each in its own try/except with safe defaults (0/None);
+  a missing field must never drop the row.
+- **Failure-event metadata:** read `kwargs["litellm_params"]["metadata"]` on
+  `async_log_failure_event` too; default `service='unknown'` if absent so error rows keep
+  attribution (the per-service error-rate criterion depends on it).
+- **Retention owner:** `aggregator-janitor` + `aggregator_common/retention.py` already exist — add
+  `purge_expired_llm_calls` there; do not create a new service.
