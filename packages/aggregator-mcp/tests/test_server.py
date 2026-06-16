@@ -47,10 +47,12 @@ EXPECTED_TOOLS = {
     "reap_stale_claims",
     "retry_failed",
     "rerank",
+    # LLM telemetry
+    "llm_stats",
 }
 
 EXPECTED_RESOURCE_TEMPLATES = {"article://{id}", "feed://{view}", "thread://{id}"}
-EXPECTED_STATIC_RESOURCES = {"profile://interests", "brief://today", "status://pipeline"}
+EXPECTED_STATIC_RESOURCES = {"profile://interests", "brief://today", "status://pipeline", "status://llm"}
 EXPECTED_PROMPTS = {"whats_latest", "daily_brief", "troubleshoot", "whats_developing"}
 
 

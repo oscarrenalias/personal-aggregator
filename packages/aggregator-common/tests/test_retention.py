@@ -1,6 +1,7 @@
 """Tests for aggregator_common.retention purge helpers (real Postgres via testcontainers)."""
 from __future__ import annotations
 
+import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Generator
 
@@ -8,10 +9,11 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from aggregator_common.models import Article, Brief, Source, Thread, ThreadMembership
+from aggregator_common.models import Article, Brief, LlmCall, Source, Thread, ThreadMembership
 from aggregator_common.retention import (
     purge_expired_articles,
     purge_expired_briefs,
+    purge_expired_llm_calls,
     purge_expired_threads,
 )
 from aggregator_common.state import ArticleStatus
@@ -295,3 +297,76 @@ class TestPurgeExpiredBriefs:
         session.commit()
         assert not _row_exists(session, Brief, old_id)
         assert _row_exists(session, Brief, new_id)
+
+
+# ---------------------------------------------------------------------------
+# purge_expired_llm_calls
+# ---------------------------------------------------------------------------
+
+
+def _make_llm_call(session: Session, *, age: datetime = _OLD) -> LlmCall:
+    row = LlmCall(
+        id=uuid.uuid4(),
+        service="test-svc",
+        operation="test-op",
+        model="gpt-4.1-mini",
+        prompt_tokens=10,
+        completion_tokens=5,
+        total_tokens=15,
+        cached_tokens=0,
+        cost_usd=0.001,
+        latency_ms=100,
+        status="success",
+        num_tool_calls=0,
+    )
+    session.add(row)
+    session.flush()
+    session.execute(
+        text("UPDATE llm_calls SET created_at = :ts WHERE id = :id"),
+        {"ts": age, "id": row.id},
+    )
+    return row
+
+
+class TestPurgeExpiredLlmCalls:
+    def test_empty_returns_zero(self, session):
+        session.execute(text("TRUNCATE TABLE llm_calls"))
+        session.commit()
+        assert purge_expired_llm_calls(session, _RETENTION) == 0
+
+    def test_old_row_deleted(self, session):
+        session.execute(text("TRUNCATE TABLE llm_calls"))
+        session.commit()
+        row = _make_llm_call(session, age=_OLD)
+        session.commit()
+        row_id = row.id
+
+        assert purge_expired_llm_calls(session, _RETENTION) == 1
+        session.commit()
+        assert not _row_exists(session, LlmCall, row_id)
+
+    def test_recent_row_retained(self, session):
+        session.execute(text("TRUNCATE TABLE llm_calls"))
+        session.commit()
+        row = _make_llm_call(session, age=_RECENT)
+        session.commit()
+
+        assert purge_expired_llm_calls(session, _RETENTION) == 0
+        assert _row_exists(session, LlmCall, row.id)
+
+    def test_only_old_deleted_when_mixed(self, session):
+        session.execute(text("TRUNCATE TABLE llm_calls"))
+        session.commit()
+        old_row = _make_llm_call(session, age=_OLD)
+        new_row = _make_llm_call(session, age=_RECENT)
+        session.commit()
+        old_id, new_id = old_row.id, new_row.id
+
+        assert purge_expired_llm_calls(session, _RETENTION) == 1
+        session.commit()
+        assert not _row_exists(session, LlmCall, old_id)
+        assert _row_exists(session, LlmCall, new_id)
+
+    def test_importability(self):
+        from aggregator_common.models import LlmCall as _LlmCall  # noqa: F401
+        assert _LlmCall.__tablename__ == "llm_calls"
