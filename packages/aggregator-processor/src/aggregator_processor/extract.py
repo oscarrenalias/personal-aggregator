@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import html as _html
+import re
 from dataclasses import dataclass
 from datetime import datetime
 
 import trafilatura
 
 _EXCERPT_MAX_CHARS = 300
+_TAG_RE = re.compile(r"<[^>]+>")
 
 
 @dataclass
@@ -17,6 +20,13 @@ class ExtractionResult:
     language: str | None
     excerpt: str | None
     word_count: int
+
+
+def _strip_html_summary(text: str) -> str | None:
+    stripped = _TAG_RE.sub(" ", text)
+    unescaped = _html.unescape(stripped)
+    collapsed = " ".join(unescaped.split())
+    return collapsed or None
 
 
 def _trim_at_word_boundary(text: str, max_chars: int) -> str:
@@ -59,7 +69,8 @@ def extract_content(html: str | bytes, fallback: dict) -> ExtractionResult:
     if clean_text:
         excerpt = _trim_at_word_boundary(clean_text, _EXCERPT_MAX_CHARS)
     else:
-        excerpt = fallback.get("feed_summary") or None
+        raw_summary = fallback.get("feed_summary") or None
+        excerpt = _strip_html_summary(raw_summary) if raw_summary else None
 
     word_count = len(clean_text.split()) if clean_text else 0
 

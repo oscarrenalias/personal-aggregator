@@ -476,6 +476,49 @@ def test_article_with_topics_list_renders(db_session, client):
     assert feed.status_code == 200
 
 
+def test_article_card_excerpt_strips_html_tags(db_session, client):
+    """Regression: excerpt stored with HTML markup (e.g. Reddit feed_summary fallback)
+    must not render literal HTML tags in the card excerpt.  The striptags filter
+    in _article_card.html catches existing rows; the processor fix prevents new ones."""
+    src = make_source(db_session)
+    html_excerpt = (
+        '<table><tr><td><a href="https://reddit.com/r/python/comments/abc/article">'
+        "link</a></td><td>&#32; submitted by &#32;"
+        ' <a href="https://reddit.com/u/user">user</a></td></tr></table>'
+    )
+    make_article(
+        db_session,
+        source_id=src.id,
+        dedup_key="reddit-1",
+        clean_title="Reddit Post",
+        excerpt=html_excerpt,
+    )
+    response = client.get(f"/feed/source/{src.id}")
+    assert response.status_code == 200
+    assert "<table>" not in response.text, "HTML tags must not appear in card excerpt"
+    assert "<tr>" not in response.text, "HTML table row tags must not appear in card excerpt"
+    assert "&#32;" not in response.text, "HTML entities must not appear in card excerpt"
+    assert "reddit.com/r/python" not in response.text, "Href from excerpt must not be exposed"
+    # readable text still present
+    assert "submitted by" in response.text or "user" in response.text
+
+
+def test_article_card_excerpt_striptags_is_noop_for_plain_text(db_session, client):
+    """striptags must not alter a clean plain-text excerpt."""
+    src = make_source(db_session)
+    clean_excerpt = "This is a perfectly clean excerpt with no markup."
+    make_article(
+        db_session,
+        source_id=src.id,
+        dedup_key="clean-1",
+        clean_title="Clean Article",
+        excerpt=clean_excerpt,
+    )
+    response = client.get(f"/feed/source/{src.id}")
+    assert response.status_code == 200
+    assert "perfectly clean excerpt" in response.text
+
+
 def test_get_article_detail_not_found(client):
     response = client.get("/article/99999")
     assert response.status_code == 404
