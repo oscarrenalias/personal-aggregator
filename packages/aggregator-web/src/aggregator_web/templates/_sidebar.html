@@ -35,6 +35,9 @@
     <ul class="sidebar-nav-list" role="list">
       <li>
         <a class="sidebar-link"
+           @click="$store.nav.current = 'today'"
+           :class="{ 'is-active': $store.nav.current === 'today' }"
+           :aria-current="$store.nav.current === 'today' ? 'page' : undefined"
            hx-get="/today"
            hx-target="#article-list"
            hx-swap="innerHTML"
@@ -44,8 +47,9 @@
       </li>
       <li>
         <a class="sidebar-link"
-           :class="{ 'is-active': window.location.pathname.startsWith('/threads') }"
-           :aria-current="window.location.pathname.startsWith('/threads') ? 'page' : undefined"
+           @click="$store.nav.current = 'threads'"
+           :class="{ 'is-active': $store.nav.current === 'threads' }"
+           :aria-current="$store.nav.current === 'threads' ? 'page' : undefined"
            hx-get="/threads"
            hx-target="#article-list"
            hx-swap="innerHTML"
@@ -62,6 +66,9 @@
     <ul class="sidebar-nav-list" role="list">
       <li>
         <a class="sidebar-link"
+           @click="$store.nav.current = 'smart/all'"
+           :class="{ 'is-active': $store.nav.current === 'smart/all' }"
+           :aria-current="$store.nav.current === 'smart/all' ? 'page' : undefined"
            hx-get="/feed/smart/all"
            hx-target="#article-list"
            hx-swap="innerHTML"
@@ -76,6 +83,9 @@
       </li>
       <li>
         <a class="sidebar-link"
+           @click="$store.nav.current = 'smart/unread'"
+           :class="{ 'is-active': $store.nav.current === 'smart/unread' }"
+           :aria-current="$store.nav.current === 'smart/unread' ? 'page' : undefined"
            hx-get="/feed/smart/unread"
            hx-target="#article-list"
            hx-swap="innerHTML"
@@ -94,6 +104,9 @@
       </li>
       <li>
         <a class="sidebar-link"
+           @click="$store.nav.current = 'smart/saved'"
+           :class="{ 'is-active': $store.nav.current === 'smart/saved' }"
+           :aria-current="$store.nav.current === 'smart/saved' ? 'page' : undefined"
            hx-get="/feed/smart/saved"
            hx-target="#article-list"
            hx-swap="innerHTML"
@@ -108,6 +121,9 @@
       </li>
       <li>
         <a class="sidebar-link"
+           @click="$store.nav.current = 'smart/important'"
+           :class="{ 'is-active': $store.nav.current === 'smart/important' }"
+           :aria-current="$store.nav.current === 'smart/important' ? 'page' : undefined"
            hx-get="/feed/smart/important"
            hx-target="#article-list"
            hx-swap="innerHTML"
@@ -122,6 +138,9 @@
       </li>
       <li>
         <a class="sidebar-link"
+           @click="$store.nav.current = 'smart/uncategorized'"
+           :class="{ 'is-active': $store.nav.current === 'smart/uncategorized' }"
+           :aria-current="$store.nav.current === 'smart/uncategorized' ? 'page' : undefined"
            hx-get="/feed/smart/uncategorized"
            hx-target="#article-list"
            hx-swap="innerHTML"
@@ -158,6 +177,10 @@
       {% for cat in categories %}
       <li>
         <a class="sidebar-link{% if not show_unread_counts %} sidebar-link--stacked{% endif %}"
+           data-nav-key="category/{{ cat.name | e }}"
+           @click="$store.nav.current = $el.dataset.navKey"
+           :class="{ 'is-active': $store.nav.current === $el.dataset.navKey }"
+           :aria-current="$store.nav.current === $el.dataset.navKey ? 'page' : undefined"
            hx-get="/feed/category/{{ cat.name | urlencode }}"
            hx-target="#article-list"
            hx-swap="innerHTML"
@@ -196,6 +219,9 @@
       {% for source in sources %}
       <li>
         <a class="sidebar-link"
+           @click="$store.nav.current = 'source/{{ source.id }}'"
+           :class="{ 'is-active': $store.nav.current === 'source/{{ source.id }}' }"
+           :aria-current="$store.nav.current === 'source/{{ source.id }}' ? 'page' : undefined"
            hx-get="/feed/source/{{ source.id }}"
            hx-target="#article-list"
            hx-swap="innerHTML"
