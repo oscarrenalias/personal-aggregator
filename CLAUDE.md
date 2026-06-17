@@ -203,6 +203,8 @@ At process startup, every service calls `aggregator_common.load_env()` (python-d
 | `CLUSTERER_SURFACE_MIN_MEMBERS` | `3` | Minimum article member count required to surface a thread |
 | `CLUSTERER_MERGE_SIMILARITY_FLOOR` | `0.35` | Minimum composite similarity score required to consider merging two threads |
 | `CLUSTERER_MAX_MERGE_CHECKS` | `20` | Maximum candidate thread pairs checked for merging per consolidation cycle |
+| `CLUSTERER_INCREMENTAL_MERGE` | `true` | Only re-evaluate thread pairs that changed since the last consolidation pass; set `false` to always sweep all pairs |
+| `CLUSTERER_MERGE_VERDICT_CACHE` | `true` | Cache per-pair LLM merge verdicts in the database to skip redundant LLM calls; set `false` to disable caching |
 | `CLUSTERER_THREAD_VIEW_MAX_AGE_DAYS` | `7` | Maximum age in days for threads shown in the default thread view |
 | `CLUSTERER_SECTION_TITLE_BLOCKLIST` | `["top stories","home",…]` | JSON array of RSS section/category titles too generic to use as thread titles |
 | `CLUSTERER_CONSOLIDATION_MIN_INTERVAL_MINUTES` | `10` | Minimum minutes between consolidation passes; explicit recluster bypasses this floor |

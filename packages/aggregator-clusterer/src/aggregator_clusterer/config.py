@@ -52,3 +52,7 @@ class ClustererSettings(BaseSettings):
 
     # Classifier candidate limit
     clusterer_max_classifier_candidates: int = Field(5, description="Maximum candidate threads passed to the LLM classifier per article")
+
+    # Incremental merge and verdict cache feature flags
+    clusterer_incremental_merge: bool = Field(True, description="Only re-evaluate thread pairs that changed since the last consolidation pass")
+    clusterer_merge_verdict_cache: bool = Field(True, description="Cache per-pair LLM merge verdicts in the database to avoid redundant LLM calls")
