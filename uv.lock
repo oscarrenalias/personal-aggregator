@@ -45,12 +45,20 @@ dependencies = [
     { name = "uvicorn", extra = ["standard"] },
 ]
 
+[package.dev-dependencies]
+dev = [
+    { name = "httpx" },
+]
+
 [package.metadata]
 requires-dist = [
     { name = "aggregator-common", editable = "packages/aggregator-common" },
     { name = "fastapi", specifier = ">=0.110" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.29" },
 ]
+
+[package.metadata.requires-dev]
+dev = [{ name = "httpx", specifier = ">=0.27" }]
 
 [[package]]
 name = "aggregator-brief"
