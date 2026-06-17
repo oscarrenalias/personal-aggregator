@@ -17,13 +17,14 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Callable
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from aggregator_common.management import merge_threads
-from aggregator_common.models import Article, Thread, ThreadMembership
+from aggregator_common.models import Article, Thread, ThreadMembership, ThreadMergeVerdict
 from aggregator_clusterer.config import ClustererSettings
 from aggregator_clusterer.scoring import compute_surfaced
 
@@ -60,11 +61,17 @@ def _jaccard(a: frozenset, b: frozenset) -> float:
 def find_merge_candidates(
     session: Session,
     settings: ClustererSettings,
+    *,
+    changed_since: datetime | None = None,
 ) -> list[tuple[int, int]]:
     """Return (keep_id, absorb_id) pairs whose similarity meets the merge floor.
 
     keep_id is always the lower integer id; absorb_id the higher. Read-only —
     does not modify any state.
+
+    When changed_since is provided and settings.clusterer_incremental_merge is
+    True, stale×stale pairs (both threads last_updated < changed_since) are
+    excluded. A changed thread is still scored against all other active threads.
     """
     threads: list[Thread] = list(
         session.execute(
@@ -137,10 +144,18 @@ def find_merge_candidates(
 
     # Compute a composite similarity score for each unordered pair.
     floor = settings.clusterer_merge_similarity_floor
+    incremental = changed_since is not None and settings.clusterer_incremental_merge
     scored: list[tuple[float, int, int]] = []
 
     for i, ta_t in enumerate(threads):
         for tb_t in threads[i + 1:]:
+            # Skip stale×stale pairs when incremental mode is active.
+            if incremental and (
+                ta_t.last_updated < changed_since  # type: ignore[operator]
+                and tb_t.last_updated < changed_since  # type: ignore[operator]
+            ):
+                continue
+
             lo, hi = (ta_t.id, tb_t.id) if ta_t.id < tb_t.id else (tb_t.id, ta_t.id)
 
             entity_overlap = _jaccard(
@@ -166,22 +181,46 @@ def find_merge_candidates(
     return [(lo, hi) for _, lo, hi in scored]
 
 
+def _upsert_merge_verdict(session: Session, keep: Thread, absorb: Thread) -> None:
+    """Upsert a negative merge verdict row for the (keep, absorb) pair.
+
+    keep.id must be < absorb.id (normalized key convention).
+    """
+    verdict = ThreadMergeVerdict(
+        keep_id=keep.id,
+        absorb_id=absorb.id,
+        keep_last_updated=keep.last_updated,
+        absorb_last_updated=absorb.last_updated,
+        decided_at=datetime.now(timezone.utc),
+    )
+    session.merge(verdict)
+
+
 def run_merge_pass(
     session: Session,
     settings: ClustererSettings,
     llm_classify_fn: Callable[[Thread, Thread], bool],
+    *,
+    changed_since: datetime | None = None,
+    bypass_verdict_cache: bool = False,
 ) -> int:
     """Merge near-duplicate thread pairs confirmed by llm_classify_fn.
 
     Iterates candidates from find_merge_candidates up to
     clusterer_max_merge_checks LLM calls. Returns the number of merges
     performed. llm_classify_fn is injectable so tests can stub the LLM call.
+
+    changed_since is forwarded to find_merge_candidates for incremental scoping.
+    bypass_verdict_cache disables cache reads for this pass (used on explicit
+    recluster so operators always get a fresh full evaluation).
     """
-    candidates = find_merge_candidates(session, settings)
+    candidates = find_merge_candidates(session, settings, changed_since=changed_since)
 
     max_checks = settings.clusterer_max_merge_checks
+    use_cache = settings.clusterer_merge_verdict_cache and not bypass_verdict_cache
     llm_calls = 0
     merge_count = 0
+    cache_skips = 0
     absorbed: set[int] = set()
 
     for keep_id, absorb_id in candidates:
@@ -196,6 +235,19 @@ def run_merge_pass(
         absorb = session.get(Thread, absorb_id)
         if keep is None or absorb is None:
             continue
+
+        # Cache lookup — skip the LLM call when a prior negative verdict exists
+        # and neither thread has been updated since it was decided.
+        # Normalized key: keep_id=min, absorb_id=max (guaranteed by find_merge_candidates).
+        if use_cache:
+            cache_key = (min(keep.id, absorb.id), max(keep.id, absorb.id))
+            verdict = session.get(ThreadMergeVerdict, cache_key)
+            if verdict is not None and (
+                keep.last_updated <= verdict.keep_last_updated
+                and absorb.last_updated <= verdict.absorb_last_updated
+            ):
+                cache_skips += 1
+                continue
 
         llm_calls += 1
 
@@ -214,7 +266,15 @@ def run_merge_pass(
             absorbed.add(absorb_id)
             merge_count += 1
             logger.info("merged thread %s into %s", absorb_id, keep_id)
+        elif use_cache:
+            _upsert_merge_verdict(session, keep, absorb)
 
+    logger.info(
+        "merge pass complete: merges=%d llm_calls=%d cache_skips=%d",
+        merge_count,
+        llm_calls,
+        cache_skips,
+    )
     return merge_count
 
 
@@ -280,14 +340,27 @@ def run_consolidation_pass(
     session: Session,
     settings: ClustererSettings,
     llm_merge_fn: Callable[[Thread, Thread], bool],
+    *,
+    changed_since: datetime | None = None,
+    bypass_verdict_cache: bool = False,
 ) -> ConsolidationResult:
     """Run merge and surfacing sub-passes in order and return a summary.
 
     Calls run_merge_pass and run_surfacing_pass sequentially. Hard deletion of
     expired threads is handled by the dedicated janitor service, not here.
     The session is not committed here — callers are responsible for commit/rollback.
+
+    changed_since scopes the merge pass to thread pairs updated since that time
+    (incremental mode). bypass_verdict_cache forces fresh LLM evaluation for all
+    candidates regardless of cached verdicts.
     """
-    merges = run_merge_pass(session, settings, llm_merge_fn)
+    merges = run_merge_pass(
+        session,
+        settings,
+        llm_merge_fn,
+        changed_since=changed_since,
+        bypass_verdict_cache=bypass_verdict_cache,
+    )
     curated = run_surfacing_pass(session, settings)
     logger.info(
         "consolidation pass complete: merges=%d surfaced=%d",

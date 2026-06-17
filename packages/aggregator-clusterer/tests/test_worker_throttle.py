@@ -116,35 +116,43 @@ class TestMarkConsolidationDone:
 
 class TestCheckShouldConsolidate:
     def test_returns_false_when_no_row(self, db_session):
-        assert _check_should_consolidate(db_session, _settings()) is False
+        should, _ = _check_should_consolidate(db_session, _settings())
+        assert not should
 
     def test_returns_false_when_not_dirty(self, db_session):
         _insert_cluster_state(db_session, dirty=False)
-        assert _check_should_consolidate(db_session, _settings()) is False
+        should, _ = _check_should_consolidate(db_session, _settings())
+        assert not should
 
     def test_returns_true_when_dirty_and_never_consolidated(self, db_session):
         # last_consolidated_at = NULL → treated as epoch → always >= min_interval
         _insert_cluster_state(db_session, dirty=True, last_consolidated_at=None)
-        assert _check_should_consolidate(db_session, _settings(min_interval_minutes=10)) is True
+        should, lca = _check_should_consolidate(db_session, _settings(min_interval_minutes=10))
+        assert should
+        assert lca is None
 
     def test_returns_false_when_dirty_but_within_window(self, db_session):
         # Last consolidation 2 minutes ago, window is 10 minutes → too soon
         recent = datetime.now(tz=timezone.utc) - timedelta(minutes=2)
         _insert_cluster_state(db_session, dirty=True, last_consolidated_at=recent)
-        assert _check_should_consolidate(db_session, _settings(min_interval_minutes=10)) is False
+        should, _ = _check_should_consolidate(db_session, _settings(min_interval_minutes=10))
+        assert not should
 
     def test_returns_true_when_dirty_and_past_window(self, db_session):
         # Last consolidation 15 minutes ago, window is 10 minutes → should run
         old = datetime.now(tz=timezone.utc) - timedelta(minutes=15)
         _insert_cluster_state(db_session, dirty=True, last_consolidated_at=old)
-        assert _check_should_consolidate(db_session, _settings(min_interval_minutes=10)) is True
+        should, lca = _check_should_consolidate(db_session, _settings(min_interval_minutes=10))
+        assert should
+        assert lca is not None
 
     def test_returns_false_exactly_at_boundary(self, db_session):
         # Exactly at the boundary: elapsed == min_interval → should run (>=)
         # but set to 9m 59s → should NOT run
         just_under = datetime.now(tz=timezone.utc) - timedelta(seconds=599)
         _insert_cluster_state(db_session, dirty=True, last_consolidated_at=just_under)
-        assert _check_should_consolidate(db_session, _settings(min_interval_minutes=10)) is False
+        should, _ = _check_should_consolidate(db_session, _settings(min_interval_minutes=10))
+        assert not should
 
 
 # ---------------------------------------------------------------------------
@@ -165,7 +173,8 @@ class TestIdleClustererMakesNoLLMCalls:
         """
         settings = _settings(min_interval_minutes=10)
         # No cluster_state row inserted → row is absent.
-        assert _check_should_consolidate(db_session, settings) is False
+        should, _ = _check_should_consolidate(db_session, settings)
+        assert not should
 
     def test_dirty_cleared_after_consolidation_prevents_second_run(self, db_session):
         """After consolidation marks dirty=false, a subsequent check must return False."""
@@ -175,14 +184,16 @@ class TestIdleClustererMakesNoLLMCalls:
         settings = _settings(min_interval_minutes=10)
 
         # First check: should consolidate
-        assert _check_should_consolidate(db_session, settings) is True
+        should, _ = _check_should_consolidate(db_session, settings)
+        assert should
 
         # Simulate consolidation completing
         _mark_consolidation_done(db_session)
         db_session.flush()
 
         # Second check within the window: dirty=false → must NOT consolidate
-        assert _check_should_consolidate(db_session, settings) is False
+        should2, _ = _check_should_consolidate(db_session, settings)
+        assert not should2
 
     def test_second_drain_within_window_does_not_retrigger(self, db_session):
         """After consolidation, a drained cycle within MIN_INTERVAL must not re-run."""
@@ -195,4 +206,5 @@ class TestIdleClustererMakesNoLLMCalls:
         # Even if dirty was re-set now, the window prevents consolidation.
         _set_dirty_flag(db_session)
         db_session.flush()
-        assert _check_should_consolidate(db_session, settings) is False
+        should, _ = _check_should_consolidate(db_session, settings)
+        assert not should
