@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Callable
 
 from sqlalchemy import func, select
@@ -60,11 +61,17 @@ def _jaccard(a: frozenset, b: frozenset) -> float:
 def find_merge_candidates(
     session: Session,
     settings: ClustererSettings,
+    *,
+    changed_since: datetime | None = None,
 ) -> list[tuple[int, int]]:
     """Return (keep_id, absorb_id) pairs whose similarity meets the merge floor.
 
     keep_id is always the lower integer id; absorb_id the higher. Read-only —
     does not modify any state.
+
+    When changed_since is provided and settings.clusterer_incremental_merge is
+    True, stale×stale pairs (both threads last_updated < changed_since) are
+    excluded. A changed thread is still scored against all other active threads.
     """
     threads: list[Thread] = list(
         session.execute(
@@ -137,10 +144,18 @@ def find_merge_candidates(
 
     # Compute a composite similarity score for each unordered pair.
     floor = settings.clusterer_merge_similarity_floor
+    incremental = changed_since is not None and settings.clusterer_incremental_merge
     scored: list[tuple[float, int, int]] = []
 
     for i, ta_t in enumerate(threads):
         for tb_t in threads[i + 1:]:
+            # Skip stale×stale pairs when incremental mode is active.
+            if incremental and (
+                ta_t.last_updated < changed_since  # type: ignore[operator]
+                and tb_t.last_updated < changed_since  # type: ignore[operator]
+            ):
+                continue
+
             lo, hi = (ta_t.id, tb_t.id) if ta_t.id < tb_t.id else (tb_t.id, ta_t.id)
 
             entity_overlap = _jaccard(
