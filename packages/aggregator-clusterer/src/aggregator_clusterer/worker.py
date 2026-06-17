@@ -118,17 +118,27 @@ def _set_dirty_flag(session: Session) -> None:
     )
 
 
-def _check_should_consolidate(session: Session, settings: ClustererSettings) -> bool:
-    """Return True if dirty=true and enough time has passed since last consolidation."""
+def _check_should_consolidate(
+    session: Session, settings: ClustererSettings
+) -> tuple[bool, datetime | None]:
+    """Return (should_consolidate, last_consolidated_at).
+
+    Returns (True, last_consolidated_at) when dirty=true and the minimum
+    interval has elapsed. last_consolidated_at is None on the first ever pass.
+    Returns (False, None) otherwise. Reading last_consolidated_at here avoids
+    a separate DB query at the call site.
+    """
     row = session.execute(
         text("SELECT dirty, last_consolidated_at FROM cluster_state WHERE id = true")
     ).one_or_none()
     if row is None or not row.dirty:
-        return False
+        return False, None
     min_interval = timedelta(minutes=settings.clusterer_consolidation_min_interval_minutes)
     epoch = datetime.fromtimestamp(0, tz=timezone.utc)
     elapsed = datetime.now(tz=timezone.utc) - (row.last_consolidated_at or epoch)
-    return elapsed >= min_interval
+    if elapsed >= min_interval:
+        return True, row.last_consolidated_at
+    return False, None
 
 
 def _mark_consolidation_done(session: Session) -> None:
@@ -314,19 +324,24 @@ def _run_one_cycle(
         # - Otherwise, only consolidate if dirty=true AND elapsed >= MIN_INTERVAL.
         # An idle clusterer (no new articles, dirty never set) makes zero LLM calls.
         consolidate_trigger: str | None = None
+        changed_since_for_consolidation: datetime | None = None
         if recluster_triggered:
             consolidate_trigger = "recluster-request"
+            # changed_since_for_consolidation stays None → full sweep
         elif not stop_event.is_set():
             check_session = session_factory()
             try:
-                if _check_should_consolidate(check_session, settings):
+                should, last_consolidated_at = _check_should_consolidate(check_session, settings)
+                if should:
                     consolidate_trigger = "dirty-threshold"
+                    changed_since_for_consolidation = last_consolidated_at
             except Exception:
                 logger.exception("Error checking consolidation eligibility")
             finally:
                 check_session.close()
 
         if consolidate_trigger is not None and not stop_event.is_set():
+            bypass_cache = consolidate_trigger == "recluster-request"
             logger.info("Starting consolidation pass (trigger=%s)", consolidate_trigger)
             consol_session = session_factory()
             try:
@@ -334,6 +349,8 @@ def _run_one_cycle(
                     consol_session,
                     settings,
                     _make_llm_merge_fn(settings),
+                    changed_since=changed_since_for_consolidation,
+                    bypass_verdict_cache=bypass_cache,
                 )
                 _mark_consolidation_done(consol_session)
                 consol_session.commit()

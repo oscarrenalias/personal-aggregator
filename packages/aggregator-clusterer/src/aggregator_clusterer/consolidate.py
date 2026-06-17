@@ -200,17 +200,24 @@ def run_merge_pass(
     session: Session,
     settings: ClustererSettings,
     llm_classify_fn: Callable[[Thread, Thread], bool],
+    *,
+    changed_since: datetime | None = None,
+    bypass_verdict_cache: bool = False,
 ) -> int:
     """Merge near-duplicate thread pairs confirmed by llm_classify_fn.
 
     Iterates candidates from find_merge_candidates up to
     clusterer_max_merge_checks LLM calls. Returns the number of merges
     performed. llm_classify_fn is injectable so tests can stub the LLM call.
+
+    changed_since is forwarded to find_merge_candidates for incremental scoping.
+    bypass_verdict_cache disables cache reads for this pass (used on explicit
+    recluster so operators always get a fresh full evaluation).
     """
-    candidates = find_merge_candidates(session, settings)
+    candidates = find_merge_candidates(session, settings, changed_since=changed_since)
 
     max_checks = settings.clusterer_max_merge_checks
-    use_cache = settings.clusterer_merge_verdict_cache
+    use_cache = settings.clusterer_merge_verdict_cache and not bypass_verdict_cache
     llm_calls = 0
     merge_count = 0
     cache_skips = 0
@@ -333,14 +340,27 @@ def run_consolidation_pass(
     session: Session,
     settings: ClustererSettings,
     llm_merge_fn: Callable[[Thread, Thread], bool],
+    *,
+    changed_since: datetime | None = None,
+    bypass_verdict_cache: bool = False,
 ) -> ConsolidationResult:
     """Run merge and surfacing sub-passes in order and return a summary.
 
     Calls run_merge_pass and run_surfacing_pass sequentially. Hard deletion of
     expired threads is handled by the dedicated janitor service, not here.
     The session is not committed here — callers are responsible for commit/rollback.
+
+    changed_since scopes the merge pass to thread pairs updated since that time
+    (incremental mode). bypass_verdict_cache forces fresh LLM evaluation for all
+    candidates regardless of cached verdicts.
     """
-    merges = run_merge_pass(session, settings, llm_merge_fn)
+    merges = run_merge_pass(
+        session,
+        settings,
+        llm_merge_fn,
+        changed_since=changed_since,
+        bypass_verdict_cache=bypass_verdict_cache,
+    )
     curated = run_surfacing_pass(session, settings)
     logger.info(
         "consolidation pass complete: merges=%d surfaced=%d",
