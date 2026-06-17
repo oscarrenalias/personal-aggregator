@@ -307,7 +307,7 @@ def healthz() -> JSONResponse:
 
 @app.get("/")
 def index(request: Request) -> Response:
-    return templates.TemplateResponse(request, "shell.html", {})
+    return templates.TemplateResponse(request, "shell.html", {"initial_nav_key": "smart/all"})
 
 
 @app.get("/sidebar")

@@ -27,6 +27,13 @@
        exist when the alpine:init event fires. No defer — runs synchronously during
        head parse; safe because app.js only defines functions (no DOM access). -->
   <script src="/static/app.js"></script>
+  <!-- Seed the nav store with the server-supplied initial key so $store.nav.current
+       is correct on a fresh load or hard refresh before any click occurs. -->
+  <script>
+    document.addEventListener('alpine:init', () => {
+      window.Alpine.store('nav', { current: '{{ initial_nav_key | default("smart/all") }}' });
+    });
+  </script>
   <!-- Alpine.js (defer keeps it non-blocking; must precede htmx for x-cloak to work) -->
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.1/dist/cdn.min.js"></script>
   <!-- HTMX -->
