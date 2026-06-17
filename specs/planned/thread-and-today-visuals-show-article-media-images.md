@@ -1,7 +1,7 @@
 ---
 name: "Thread and Today visuals: show article media images"
 id: spec-d7622e88
-description: "Make Threads and Today (brief) views visually richer by surfacing a representative image from member/referenced articles' header_image_url (already extracted by the processor for ~87% of articles). Adds ThreadResult.image_url (best member image), per-topic/hero images on the brief, thumbnails on the thread list + hero on detail, with graceful no-image fallback. No schema change."
+description: "Make Threads and Today (brief) views visually richer by surfacing a representative image from member/referenced articles' header_image_url (already extracted by the processor for ~87% of articles). Adds ThreadResult.image_url (best member image), per-topic images on the brief, thumbnails on the thread list + hero on detail, with graceful no-image fallback. No schema change. No top-level brief hero (removed as duplicate of first topic thumbnail)."
 dependencies: null
 priority: medium
 complexity: null
@@ -51,9 +51,13 @@ In `aggregator_common.queries`, surface a thread-level `image_url`:
 
 For the Today/brief view, resolve an image for each `BriefTopic` from its `topic_refs`
 (article references): look up the referenced articles' `header_image_url` and pick one
-(highest importance, then most recent). Optionally also a single hero image for the brief
-headline (the top topic's image). Resolve in the today/brief route (`app.py`) — one batched
+(highest importance, then most recent). Resolve in the today/brief route (`app.py`) — one batched
 query over the referenced article ids, not per-ref.
+
+> **Decision (B-2f04249a):** A top-level brief hero image (derived from the first topic's image)
+> was tried and removed because it duplicated the first topic's thumbnail immediately below,
+> creating visual redundancy. **Do not re-add a brief-level hero image.** Per-topic thumbnails
+> are sufficient.
 
 ### 3. Rendering
 
@@ -62,8 +66,8 @@ query over the referenced article ids, not per-ref.
   without one keep the current text-only layout (no broken image, no layout shift).
 - **Thread detail** (`_thread_detail.html`): a larger hero image at the top when present
   (mirroring the article reader's `detail-hero` treatment).
-- **Today/brief** (today templates): a thumbnail per topic and/or a hero image for the brief,
-  shown only when an image is available.
+- **Today/brief** (today templates): a thumbnail per topic shown only when an image is
+  available. No top-level brief hero (see decision note in §2 above).
 
 ### 4. Styling & robustness
 
@@ -91,8 +95,8 @@ query over the referenced article ids, not per-ref.
   that has one (most-recent tie-break), or `None` when none do — covered by a unit test.
 - Threads list shows a thumbnail for threads with an image and is unchanged (no gap/placeholder)
   for those without; thread detail shows a hero image when present.
-- Today/brief shows a per-topic image (and/or brief hero) drawn from the topic's referenced
-  articles when available, and renders cleanly when none are.
+- Today/brief shows a per-topic image drawn from the topic's referenced articles when
+  available, and renders cleanly when none are. No top-level brief hero image.
 - Image resolution adds no N+1 (batched queries); no schema change.
 - Missing/empty image URLs never produce a broken-image icon or layout shift.
 - Focused aggregator-common + aggregator-web tests pass; full gate green.
