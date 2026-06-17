@@ -365,6 +365,23 @@ button {
   #reader-content {
     padding: 16px;
   }
+
+  /* Reading text font-size overrides */
+  .summary-block,
+  .summary-block p {
+    font-size: 1rem;
+    line-height: 1.6;
+  }
+
+  .detail-body,
+  .detail-body p {
+    font-size: 1rem;
+    line-height: 1.6;
+  }
+
+  .card-excerpt {
+    font-size: 0.95rem;
+  }
 }
 
 
