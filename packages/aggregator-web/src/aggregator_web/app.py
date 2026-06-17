@@ -258,6 +258,7 @@ def _render_feed(
     cursor: Optional[str],
     newest_id: int = 0,
     sort: str = "relevance",
+    view_title: str = "",
 ) -> Response:
     _enrich_articles(page.articles, session)
     next_url = _build_next_url(base_url, page.next_cursor, unread_only, sort)
@@ -285,6 +286,7 @@ def _render_feed(
             "base_url": base_url,
             "unread_only": unread_only,
             "sort": sort,
+            "view_title": view_title,
         },
     )
 
@@ -362,6 +364,14 @@ def sidebar(request: Request, db: Session = Depends(get_db)) -> Response:
 
 _VALID_SORT_VALUES = {"relevance", "newest"}
 
+VIEW_LABELS: dict = {
+    "smart/all": "All",
+    "smart/unread": "Unread",
+    "smart/saved": "Saved",
+    "smart/important": "Important",
+    "smart/uncategorized": "Uncategorized",
+}
+
 
 def _normalize_sort(sort: str) -> str:
     return sort if sort in _VALID_SORT_VALUES else "relevance"
@@ -394,7 +404,11 @@ def feed_smart(
         important_threshold=settings.web_important_threshold,
         unread_only=unread_only,
     )
-    return _render_feed(request, page, db, f"/feed/smart/{view}", unread_only, hx_request, cursor, newest_id=newest_id, sort=sort)
+    return _render_feed(
+        request, page, db, f"/feed/smart/{view}", unread_only, hx_request, cursor,
+        newest_id=newest_id, sort=sort,
+        view_title=VIEW_LABELS[f"smart/{view}"],
+    )
 
 
 @app.get("/feed/category/{name}")
