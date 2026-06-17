@@ -19,7 +19,9 @@
     next_url trigger (or omit it when the final page is reached).
 #}
 {% if view_title %}
-<h2 class="feed-view-title">{{ view_title }}</h2>
+<div class="list-pane-header">
+  <span class="list-pane-title">{{ view_title }}</span>
+</div>
 {% endif %}
 <div id="article-list"
      x-data="{ ...articleList(), baseUrl: '{{ base_url }}', sortMode: '{{ sort }}', unreadOnly: {{ 'true' if unread_only else 'false' }} }"
