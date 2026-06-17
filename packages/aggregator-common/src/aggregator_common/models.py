@@ -311,6 +311,21 @@ class ClusterState(Base):
     last_consolidated_at: Mapped[Optional[datetime]] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
 
 
+class ThreadMergeVerdict(Base):
+    __tablename__ = "thread_merge_verdicts"
+
+    # keep_id < absorb_id enforced by convention; PK is composite
+    keep_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("threads.id", ondelete="CASCADE"), primary_key=True
+    )
+    absorb_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("threads.id", ondelete="CASCADE"), primary_key=True
+    )
+    keep_last_updated: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), nullable=False)
+    absorb_last_updated: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), nullable=False)
+    decided_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), nullable=False)
+
+
 class LlmCall(Base):
     __tablename__ = "llm_calls"
     __table_args__ = (
