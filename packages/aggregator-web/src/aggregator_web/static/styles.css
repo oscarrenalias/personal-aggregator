@@ -2006,5 +2006,32 @@ button {
   .card-excerpt {
     font-size: 0.95rem;
   }
+
+  /* ── Thread member table: stack cells vertically on mobile ── */
+  .thread-members-table thead {
+    display: none;
+  }
+
+  .thread-members-table tr {
+    display: block;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--c-border-subtle);
+  }
+
+  .thread-members-table tr:last-child {
+    border-bottom: none;
+  }
+
+  .thread-members-table td {
+    display: block;
+    padding: 2px 0;
+    border-bottom: none;
+  }
+
+  .member-date {
+    white-space: normal;
+    font-size: 11px;
+    width: auto;
+  }
 }
 
