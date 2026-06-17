@@ -17,6 +17,10 @@
      hx-target="this"
      hx-swap="innerHTML">
 
+  <div class="list-pane-header">
+    <span class="list-pane-title">{% if show_dismissed %}Dismissed Threads{% else %}Threads{% endif %}</span>
+  </div>
+
   <div class="feed-controls thread-controls">
     <div class="feed-sort-toggle" role="group" aria-label="Sort order">
       <button class="sort-btn{% if sort != 'recent' %} active{% endif %}"

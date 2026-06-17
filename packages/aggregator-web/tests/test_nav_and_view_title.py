@@ -5,9 +5,10 @@ Covers:
   - Each smart-view route passes the correct view_title from VIEW_LABELS.
   - Category route passes view_title equal to the loaded category name.
   - Source route passes view_title equal to the loaded source name.
-  - A full _article_list.html render (non-fragment) contains the feed-view-title heading.
+  - A full _article_list.html render (non-fragment) contains the list-pane-header heading.
   - A fragment request (HX-Request + cursor) omits the heading entirely.
   - HTML-special characters in category/source names are escaped in the heading.
+  - Thread list renders a list-pane-title heading ("Threads" or "Dismissed Threads").
 """
 from __future__ import annotations
 
@@ -44,7 +45,7 @@ def test_smart_all_view_title(db_session, client):
     make_article(db_session, source_id=src.id)
     response = client.get("/feed/smart/all")
     assert response.status_code == 200
-    assert "feed-view-title" in response.text
+    assert "list-pane-title" in response.text
     assert VIEW_LABELS["smart/all"] in response.text
 
 
@@ -54,7 +55,7 @@ def test_smart_unread_view_title(db_session, client):
     make_article(db_session, source_id=src.id, is_read=False)
     response = client.get("/feed/smart/unread")
     assert response.status_code == 200
-    assert "feed-view-title" in response.text
+    assert "list-pane-title" in response.text
     assert VIEW_LABELS["smart/unread"] in response.text
 
 
@@ -64,7 +65,7 @@ def test_smart_saved_view_title(db_session, client):
     make_article(db_session, source_id=src.id, is_saved=True)
     response = client.get("/feed/smart/saved")
     assert response.status_code == 200
-    assert "feed-view-title" in response.text
+    assert "list-pane-title" in response.text
     assert VIEW_LABELS["smart/saved"] in response.text
 
 
@@ -74,7 +75,7 @@ def test_smart_important_view_title(db_session, client):
     make_article(db_session, source_id=src.id, importance_score=90)
     response = client.get("/feed/smart/important")
     assert response.status_code == 200
-    assert "feed-view-title" in response.text
+    assert "list-pane-title" in response.text
     assert VIEW_LABELS["smart/important"] in response.text
 
 
@@ -84,7 +85,7 @@ def test_smart_uncategorized_view_title(db_session, client):
     make_article(db_session, source_id=src.id, categories=None)
     response = client.get("/feed/smart/uncategorized")
     assert response.status_code == 200
-    assert "feed-view-title" in response.text
+    assert "list-pane-title" in response.text
     assert VIEW_LABELS["smart/uncategorized"] in response.text
 
 
@@ -100,7 +101,7 @@ def test_category_view_title_equals_category_name(db_session, client):
     make_article(db_session, source_id=src.id, categories=["technology"])
     response = client.get("/feed/category/technology")
     assert response.status_code == 200
-    assert "feed-view-title" in response.text
+    assert "list-pane-title" in response.text
     assert "technology" in response.text
 
 
@@ -110,7 +111,7 @@ def test_category_view_title_falls_back_to_url_name(db_session, client):
     make_article(db_session, source_id=src.id, categories=["orphan"])
     response = client.get("/feed/category/orphan")
     assert response.status_code == 200
-    assert "feed-view-title" in response.text
+    assert "list-pane-title" in response.text
     assert "orphan" in response.text
 
 
@@ -121,7 +122,7 @@ def test_category_view_title_html_chars_escaped(db_session, client):
     make_article(db_session, source_id=src.id, categories=["tech & science"])
     response = client.get("/feed/category/tech%20%26%20science")
     assert response.status_code == 200
-    assert "feed-view-title" in response.text
+    assert "list-pane-title" in response.text
     assert "&amp;" in response.text
     assert "tech & science".replace("&", "&amp;") in response.text
 
@@ -137,7 +138,7 @@ def test_source_view_title_equals_source_name(db_session, client):
     make_article(db_session, source_id=src.id)
     response = client.get(f"/feed/source/{src.id}")
     assert response.status_code == 200
-    assert "feed-view-title" in response.text
+    assert "list-pane-title" in response.text
     assert "My RSS Feed" in response.text
 
 
@@ -147,12 +148,13 @@ def test_source_view_title_equals_source_name(db_session, client):
 
 
 def test_full_render_contains_view_title_heading(db_session, client):
-    """A full (non-fragment) feed response renders <h2 class="feed-view-title">."""
+    """A full (non-fragment) feed response renders .list-pane-header with a .list-pane-title span."""
     src = make_source(db_session)
     make_article(db_session, source_id=src.id)
     response = client.get("/feed/smart/all")
     assert response.status_code == 200
-    assert '<h2 class="feed-view-title">' in response.text
+    assert 'class="list-pane-header"' in response.text
+    assert 'class="list-pane-title"' in response.text
     assert VIEW_LABELS["smart/all"] in response.text
 
 
@@ -177,4 +179,39 @@ def test_fragment_render_omits_view_title_heading(db_session, client, monkeypatc
         headers={"HX-Request": "true"},
     )
     assert response.status_code == 200
-    assert "feed-view-title" not in response.text
+    assert "list-pane-title" not in response.text
+
+
+# ---------------------------------------------------------------------------
+# Thread list — list-pane-title header
+# ---------------------------------------------------------------------------
+
+
+def test_thread_list_renders_list_pane_header(client, db_session):
+    """GET /threads (HTMX) renders a .list-pane-header with a .list-pane-title span."""
+    response = client.get("/threads", headers={"HX-Request": "true"})
+    assert response.status_code == 200
+    assert 'class="list-pane-header"' in response.text
+    assert 'class="list-pane-title"' in response.text
+
+
+def test_thread_list_title_text_is_threads(client, db_session):
+    """Default thread list shows 'Threads' as the title text."""
+    response = client.get("/threads", headers={"HX-Request": "true"})
+    assert response.status_code == 200
+    assert "Threads" in response.text
+
+
+def test_thread_list_dismissed_view_title_is_dismissed_threads(client, db_session):
+    """show_dismissed=true thread list shows 'Dismissed Threads' as the title text."""
+    response = client.get("/threads?show_dismissed=true", headers={"HX-Request": "true"})
+    assert response.status_code == 200
+    assert "Dismissed Threads" in response.text
+
+
+def test_today_renders_list_pane_style_header(client, db_session):
+    """GET /today renders the .brief-list-header/.brief-list-title header (Today reference style)."""
+    response = client.get("/today", headers={"HX-Request": "true"})
+    assert response.status_code == 200
+    assert "brief-list-header" in response.text
+    assert "brief-list-title" in response.text

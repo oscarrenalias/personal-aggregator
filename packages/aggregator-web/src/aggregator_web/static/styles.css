@@ -879,15 +879,6 @@ button {
 }
 
 
-/* ── Feed view heading (shown above sort/filter controls) ────── */
-.feed-view-title {
-  margin: 0;
-  padding: 10px 12px 6px;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--c-text-2);
-  border-bottom: 1px solid var(--c-border-subtle);
-}
 
 /* ── Feed controls header (sort + hide-read toggles) ─────────── */
 .feed-controls {
@@ -1201,8 +1192,9 @@ button {
    TODAY'S BRIEF — list pane
    ================================================================ */
 
-/* ── List-pane header ────────────────────────────────────────── */
-.brief-list-header {
+/* ── List-pane header (shared: Today, feeds, threads) ────────── */
+.brief-list-header,
+.list-pane-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1211,7 +1203,8 @@ button {
   flex-shrink: 0;
 }
 
-.brief-list-title {
+.brief-list-title,
+.list-pane-title {
   font-size: 13px;
   font-weight: 600;
   letter-spacing: 0.04em;
