@@ -1983,3 +1983,28 @@ button {
   color: var(--c-accent-light);
 }
 
+
+/* ================================================================
+   MOBILE READING-TEXT SIZE (phones ≤639px)
+   Placed at end of file so it wins the cascade over the base
+   .summary-block / .card-excerpt rules (a media query adds no
+   specificity, so source order decides on equal-specificity rules).
+   ================================================================ */
+@media (max-width: 639px) {
+  .summary-block,
+  .summary-block p {
+    font-size: 1rem;
+    line-height: 1.6;
+  }
+
+  .detail-body,
+  .detail-body p {
+    font-size: 1rem;
+    line-height: 1.6;
+  }
+
+  .card-excerpt {
+    font-size: 0.95rem;
+  }
+}
+
