@@ -112,7 +112,7 @@
     {% endif %}
 
     {% if excerpt_text %}
-    <p class="card-excerpt">{{ excerpt_text | truncate(220) }}</p>
+    <p class="card-excerpt">{{ excerpt_text | striptags | truncate(220) }}</p>
     {% endif %}
 
   </div>
