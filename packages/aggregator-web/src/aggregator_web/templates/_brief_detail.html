@@ -5,17 +5,6 @@
 #}
 <div id="brief-detail" class="brief-detail">
 
-  {# ── Brief hero image ───────────────────────────────────────── #}
-  {% if brief_hero_image_url %}
-  <div class="detail-hero">
-    <img src="{{ brief_hero_image_url | e }}"
-         alt=""
-         loading="lazy"
-         decoding="async"
-         onerror="this.closest('.detail-hero').remove()">
-  </div>
-  {% endif %}
-
   <header class="brief-detail-header">
     <h1 class="brief-detail-headline">{{ brief.headline or "Daily Brief" }}</h1>
     <div class="brief-detail-meta">
