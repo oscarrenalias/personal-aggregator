@@ -17,22 +17,37 @@ _CSS_PATH = (
 
 
 def _extract_mobile_block(css: str) -> str:
-    """Return the content between @media (max-width: 639px) { ... }."""
-    start = css.find("@media (max-width: 639px)")
-    assert start != -1, "@media (max-width: 639px) block not found in styles.css"
-    # Walk forward matching braces to find the closing brace of the block.
-    depth = 0
-    i = css.index("{", start)
-    block_start = i
-    while i < len(css):
-        if css[i] == "{":
-            depth += 1
-        elif css[i] == "}":
-            depth -= 1
-            if depth == 0:
-                return css[block_start + 1 : i]
-        i += 1
-    raise AssertionError("Unclosed @media block in styles.css")
+    """Return the concatenated contents of all @media (max-width: 639px) blocks.
+
+    The stylesheet may contain more than one ``@media (max-width: 639px)`` block
+    (e.g. layout overrides near the top and reading-text overrides appended at the
+    end so they win the cascade). Concatenate them all so the assertions find the
+    rules regardless of which block they live in.
+    """
+    marker = "@media (max-width: 639px)"
+    blocks: list[str] = []
+    search_from = 0
+    while True:
+        start = css.find(marker, search_from)
+        if start == -1:
+            break
+        depth = 0
+        i = css.index("{", start)
+        block_start = i
+        while i < len(css):
+            if css[i] == "{":
+                depth += 1
+            elif css[i] == "}":
+                depth -= 1
+                if depth == 0:
+                    blocks.append(css[block_start + 1 : i])
+                    search_from = i + 1
+                    break
+            i += 1
+        else:
+            raise AssertionError("Unclosed @media block in styles.css")
+    assert blocks, "@media (max-width: 639px) block not found in styles.css"
+    return "\n".join(blocks)
 
 
 
