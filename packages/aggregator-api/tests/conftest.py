@@ -30,27 +30,59 @@ _MIGRATIONS_DIR = _COMMON_ROOT / "src" / "aggregator_common" / "migrations"
 _NOW = datetime(2025, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
 
 
-def _ensure_docker_host() -> None:
+import socket as _socket
+
+
+def _ensure_docker_host() -> str | None:
+    """Return the resolved DOCKER_HOST path, or None if no socket is found."""
     if "DOCKER_HOST" in os.environ:
-        return
+        return os.environ["DOCKER_HOST"]
     if Path("/var/run/docker.sock").exists():
         os.environ["DOCKER_HOST"] = "unix:///var/run/docker.sock"
-        return
+        return os.environ["DOCKER_HOST"]
     orbstack = Path.home() / ".orbstack" / "run" / "docker.sock"
     if orbstack.exists():
         os.environ["DOCKER_HOST"] = f"unix://{orbstack}"
-        return
-    raise RuntimeError(
-        "No Docker socket found. Ensure Docker or OrbStack is running. "
-        "OrbStack socket expected at ~/.orbstack/run/docker.sock."
-    )
+        return os.environ["DOCKER_HOST"]
+    return None
+
+
+def _docker_is_responsive() -> bool:
+    """Return True only when the Docker daemon is actually answering HTTP.
+
+    The OrbStack socket may exist on disk even when OrbStack is paused; a
+    low-level connect succeeds but the first read times out.  We probe with a
+    2-second timeout so the fixture fails fast instead of waiting 60 s.
+    """
+    docker_host = os.environ.get("DOCKER_HOST", "")
+    sock_path = docker_host.replace("unix://", "") if docker_host.startswith("unix://") else None
+    if not sock_path:
+        return False
+    s = _socket.socket(_socket.AF_UNIX, _socket.SOCK_STREAM)
+    s.settimeout(2)
+    try:
+        s.connect(sock_path)
+        s.sendall(b"GET /version HTTP/1.0\r\nHost: localhost\r\n\r\n")
+        data = s.recv(64)
+        return bool(data)
+    except (_socket.timeout, OSError):
+        return False
+    finally:
+        s.close()
 
 
 @pytest.fixture(scope="session")
 def db_engine():
     from testcontainers.postgres import PostgresContainer
 
-    _ensure_docker_host()
+    docker_host = _ensure_docker_host()
+    if docker_host is None:
+        pytest.skip("No Docker socket found — Docker or OrbStack must be running")
+    if not _docker_is_responsive():
+        pytest.skip(
+            "Docker socket exists but daemon is not responding "
+            "(OrbStack may be paused — start it and retry)"
+        )
 
     with PostgresContainer("postgres:16") as postgres:
         raw_url = postgres.get_connection_url()
