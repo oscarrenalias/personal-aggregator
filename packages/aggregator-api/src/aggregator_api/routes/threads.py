@@ -3,10 +3,14 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from aggregator_common import queries
+from aggregator_common import management, queries
 
 from aggregator_api.dependencies import get_db
 from aggregator_api.models import PaginatedResponse, ThreadMemberResponse, ThreadResponse
+
+_UNAUTHENTICATED_NOTE = (
+    "Unauthenticated state-changing endpoint — must remain behind the network perimeter until the auth phase lands."
+)
 
 router = APIRouter(prefix="/threads", tags=["threads"])
 
@@ -54,3 +58,21 @@ def get_thread_members(thread_id: int, db: Session = Depends(get_db)):
         items=[ThreadMemberResponse(**vars(m)) for m in members],
         next_cursor=None,
     )
+
+
+@router.post("/{thread_id}/dismiss", response_model=ThreadResponse, description=_UNAUTHENTICATED_NOTE)
+def dismiss_thread(thread_id: int, db: Session = Depends(get_db)):
+    updated = management.set_thread_dismissed(db, thread_id, True)
+    if updated is None:
+        raise HTTPException(status_code=404, detail=f"Thread {thread_id} not found")
+    result = queries.get_thread(db, thread_id)
+    return ThreadResponse(**vars(result))
+
+
+@router.post("/{thread_id}/restore", response_model=ThreadResponse, description=_UNAUTHENTICATED_NOTE)
+def restore_thread(thread_id: int, db: Session = Depends(get_db)):
+    updated = management.set_thread_dismissed(db, thread_id, False)
+    if updated is None:
+        raise HTTPException(status_code=404, detail=f"Thread {thread_id} not found")
+    result = queries.get_thread(db, thread_id)
+    return ThreadResponse(**vars(result))

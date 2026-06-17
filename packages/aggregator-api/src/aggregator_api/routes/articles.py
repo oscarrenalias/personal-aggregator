@@ -8,6 +8,10 @@ from aggregator_common import queries
 from aggregator_api.dependencies import get_db
 from aggregator_api.models import ArticleResponse, PaginatedResponse
 
+_UNAUTHENTICATED_NOTE = (
+    "Unauthenticated state-changing endpoint — must remain behind the network perimeter until the auth phase lands."
+)
+
 router = APIRouter(prefix="/articles", tags=["articles"])
 
 _VALID_VIEWS = {"all", "unread", "important", "saved", "today", "uncategorized"}
@@ -73,3 +77,39 @@ def get_article(article_id: int, db: Session = Depends(get_db)):
     except ValueError:
         raise HTTPException(status_code=404, detail=f"Article {article_id} not found")
     return ArticleResponse(**vars(result))
+
+
+@router.post("/{article_id}/read", response_model=ArticleResponse, description=_UNAUTHENTICATED_NOTE)
+def mark_article_read(article_id: int, db: Session = Depends(get_db)):
+    try:
+        result = queries.mark_read(db, article_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail=f"Article {article_id} not found")
+    return ArticleResponse(**result)
+
+
+@router.post("/{article_id}/unread", response_model=ArticleResponse, description=_UNAUTHENTICATED_NOTE)
+def mark_article_unread(article_id: int, db: Session = Depends(get_db)):
+    try:
+        result = queries.mark_unread(db, article_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail=f"Article {article_id} not found")
+    return ArticleResponse(**result)
+
+
+@router.post("/{article_id}/save", response_model=ArticleResponse, description=_UNAUTHENTICATED_NOTE)
+def save_article(article_id: int, db: Session = Depends(get_db)):
+    try:
+        result = queries.save_article(db, article_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail=f"Article {article_id} not found")
+    return ArticleResponse(**result)
+
+
+@router.post("/{article_id}/unsave", response_model=ArticleResponse, description=_UNAUTHENTICATED_NOTE)
+def unsave_article(article_id: int, db: Session = Depends(get_db)):
+    try:
+        result = queries.unsave_article(db, article_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail=f"Article {article_id} not found")
+    return ArticleResponse(**result)
