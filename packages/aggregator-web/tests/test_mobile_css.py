@@ -86,6 +86,27 @@ def test_card_excerpt_font_size_in_rem() -> None:
     ), ".card-excerpt rule does not have font-size in rem"
 
 
+def test_thread_members_table_stacks_on_mobile() -> None:
+    """thread-members-table thead must be hidden and td must be block on mobile."""
+    css = _CSS_PATH.read_text()
+    block = _extract_mobile_block(css)
+    assert re.search(
+        r"\.thread-members-table\s+thead\s*\{[^}]*display\s*:\s*none", block, re.DOTALL
+    ), ".thread-members-table thead { display: none } not found in mobile block"
+    assert re.search(
+        r"\.thread-members-table\s+td\s*\{[^}]*display\s*:\s*block", block, re.DOTALL
+    ), ".thread-members-table td { display: block } not found in mobile block"
+
+
+def test_member_date_wraps_on_mobile() -> None:
+    """member-date must allow wrapping (white-space: normal) in the mobile block."""
+    css = _CSS_PATH.read_text()
+    block = _extract_mobile_block(css)
+    assert re.search(
+        r"\.member-date\s*\{[^}]*white-space\s*:\s*normal", block, re.DOTALL
+    ), ".member-date { white-space: normal } not found in mobile block"
+
+
 def test_no_root_html_font_size_in_mobile_block() -> None:
     css = _CSS_PATH.read_text()
     block = _extract_mobile_block(css)
