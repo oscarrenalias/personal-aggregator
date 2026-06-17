@@ -1,0 +1,23 @@
+[project]
+name = "aggregator-api"
+version = "0.1.0"
+description = "JSON REST API for the personal aggregator (mobile and TUI clients)"
+requires-python = ">=3.12"
+dependencies = [
+    "aggregator-common",
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.29",
+]
+
+[project.scripts]
+aggregator-api = "aggregator_api.__main__:main"
+
+[tool.uv.sources]
+aggregator-common = { workspace = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/aggregator_api"]
