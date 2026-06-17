@@ -776,7 +776,7 @@ def threads_index(
     db: Session = Depends(get_db),
 ) -> Response:
     sort = _normalize_thread_sort(sort)
-    threads = list_threads(db, sort=sort, include_dismissed=show_dismissed)
+    threads, _ = list_threads(db, sort=sort, include_dismissed=show_dismissed)
     ctx = {"threads": threads, "sort": sort, "base_url": "/threads", "show_dismissed": show_dismissed}
     if hx_request:
         return templates.TemplateResponse(request, "_thread_list.html", ctx)
