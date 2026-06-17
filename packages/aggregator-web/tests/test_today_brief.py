@@ -468,6 +468,53 @@ def test_brief_detail_date_uses_period_start_not_generated_at(db_session, client
     assert "13 Jun 2025" not in html
 
 
+def test_brief_detail_no_top_level_hero_image_when_topic_has_image(db_session, client):
+    """Regression: GET /brief/{id} must NOT render a top-level hero image even when
+    the first topic's article has a header_image_url.
+
+    Pre-fix: _attach_brief_images set brief.hero_image_url = <first topic img> and
+    the template rendered a .detail-hero block — so the first topic's image appeared
+    twice (once as the top-level hero, once inside the topic section).
+
+    Post-fix: brief.hero_image_url is never set and the .detail-hero block is gone;
+    the per-topic .today-topic-image still renders exactly once.
+    """
+    from conftest import make_source, make_article
+
+    src = make_source(db_session, name="Hero Test Feed")
+    article = make_article(
+        db_session,
+        source_id=src.id,
+        dedup_key="hero-article-1",
+        feed_title="Hero Article",
+    )
+    # Patch header_image_url directly so the image_map picks it up
+    article.header_image_url = "https://example.com/hero.jpg"
+    db_session.flush()
+    db_session.commit()
+
+    brief = make_brief(db_session, headline="Hero Test Brief")
+    make_brief_topic(
+        db_session,
+        brief_id=brief.id,
+        headline="Topic With Image",
+        topic_refs=[
+            {"internal": True, "article_id": article.id, "url": None, "title": "Hero Article"}
+        ],
+    )
+
+    response = client.get(f"/brief/{brief.id}")
+    assert response.status_code == 200
+    html = response.text
+
+    # Top-level hero must be absent
+    assert "detail-hero" not in html
+
+    # Per-topic image must still render
+    assert "today-topic-image" in html
+    assert "https://example.com/hero.jpg" in html
+
+
 def test_today_refresh_period_uses_local_midnight(client, db_session):
     """POST /today/refresh creates a brief whose period_start is local-timezone midnight,
     not UTC midnight — matching the period boundaries used by the auto-brief scheduler.

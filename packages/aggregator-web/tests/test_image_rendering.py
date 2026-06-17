@@ -351,34 +351,8 @@ class TestAttachBriefImagesBatching:
         assert topic1.image_url == "https://example.com/ais1.jpg"
         assert topic2.image_url == "https://example.com/ais2.jpg"
 
-    def test_hero_image_url_set_from_first_topic_with_image(self, db_session):
-        """brief.hero_image_url is taken from the first topic that has an image."""
-        from aggregator_web.app import _attach_brief_images
-
-        src = Source(name="Hero Img Source", feed_url="https://his.example.com/feed.xml")
-        db_session.add(src)
-        db_session.flush()
-
-        art = Article(
-            source_id=src.id, dedup_key="his-art-1", status="ready",
-            raw_payload={}, retrieved_at=_NOW,
-            header_image_url="https://example.com/hero.jpg",
-            importance_score=85,
-        )
-        db_session.add(art)
-        db_session.flush()
-        db_session.commit()
-        db_session.refresh(art)
-
-        topic = SimpleNamespace(topic_refs=[{"internal": True, "article_id": art.id}])
-        brief = SimpleNamespace(topics=[topic])
-
-        _attach_brief_images([brief], db_session)
-
-        assert brief.hero_image_url == "https://example.com/hero.jpg"
-
-    def test_hero_image_url_none_when_no_internal_refs(self, db_session):
-        """brief.hero_image_url is None when topics have only external refs."""
+    def test_topic_image_none_when_no_internal_refs(self, db_session):
+        """topic.image_url is None when topics have only external refs (no hero image is set)."""
         from aggregator_web.app import _attach_brief_images
 
         topic = SimpleNamespace(
@@ -388,7 +362,6 @@ class TestAttachBriefImagesBatching:
 
         _attach_brief_images([brief], db_session)
 
-        assert brief.hero_image_url is None
         assert topic.image_url is None
 
 
@@ -611,27 +584,6 @@ class TestBriefDetailImageRendering:
         assert response.status_code == 200
         assert "onerror" in response.text
         assert "remove()" in response.text
-
-    def test_brief_detail_shows_hero_image_when_first_topic_has_image(self, client, db_session):
-        src = _make_source(db_session, "Brief Hero Source")
-        art = _make_article(
-            db_session, src.id, "brief-hero-1",
-            importance_score=85,
-            header_image_url="https://example.com/brief-hero.jpg",
-        )
-        brief = _make_brief(db_session, headline="Brief With Hero")
-        _make_brief_topic(
-            db_session,
-            brief.id,
-            topic_refs=[{"internal": True, "article_id": art.id, "title": "Ref"}],
-        )
-
-        response = client.get(f"/brief/{brief.id}")
-        assert response.status_code == 200
-        html = response.text
-        # hero image comes from brief.hero_image_url context var
-        assert "detail-hero" in html
-        assert "https://example.com/brief-hero.jpg" in html
 
     def test_brief_detail_no_hero_when_no_images(self, client, db_session):
         brief = _make_brief(db_session, headline="Brief No Hero")

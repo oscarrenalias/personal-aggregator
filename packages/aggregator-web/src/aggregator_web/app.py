@@ -194,13 +194,9 @@ def _attach_brief_images(briefs: List[Brief], session: Session) -> None:
             }
 
     for brief in briefs:
-        brief_hero: Optional[str] = None
         for topic in brief.topics:
             img = _pick_topic_image(topic.topic_refs or [], image_map)
             topic.image_url = img  # type: ignore[attr-defined]
-            if img and brief_hero is None:
-                brief_hero = img
-        brief.hero_image_url = brief_hero  # type: ignore[attr-defined]
 
 
 def _render_interaction_response(
@@ -728,7 +724,7 @@ def brief_detail_view(
     return templates.TemplateResponse(
         request,
         "_brief_detail.html",
-        {"brief": brief, "brief_hero_image_url": brief.hero_image_url},
+        {"brief": brief},
     )
 
 
