@@ -878,6 +878,16 @@ button {
 }
 
 
+/* ── Feed view heading (shown above sort/filter controls) ────── */
+.feed-view-title {
+  margin: 0;
+  padding: 10px 12px 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--c-text-2);
+  border-bottom: 1px solid var(--c-border-subtle);
+}
+
 /* ── Feed controls header (sort + hide-read toggles) ─────────── */
 .feed-controls {
   display: flex;
