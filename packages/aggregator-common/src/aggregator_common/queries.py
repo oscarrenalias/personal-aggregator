@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import base64
+import json
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Dict, List, Literal, Optional
+from typing import Dict, List, Literal, Optional, Tuple
 
 from sqlalchemy import and_, exists, func, or_, select, text
 from sqlalchemy.orm import Session
@@ -14,6 +16,37 @@ ViewName = Literal["all", "unread", "important", "saved", "uncategorized", "toda
 
 _DEFAULT_IMPORTANT_THRESHOLD = 70
 _DEFAULT_LIMIT = 50
+
+
+def _encode_cursor(values: tuple) -> str:
+    payload = json.dumps(list(values), default=str)
+    return base64.urlsafe_b64encode(payload.encode()).decode()
+
+
+def _decode_cursor(cursor: str) -> tuple:
+    payload = base64.urlsafe_b64decode(cursor.encode()).decode()
+    return tuple(json.loads(payload))
+
+
+def _article_keyset_filter(cursor_fp: Optional[str], cursor_id: int):
+    """WHERE condition that restricts to rows after (feed_published_at, id) in DESC NULLS LAST order."""
+    if cursor_fp is None:
+        return and_(Article.feed_published_at.is_(None), Article.id < cursor_id)
+    cursor_dt = datetime.fromisoformat(cursor_fp)
+    return or_(
+        Article.feed_published_at < cursor_dt,
+        and_(Article.feed_published_at == cursor_dt, Article.id < cursor_id),
+        Article.feed_published_at.is_(None),
+    )
+
+
+def _thread_keyset_filter(cursor_lu: str, cursor_id: int):
+    """WHERE condition that restricts to rows after (last_updated, id) in DESC order."""
+    cursor_dt = datetime.fromisoformat(cursor_lu)
+    return or_(
+        Thread.last_updated < cursor_dt,
+        and_(Thread.last_updated == cursor_dt, Thread.id < cursor_id),
+    )
 
 
 @dataclass
@@ -189,8 +222,13 @@ def search_articles(
     category: Optional[str] = None,
     source_id: Optional[int] = None,
     since: Optional[datetime] = None,
-) -> List[ArticleResult]:
-    """Full-text search using websearch_to_tsquery, honoring optional filters."""
+    cursor: Optional[str] = None,
+) -> Tuple[List[ArticleResult], Optional[str]]:
+    """Full-text search using websearch_to_tsquery, honoring optional filters.
+
+    Returns (results, next_cursor). next_cursor is None when there are no further pages.
+    Pass cursor to fetch the next page; omit for the first page (behaviour is identical to before).
+    """
     filters = [
         _ready_base(),
         Article.search_vector.op("@@")(func.websearch_to_tsquery("english", query)),
@@ -201,11 +239,22 @@ def search_articles(
         filters.append(Article.source_id == source_id)
     if since is not None:
         filters.append(Article.feed_published_at >= since)
+    if cursor is not None:
+        cursor_fp, cursor_id = _decode_cursor(cursor)
+        filters.append(_article_keyset_filter(cursor_fp, int(cursor_id)))
 
     q = _default_order(select(Article).where(*filters)).limit(limit)
     articles = list(session.execute(q).scalars().all())
     names = _resolve_source_names(articles, session)
-    return [_to_result(a, names.get(a.source_id)) for a in articles]
+    results = [_to_result(a, names.get(a.source_id)) for a in articles]
+    next_cursor: Optional[str] = None
+    if len(articles) == limit:
+        last = articles[-1]
+        next_cursor = _encode_cursor((
+            last.feed_published_at.isoformat() if last.feed_published_at else None,
+            last.id,
+        ))
+    return results, next_cursor
 
 
 def list_articles(
@@ -217,8 +266,13 @@ def list_articles(
     unread_only: bool = False,
     limit: int = _DEFAULT_LIMIT,
     important_threshold: int = _DEFAULT_IMPORTANT_THRESHOLD,
-) -> List[ArticleResult]:
-    """List articles by view with optional category/source/unread filters."""
+    cursor: Optional[str] = None,
+) -> Tuple[List[ArticleResult], Optional[str]]:
+    """List articles by view with optional category/source/unread filters.
+
+    Returns (results, next_cursor). next_cursor is None when there are no further pages.
+    Pass cursor to fetch the next page; omit for the first page (behaviour is identical to before).
+    """
     filters = [_ready_base()]
 
     if view == "unread":
@@ -250,11 +304,22 @@ def list_articles(
         filters.append(Article.source_id == source_id)
     if unread_only and view != "unread":
         filters.append(Article.is_read == False)
+    if cursor is not None:
+        cursor_fp, cursor_id = _decode_cursor(cursor)
+        filters.append(_article_keyset_filter(cursor_fp, int(cursor_id)))
 
     q = _default_order(select(Article).where(*filters)).limit(limit)
     articles = list(session.execute(q).scalars().all())
     names = _resolve_source_names(articles, session)
-    return [_to_result(a, names.get(a.source_id)) for a in articles]
+    results = [_to_result(a, names.get(a.source_id)) for a in articles]
+    next_cursor: Optional[str] = None
+    if len(articles) == limit:
+        last = articles[-1]
+        next_cursor = _encode_cursor((
+            last.feed_published_at.isoformat() if last.feed_published_at else None,
+            last.id,
+        ))
+    return results, next_cursor
 
 
 def _get_article_orm(session: Session, article_id: int) -> Article:
@@ -429,12 +494,17 @@ def list_threads(
     limit: int = _DEFAULT_LIMIT,
     offset: int = 0,
     include_dismissed: bool = False,
-) -> List[ThreadResult]:
+    cursor: Optional[str] = None,
+) -> Tuple[List[ThreadResult], Optional[str]]:
     """List surfaced threads updated within the last 7 days.
 
     By default dismissed threads are excluded. Pass include_dismissed=True to include them
     (e.g. for a 'Show dismissed' view). get_thread and get_thread_members always return
     dismissed threads by id regardless of this parameter.
+
+    Returns (results, next_cursor). next_cursor is None when there are no further pages.
+    Pass cursor to fetch the next page; omit for the first page (behaviour is identical to before).
+    cursor and offset are mutually exclusive; cursor takes precedence when both are supplied.
     """
     cutoff = datetime.now(tz=timezone.utc) - timedelta(days=7)
     filters: list = [
@@ -445,17 +515,21 @@ def list_threads(
         filters.append(Thread.dismissed == False)
     if status is not None:
         filters.append(Thread.status == status)
+    if cursor is not None:
+        cursor_lu, cursor_id = _decode_cursor(cursor)
+        filters.append(_thread_keyset_filter(str(cursor_lu), int(cursor_id)))
     order = (
         (Thread.last_updated.desc(),)
         if sort == "recent"
         else (Thread.top_grade.desc().nulls_last(), Thread.last_updated.desc())
     )
+    effective_offset = 0 if cursor is not None else offset
     q = (
         select(Thread)
         .where(*filters)
         .order_by(*order)
         .limit(limit)
-        .offset(offset)
+        .offset(effective_offset)
     )
     threads = list(session.execute(q).scalars().all())
 
@@ -492,7 +566,12 @@ def list_threads(
         ).all()
         image_urls = {row.thread_id: row.header_image_url for row in img_rows}
 
-    return [_to_thread_result(t, member_counts.get(t.id, 0), image_urls.get(t.id)) for t in threads]
+    thread_results = [_to_thread_result(t, member_counts.get(t.id, 0), image_urls.get(t.id)) for t in threads]
+    next_cursor: Optional[str] = None
+    if len(threads) == limit:
+        last = threads[-1]
+        next_cursor = _encode_cursor((last.last_updated.isoformat(), last.id))
+    return thread_results, next_cursor
 
 
 def get_thread(session: Session, thread_id: int) -> Optional[ThreadResult]:

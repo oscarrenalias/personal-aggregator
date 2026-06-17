@@ -17,6 +17,7 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session, selectinload
 
+from aggregator_api.app import app as api_app
 from aggregator_common.db import SessionFactory, get_session
 from aggregator_common.management import enqueue_recluster, mark_thread_viewed, set_thread_dismissed
 from aggregator_common.models import Article, Brief, BriefTopic, Category, Source
@@ -61,6 +62,7 @@ _brief_tz = ZoneInfo(settings.brief_timezone)
 app = FastAPI(title="personal-aggregator web")
 
 app.mount("/static", StaticFiles(directory=_BASE_DIR / "static"), name="static")
+app.mount("/api/v1", api_app)
 templates = Jinja2Templates(directory=_BASE_DIR / "templates")
 
 

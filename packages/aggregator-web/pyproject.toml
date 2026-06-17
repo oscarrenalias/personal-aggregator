@@ -5,6 +5,7 @@ description = "FastAPI + HTMX + Alpine.js PWA web UI for the personal aggregator
 requires-python = ">=3.12"
 dependencies = [
     "aggregator-common",
+    "aggregator-api",
     "fastapi>=0.110",
     "uvicorn[standard]>=0.29",
     "jinja2>=3.1",
@@ -16,6 +17,7 @@ aggregator-web = "aggregator_web.__main__:main"
 
 [tool.uv.sources]
 aggregator-common = { workspace = true }
+aggregator-api = { workspace = true }
 
 [dependency-groups]
 dev = ["httpx>=0.27"]

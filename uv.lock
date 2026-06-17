@@ -193,6 +193,7 @@ name = "aggregator-web"
 version = "0.1.0"
 source = { editable = "packages/aggregator-web" }
 dependencies = [
+    { name = "aggregator-api" },
     { name = "aggregator-common" },
     { name = "fastapi" },
     { name = "jinja2" },
@@ -207,6 +208,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "aggregator-api", editable = "packages/aggregator-api" },
     { name = "aggregator-common", editable = "packages/aggregator-common" },
     { name = "fastapi", specifier = ">=0.110" },
     { name = "jinja2", specifier = ">=3.1" },

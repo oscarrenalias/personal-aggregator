@@ -30,7 +30,7 @@ def search_articles(
     limit = min(limit, _settings.mcp_max_limit)
     since_dt = datetime.fromisoformat(since) if since is not None else None
     with get_session() as session:
-        results = queries.search_articles(
+        results, _ = queries.search_articles(
             session, query, limit=limit, since=since_dt, category=category, source_id=source_id
         )
     return [asdict(r) for r in results]
@@ -46,7 +46,7 @@ def list_articles(
 ) -> list:
     limit = min(limit, _settings.mcp_max_limit)
     with get_session() as session:
-        results = queries.list_articles(
+        results, _ = queries.list_articles(
             session, view, category=category, source_id=source_id, unread_only=unread_only, limit=limit
         )
     return [asdict(r) for r in results]
@@ -60,7 +60,7 @@ def list_threads(
 ) -> list:
     limit = min(limit, _settings.mcp_max_limit)
     with get_session() as session:
-        results = queries.list_threads(session, sort=sort, status=status, limit=limit)  # type: ignore[arg-type]
+        results, _ = queries.list_threads(session, sort=sort, status=status, limit=limit)  # type: ignore[arg-type]
     return [asdict(r) for r in results]
 
 
@@ -171,7 +171,7 @@ def article_resource(id: int) -> dict:
 @mcp.resource("feed://{view}")
 def feed_resource(view: str) -> list:
     with get_session() as session:
-        results = queries.list_articles(session, view)
+        results, _ = queries.list_articles(session, view)
     return [asdict(r) for r in results]
 
 
