@@ -8,7 +8,12 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from aggregator_processor.extract import ExtractionResult, _trim_at_word_boundary, extract_content
+from aggregator_processor.extract import (
+    ExtractionResult,
+    _strip_html_summary,
+    _trim_at_word_boundary,
+    extract_content,
+)
 
 
 def _meta(title=None, author=None, date=None, language=None):
@@ -283,3 +288,85 @@ class TestExtractContent:
         assert result.clean_title == "Fallback Title"
         assert result.word_count == 0
         assert result.language is None
+
+    def test_html_feed_summary_stripped_when_no_clean_text(self):
+        """Regression: Reddit RSS puts raw HTML in feed_summary; excerpt must be clean text."""
+        reddit_summary = (
+            '&#32; submitted by &#32; <a href="https://reddit.com/u/user">user</a>'
+            ' &#32; <a href="https://reddit.com/r/python/comments/abc/article">'
+            "23 comments</a>"
+        )
+        html = b"<html><body></body></html>"
+        meta = _meta()
+        fallback = {"feed_summary": reddit_summary}
+
+        with (
+            patch("trafilatura.load_html") as mock_load,
+            patch("trafilatura.extract_metadata", return_value=meta),
+            patch("trafilatura.extract", return_value=None),
+        ):
+            mock_load.return_value = MagicMock()
+            result = extract_content(html, fallback)
+
+        assert result.excerpt is not None
+        assert "<" not in result.excerpt, "HTML tags must be stripped from excerpt"
+        assert "&#" not in result.excerpt, "HTML entities must be unescaped in excerpt"
+        assert "submitted by" in result.excerpt
+        assert "user" in result.excerpt
+
+    def test_html_only_feed_summary_returns_none_when_empty_after_strip(self):
+        """Excerpt must be None when feed_summary contains only tags/whitespace."""
+        html = b"<html><body></body></html>"
+        meta = _meta()
+        fallback = {"feed_summary": "  <br/><br/>  "}
+
+        with (
+            patch("trafilatura.load_html") as mock_load,
+            patch("trafilatura.extract_metadata", return_value=meta),
+            patch("trafilatura.extract", return_value=None),
+        ):
+            mock_load.return_value = MagicMock()
+            result = extract_content(html, fallback)
+
+        assert result.excerpt is None
+
+
+# ---------------------------------------------------------------------------
+# _strip_html_summary helper
+# ---------------------------------------------------------------------------
+
+
+class TestStripHtmlSummary:
+    def test_strips_tags_and_unescapes_entities(self):
+        result = _strip_html_summary('&#32; submitted by <a href="x">user</a>')
+        assert result is not None
+        assert "<" not in result
+        assert "&#" not in result
+        assert "submitted by" in result
+        assert "user" in result
+
+    def test_plain_text_unchanged(self):
+        result = _strip_html_summary("Clean plain text excerpt")
+        assert result == "Clean plain text excerpt"
+
+    def test_collapses_whitespace(self):
+        result = _strip_html_summary("word1   \n\t  word2")
+        assert result == "word1 word2"
+
+    def test_returns_none_for_tags_only(self):
+        assert _strip_html_summary("  <br/>  <p>  </p>  ") is None
+
+    def test_returns_none_for_empty_string(self):
+        assert _strip_html_summary("") is None
+
+    def test_reddit_table_markup_stripped(self):
+        table_html = (
+            "<table><tr><td><a href='https://example.com/link'>link</a></td>"
+            "<td>&#32; submitted by &#32; <a href='u/user'>u/user</a></td></tr></table>"
+        )
+        result = _strip_html_summary(table_html)
+        assert result is not None
+        assert "<table>" not in result
+        assert "<tr>" not in result
+        assert "submitted by" in result
+        assert "u/user" in result
