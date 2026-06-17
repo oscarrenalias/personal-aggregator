@@ -258,6 +258,8 @@ def _render_feed(
     cursor: Optional[str],
     newest_id: int = 0,
     sort: str = "relevance",
+    view_title: str = "",
+    nav_key: str = "",
 ) -> Response:
     _enrich_articles(page.articles, session)
     next_url = _build_next_url(base_url, page.next_cursor, unread_only, sort)
@@ -285,6 +287,8 @@ def _render_feed(
             "base_url": base_url,
             "unread_only": unread_only,
             "sort": sort,
+            "view_title": view_title,
+            "nav_key": nav_key,
         },
     )
 
@@ -307,7 +311,7 @@ def healthz() -> JSONResponse:
 
 @app.get("/")
 def index(request: Request) -> Response:
-    return templates.TemplateResponse(request, "shell.html", {})
+    return templates.TemplateResponse(request, "shell.html", {"initial_nav_key": "smart/all"})
 
 
 @app.get("/sidebar")
@@ -362,6 +366,14 @@ def sidebar(request: Request, db: Session = Depends(get_db)) -> Response:
 
 _VALID_SORT_VALUES = {"relevance", "newest"}
 
+VIEW_LABELS: dict = {
+    "smart/all": "All",
+    "smart/unread": "Unread",
+    "smart/saved": "Saved",
+    "smart/important": "Important",
+    "smart/uncategorized": "Uncategorized",
+}
+
 
 def _normalize_sort(sort: str) -> str:
     return sort if sort in _VALID_SORT_VALUES else "relevance"
@@ -394,7 +406,11 @@ def feed_smart(
         important_threshold=settings.web_important_threshold,
         unread_only=unread_only,
     )
-    return _render_feed(request, page, db, f"/feed/smart/{view}", unread_only, hx_request, cursor, newest_id=newest_id, sort=sort)
+    return _render_feed(
+        request, page, db, f"/feed/smart/{view}", unread_only, hx_request, cursor,
+        newest_id=newest_id, sort=sort,
+        view_title=VIEW_LABELS[f"smart/{view}"],
+    )
 
 
 @app.get("/feed/category/{name}")
@@ -409,6 +425,8 @@ def feed_category(
 ) -> Response:
     unread_only = bool(unread)
     sort = _normalize_sort(sort)
+    category = db.execute(select(Category).where(Category.name == name)).scalar_one_or_none()
+    view_title = category.name if category is not None else name
     page = category_feed(
         name=name,
         session=db,
@@ -418,7 +436,12 @@ def feed_category(
         sort=sort,
     )
     newest_id = category_feed_max_id(name=name, session=db, unread_only=unread_only)
-    return _render_feed(request, page, db, f"/feed/category/{quote(name)}", unread_only, hx_request, cursor, newest_id=newest_id, sort=sort)
+    return _render_feed(
+        request, page, db, f"/feed/category/{quote(name)}", unread_only, hx_request, cursor,
+        newest_id=newest_id, sort=sort,
+        view_title=view_title,
+        nav_key=f"category/{name}",
+    )
 
 
 @app.get("/feed/source/{source_id}")
@@ -433,6 +456,8 @@ def feed_source(
 ) -> Response:
     unread_only = bool(unread)
     sort = _normalize_sort(sort)
+    source = db.get(Source, source_id)
+    view_title = source.name if source is not None else str(source_id)
     page = source_feed(
         source_id=source_id,
         session=db,
@@ -442,7 +467,12 @@ def feed_source(
         sort=sort,
     )
     newest_id = source_feed_max_id(source_id=source_id, session=db, unread_only=unread_only)
-    return _render_feed(request, page, db, f"/feed/source/{source_id}", unread_only, hx_request, cursor, newest_id=newest_id, sort=sort)
+    return _render_feed(
+        request, page, db, f"/feed/source/{source_id}", unread_only, hx_request, cursor,
+        newest_id=newest_id, sort=sort,
+        view_title=view_title,
+        nav_key=f"source/{source_id}",
+    )
 
 
 @app.post("/feed/smart/{view}/read-all", status_code=200)

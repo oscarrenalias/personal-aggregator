@@ -9,6 +9,7 @@
     base_url  : str — base path for this feed (e.g. /feed/smart/all)
     unread_only: bool — whether the unread filter is active
     sort      : str — active sort mode: "relevance" | "newest"
+    view_title: str | None — optional heading shown above the feed controls
 
   Infinite scroll contract:
     The last card carries hx-get / hx-trigger="revealed" / hx-swap="afterend".
@@ -17,6 +18,9 @@
     The fragment response itself should have the new last card carry the next
     next_url trigger (or omit it when the final page is reached).
 #}
+{% if view_title %}
+<h2 class="feed-view-title">{{ view_title }}</h2>
+{% endif %}
 <div id="article-list"
      x-data="{ ...articleList(), baseUrl: '{{ base_url }}', sortMode: '{{ sort }}', unreadOnly: {{ 'true' if unread_only else 'false' }} }"
      @keydown.j.window="selectNext()"
