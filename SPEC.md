@@ -39,33 +39,34 @@ The solution should:
 
 # High-Level Architecture
 
-The system consists of four primary modules:
+The system consists of the following primary modules:
 
 1. **Retriever**
 2. **Processor**
 3. **Summarize & Rank**
-4. **Web UI**
+4. **Clustering & Threading**
+5. **Daily Brief**
+6. **Web UI**
 
-All modules share a common persistence layer. The persistence layer stores source configuration, retrieved article data, processed article data, LLM outputs, article status, and user interaction state.
+Supporting functions include an agent interface (see *Agent Integration*) and a scheduled data-retention/janitor function (see *Persistence Expectations*).
 
-The system should be modular but not over-distributed. Each module should have a clear responsibility and should communicate indirectly through persisted article state rather than synchronous service-to-service calls.
+All modules share a common persistence layer. The persistence layer stores source configuration, retrieved article data, processed article data, LLM outputs, article status, thread/cluster state, generated briefs, and user interaction state.
+
+The system should be modular but not over-distributed. Each module should have a clear responsibility and should communicate indirectly through persisted state rather than synchronous service-to-service calls.
 
 ```text
 sources
    ↓
-retriever
+retriever → raw articles
    ↓
-raw articles
+processor → processed articles
    ↓
-processor
+summarize & rank → summarized/ranked articles
    ↓
-processed articles
+clustering & threading → story threads
    ↓
-summarize & rank
-   ↓
-summarized/ranked articles
-   ↓
-web UI
+   ├─→ web UI (feeds, threads, today)
+   └─→ daily brief (scheduled) → today view
 ```
 
 ---
@@ -124,6 +125,32 @@ At minimum, the implementation should distinguish:
 - article skipped where appropriate.
 
 State should be durable so the system can recover after restart.
+
+### Thread (Story Cluster)
+
+A thread represents a group of related articles covering the same developing story, drawn from one
+or more sources. Threads let the system collapse many near-duplicate or follow-up articles into a
+single, evolving item rather than showing each report separately.
+
+A thread should support, at minimum:
+
+- a representative title and a rolling summary that evolves as new articles are added,
+- membership linking its articles, with a per-article classification (e.g. new story, new fact,
+  new angle, duplicate, correction, background, low value),
+- signals describing its quality and prominence (source diversity, member count, a grade/score and
+  tier),
+- a surfaced flag indicating whether the thread is prominent enough to show on its own,
+- lifecycle state (active, dormant, archived),
+- a user-controlled dismissed flag, kept independent of lifecycle state so dismissal persists,
+- timestamps supporting an "updated since last viewed" indicator.
+
+### Daily Brief
+
+A daily brief is a single, scheduled, LLM-generated digest of the most relevant recent articles.
+It provides a structured overview (a headline, a short intro, and several topic sections each with
+what happened, why it matters, and references) so the user can catch up quickly without scanning
+the full feed. Briefs are persisted and served on the Today view; recent briefs may be retained
+for continuity context.
 
 ---
 
@@ -319,6 +346,89 @@ The exact interests should be user-configurable.
 
 ---
 
+## Clustering & Threading
+
+The clustering & threading module groups related articles into story threads after they have been
+summarized/ranked, then scores and tiers those threads so the most significant developing stories
+can be surfaced.
+
+### Responsibilities
+
+The clustering & threading module should:
+
+- find ranked articles that are ready but not yet assigned to a thread,
+- select candidate threads for each article using overlap signals (shared entities, shared topics,
+  and full-text similarity),
+- use an LLM to classify whether an article belongs to a candidate thread and how (new story, new
+  fact, new angle, duplicate, correction, background, or low value),
+- create a new thread or attach the article to an existing one, idempotently,
+- maintain each thread's representative title and rolling summary as members change,
+- score threads (e.g. relevance, novelty, importance, source diversity, time sensitivity) and
+  assign a grade and tier,
+- decide which threads are prominent enough to surface, based on grade, distinct source count, and
+  member count,
+- periodically consolidate threads by merging near-duplicate threads,
+- transition stale threads to dormant and then archived over time,
+- run safely as a single active worker (guarding against concurrent runs).
+
+### Inputs
+
+- Summarized/ranked articles with topics, entities, and search index.
+- Existing threads and their membership.
+- Configurable overlap thresholds, surfacing thresholds, and scheduling/window settings.
+
+### Outputs
+
+- Threads with membership, rolling summary, scores, grade/tier, and surfaced state.
+- Per-article thread classification and reason.
+- Updated thread lifecycle state.
+
+### Rules
+
+- The module should not retrieve feeds, extract content, or generate per-article summaries.
+- Thread assignment should be idempotent and should not duplicate membership.
+- A user-controlled dismissed flag should never be overwritten by recomputation or consolidation.
+- Consolidation/merging should be throttled and bounded so it does not run unnecessarily or
+  unboundedly; an explicit reclustering request may bypass the throttle.
+- The module should not block the pipeline when the LLM is slow or unavailable.
+
+---
+
+## Daily Brief
+
+The daily brief module generates a single scheduled digest of recent, relevant articles.
+
+### Responsibilities
+
+The daily brief module should:
+
+- run on a schedule (typically once per day at a configurable hour),
+- select a bounded set of candidate recent articles to consider,
+- use an LLM to produce a structured brief: a headline, a short intro, and several topic sections,
+  each with what happened, why it matters, and references back to source articles,
+- reconcile references so they point to real articles where possible,
+- optionally include recent prior briefs for continuity,
+- persist the generated brief and its topics,
+- handle LLM failure without affecting the rest of the pipeline.
+
+### Inputs
+
+- Recent summarized/ranked articles within a configurable window.
+- A bounded candidate set and topic limit.
+- Optional recent prior briefs for continuity context.
+
+### Outputs
+
+- A persisted brief (headline, intro, topics with references) served on the Today view.
+
+### Rules
+
+- Only the summarize & rank, clustering, and brief modules call the LLM.
+- The brief should be regenerable on demand if implemented, but normally runs on its schedule.
+- The module should not retrieve feeds or process article content.
+
+---
+
 ## Web UI
 
 The web UI is responsible for presenting articles and supporting reader interactions.
@@ -332,6 +442,10 @@ The web UI should:
 - support sorting by recency and/or importance,
 - display source, title, publication date, image, summary, topics, and importance reason where available,
 - gracefully display articles that are retrieved but not yet summarized,
+- present a **Threads** view of grouped story threads, showing each thread's title, rolling
+  summary, prominence, and an "updated since last viewed" indicator,
+- allow threads to be dismissed and restored, with dismissal persisting across recomputation,
+- present a **Today** view that shows the latest daily brief,
 - allow articles to be marked as read,
 - allow all visible articles to be marked as read,
 - allow articles to be saved/bookmarked,
