@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Dict, Generic, List, Optional, TypeVar
+from typing import Any, Generic, List, Optional, TypeVar
 
 from pydantic import BaseModel, ConfigDict
 
@@ -23,7 +23,7 @@ class ArticleResponse(BaseModel):
     importance_score: Optional[int]
     importance_reason: Optional[str]
     categories: Optional[List[Any]]
-    topics: Optional[Dict[str, Any]]
+    topics: Optional[List[Any]]
     is_read: bool
     is_saved: bool
     author: Optional[str]

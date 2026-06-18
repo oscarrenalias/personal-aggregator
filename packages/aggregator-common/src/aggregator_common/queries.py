@@ -88,7 +88,7 @@ class ArticleResult:
     importance_score: Optional[int]
     importance_reason: Optional[str]
     categories: Optional[list]
-    topics: Optional[dict]
+    topics: Optional[list]
     is_read: bool
     is_saved: bool
     author: Optional[str]

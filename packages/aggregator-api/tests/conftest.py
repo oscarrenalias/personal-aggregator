@@ -208,6 +208,7 @@ def make_article(
     raw_payload: dict | None = None,
     retrieved_at: datetime = _NOW,
     categories: list | None = None,
+    topics: list | None = None,
     importance_score: int | None = None,
     is_read: bool = False,
     is_saved: bool = False,
@@ -226,6 +227,10 @@ def make_article(
         raw_payload=raw_payload or {"link": feed_url},
         retrieved_at=retrieved_at,
         categories=categories,
+        # Default to a realistic list of topic strings (matches production data,
+        # where Article.topics is a JSON array) so serialization tests exercise
+        # the real shape — not a dict, which previously masked a 500 bug.
+        topics=topics if topics is not None else ["technology", "ai"],
         importance_score=importance_score,
         is_read=is_read,
         is_saved=is_saved,

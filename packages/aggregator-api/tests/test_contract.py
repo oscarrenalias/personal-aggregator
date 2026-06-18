@@ -134,7 +134,7 @@ class TestArticleResponseContract:
             importance_score=80,
             importance_reason="High relevance",
             categories=["Tech"],
-            topics={"tech": 0.9},
+            topics=["tech", "ai"],
             is_read=False,
             is_saved=False,
             author="Author Name",
