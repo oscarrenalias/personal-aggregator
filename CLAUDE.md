@@ -94,7 +94,7 @@ src/aggregator_common/
   config.py        # pydantic-settings Settings (reads DATABASE_URL from env/.env)
   env.py           # load_env() — loads .env into os.environ at startup
   logging_setup.py # configure_logging() — shared log setup for all services
-  queries.py       # shared read + mutation helpers (list/search/get articles, mark read/saved, threads); list_threads derives has_updates = last_viewed_at is None or last_updated > last_viewed_at in a single batch — no N+1
+  queries.py       # shared read + mutation helpers (list/search/get articles, mark read/saved, threads); list_threads derives has_updates = last_viewed_at is None or last_updated > last_viewed_at in a single batch — no N+1. Paginated functions (list_articles, list_threads, search_articles) return a (results, next_cursor) tuple — callers must unpack both values. list_threads cursor encoding is sort-mode-aware: importance sort encodes (top_grade, last_updated, id); recent sort encodes (last_updated, id) — always treat cursors as opaque and pass them verbatim.
   management.py    # write helpers: mark_thread_viewed (stamps last_viewed_at), set_thread_dismissed, create/update/merge threads, source/category mutations
   retention.py     # purge_expired_articles / purge_expired_threads / purge_expired_briefs / purge_expired_llm_calls — called by janitor
   llm_telemetry.py # setup_llm_telemetry() — LiteLLM custom logger persisting LlmCall rows; optional Langfuse callback activates when all three LANGFUSE_* env vars are set
