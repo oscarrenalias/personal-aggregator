@@ -108,6 +108,11 @@ class ArticleList(Widget):
     Call activate_search() to show the search input (/ key). Submitting a
     query runs _execute_search() which posts SearchFailed on ApiError.
     Call deactivate_search() to hide the input and restore list focus.
+
+    Cursor pagination: when the user navigates to the last item and the
+    last response had a non-null next_cursor, the next page is fetched
+    automatically and appended to the list. A loading indicator is shown
+    during the fetch; no further loads are issued when next_cursor is null.
     """
 
     DEFAULT_CSS = """
@@ -124,6 +129,12 @@ class ArticleList(Widget):
         display: none;
         height: 1fr;
         content-align: center middle;
+        color: $text-muted;
+    }
+    ArticleList #loading-indicator {
+        display: none;
+        height: 1;
+        padding: 0 1;
         color: $text-muted;
     }
     """
@@ -155,6 +166,15 @@ class ArticleList(Widget):
         self._articles: list[ArticleResponse] = []
         self._threads: list[ThreadResponse] = []
         self._next_cursor: Optional[str] = None
+        # Pagination state
+        self._is_loading: bool = False
+        self._current_mode: str = "articles"  # "articles" | "threads" | "search"
+        self._current_view: str = "all"
+        self._current_category: Optional[str] = None
+        self._current_source_id: Optional[int] = None
+        self._current_sort: str = "importance"
+        self._current_show_dismissed: bool = False
+        self._current_search_query: Optional[str] = None
 
     @property
     def articles(self) -> list[ArticleResponse]:
@@ -168,6 +188,7 @@ class ArticleList(Widget):
         yield Input(placeholder="Search articles…", id="search-input")
         yield Static("No results", id="no-results-placeholder")
         yield ListView(id="article-listview")
+        yield Static("Loading…", id="loading-indicator")
 
     # ------------------------------------------------------------------
     # Search input lifecycle
@@ -191,6 +212,22 @@ class ArticleList(Widget):
         listview.focus()
 
     # ------------------------------------------------------------------
+    # Loading indicator
+    # ------------------------------------------------------------------
+
+    def _show_loading(self) -> None:
+        try:
+            self.query_one("#loading-indicator", Static).display = True
+        except Exception:
+            pass
+
+    def _hide_loading(self) -> None:
+        try:
+            self.query_one("#loading-indicator", Static).display = False
+        except Exception:
+            pass
+
+    # ------------------------------------------------------------------
     # Event handlers
     # ------------------------------------------------------------------
 
@@ -201,12 +238,80 @@ class ArticleList(Widget):
         elif isinstance(event.item, ThreadRow):
             self.post_message(self.ThreadSelected(event.item.thread))
 
+    def on_list_view_highlighted(self, event: ListView.Highlighted) -> None:
+        """Trigger next-page load when the user highlights the last item."""
+        if event.item is None or self._next_cursor is None or self._is_loading:
+            return
+        listview = self.query_one("#article-listview", ListView)
+        list_items = [c for c in listview.children if isinstance(c, (ArticleRow, ThreadRow))]
+        if list_items and event.item is list_items[-1]:
+            self.run_worker(self._load_next_page(), exclusive=True)
+
     async def on_input_submitted(self, event: Input.Submitted) -> None:
         """Run a search when the user presses Enter in the search input."""
         query = event.value.strip()
         if not query:
             return
         await self._execute_search(query)
+
+    # ------------------------------------------------------------------
+    # Cursor pagination
+    # ------------------------------------------------------------------
+
+    async def _load_next_page(self) -> None:
+        """Fetch the next page using the stored cursor and append items to the list."""
+        if self._api_client is None or self._next_cursor is None or self._is_loading:
+            return
+
+        self._is_loading = True
+        self._show_loading()
+        try:
+            if self._current_mode == "threads":
+                response = await self._api_client.list_threads(
+                    sort=self._current_sort,
+                    show_dismissed=self._current_show_dismissed,
+                    cursor=self._next_cursor,
+                )
+                if not self._is_loading:
+                    return
+                self._next_cursor = response.next_cursor
+                self._threads.extend(response.items)
+                listview = self.query_one("#article-listview", ListView)
+                for thread in response.items:
+                    listview.append(ThreadRow(thread))
+            elif self._current_mode == "search":
+                response = await self._api_client.search_articles(
+                    q=self._current_search_query or "",
+                    category=self._current_category,
+                    source_id=self._current_source_id,
+                    cursor=self._next_cursor,
+                )
+                if not self._is_loading:
+                    return
+                self._next_cursor = response.next_cursor
+                self._articles.extend(response.items)
+                listview = self.query_one("#article-listview", ListView)
+                for article in response.items:
+                    listview.append(ArticleRow(article))
+            else:
+                response = await self._api_client.list_articles(
+                    view=self._current_view,
+                    category=self._current_category,
+                    source_id=self._current_source_id,
+                    cursor=self._next_cursor,
+                )
+                if not self._is_loading:
+                    return
+                self._next_cursor = response.next_cursor
+                self._articles.extend(response.items)
+                listview = self.query_one("#article-listview", ListView)
+                for article in response.items:
+                    listview.append(ArticleRow(article))
+        except Exception:
+            pass
+        finally:
+            self._is_loading = False
+            self._hide_loading()
 
     # ------------------------------------------------------------------
     # Search execution
@@ -217,6 +322,7 @@ class ArticleList(Widget):
         if self._api_client is None:
             return
 
+        self._is_loading = False
         listview = self.query_one("#article-listview", ListView)
         no_results = self.query_one("#no-results-placeholder", Static)
         listview.clear()
@@ -225,6 +331,10 @@ class ArticleList(Widget):
         self._articles = []
         self._threads = []
         self._next_cursor = None
+        self._current_mode = "search"
+        self._current_search_query = query
+        self._current_category = None
+        self._current_source_id = None
 
         try:
             response = await self._api_client.search_articles(q=query)
@@ -261,6 +371,7 @@ class ArticleList(Widget):
         if self._api_client is None:
             return
 
+        self._is_loading = False
         listview = self.query_one("#article-listview", ListView)
         no_results = self.query_one("#no-results-placeholder", Static)
         listview.clear()
@@ -269,6 +380,17 @@ class ArticleList(Widget):
         self._articles = []
         self._threads = []
         self._next_cursor = None
+
+        if query:
+            self._current_mode = "search"
+            self._current_search_query = query
+            self._current_category = category
+            self._current_source_id = source_id
+        else:
+            self._current_mode = "articles"
+            self._current_view = view
+            self._current_category = category
+            self._current_source_id = source_id
 
         try:
             if query:
@@ -301,6 +423,7 @@ class ArticleList(Widget):
         if self._api_client is None:
             return
 
+        self._is_loading = False
         listview = self.query_one("#article-listview", ListView)
         no_results = self.query_one("#no-results-placeholder", Static)
         listview.clear()
@@ -309,6 +432,9 @@ class ArticleList(Widget):
         self._articles = []
         self._threads = []
         self._next_cursor = None
+        self._current_mode = "threads"
+        self._current_sort = sort
+        self._current_show_dismissed = show_dismissed
 
         try:
             response = await self._api_client.list_threads(

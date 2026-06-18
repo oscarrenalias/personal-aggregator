@@ -7,10 +7,11 @@ from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, VerticalScroll
 from textual.events import Resize
-from textual.widgets import Label, ListView, Tree
+from textual.widgets import Input, Label, ListView, Tree
 
 from .api_client import ApiClient, ApiError, ArticleResponse, ThreadResponse
 from .widgets.article_list import ArticleList, ArticleRow, ThreadRow
+from .widgets.help_overlay import HelpOverlay
 from .widgets.nav_sidebar import NavItem, NavSidebar
 from .widgets.reader_pane import ReaderPane
 
