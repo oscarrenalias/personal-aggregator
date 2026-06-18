@@ -339,6 +339,67 @@ def test_q_does_not_quit_when_search_input_focused(stub: StubApiClient) -> None:
 
 
 # ---------------------------------------------------------------------------
+# v — open article URL in browser
+# ---------------------------------------------------------------------------
+
+
+def test_v_opens_article_url_in_browser(stub: StubApiClient) -> None:
+    """v key calls webbrowser.open() with the selected article's URL."""
+    stub.set_articles([make_article(1)])
+
+    async def inner() -> None:
+        app = AggregatorApp(api_url="http://test")
+        app.api_client = stub
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause(0.1)
+            await _load_articles(app, stub)
+            await pilot.pause(0.1)
+
+            await pilot.press("j")
+            await pilot.pause(0.1)
+            assert app._selected_article is not None
+            assert app._selected_article.id == 1
+
+            with patch("aggregator_tui.app.webbrowser.open") as mock_open:
+                await pilot.press("v")
+                await pilot.pause(0.1)
+
+            mock_open.assert_called_once_with(app._selected_article.url)
+
+    asyncio.run(inner())
+
+
+# ---------------------------------------------------------------------------
+# Tab — cycle pane focus
+# ---------------------------------------------------------------------------
+
+
+def test_tab_cycles_pane_focus(stub: StubApiClient) -> None:
+    """Tab advances _pane_focus_idx through all three panes and wraps around."""
+
+    async def inner() -> None:
+        app = AggregatorApp(api_url="http://test")
+        app.api_client = stub
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause(0.1)
+            assert app._pane_focus_idx == 1  # list pane is default
+
+            await pilot.press("tab")
+            await pilot.pause(0.1)
+            assert app._pane_focus_idx == 2  # reader pane
+
+            await pilot.press("tab")
+            await pilot.pause(0.1)
+            assert app._pane_focus_idx == 0  # nav sidebar
+
+            await pilot.press("tab")
+            await pilot.pause(0.1)
+            assert app._pane_focus_idx == 1  # wraps back to list pane
+
+    asyncio.run(inner())
+
+
+# ---------------------------------------------------------------------------
 # API URL configuration (unit-level, no Textual needed)
 # ---------------------------------------------------------------------------
 
