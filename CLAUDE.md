@@ -10,6 +10,7 @@ Nine services communicating **only through shared Postgres state** (no synchrono
 sources → retriever → processor → summarize-rank → clusterer → web UI
                                                               → brief
                                                               → aggregator-mcp (agent interface)
+                                                              → aggregator-tui (terminal reader)
                                                               → janitor (data retention)
 ```
 
@@ -44,6 +45,7 @@ sources → retriever → processor → summarize-rank → clusterer → web UI
 - **brief** — scheduled LLM service that reads ranked articles, generates a structured daily brief (headline + topics + summaries), and persists it to Postgres. Runs once per day at a configurable hour; the web service serves the brief on the Today view.
 - **aggregator-mcp** — FastMCP server exposing the aggregator over the MCP/Streamable HTTP interface for agent integration. Provides tools for searching, listing, and mutating articles; thread tools (`list_threads`, `get_thread`, `dismiss_thread`) — `list_threads` and `get_thread` both expose the `dismissed` and `has_updates` fields on each thread result, and `dismiss_thread(thread_id, dismissed=True/False)` dismisses or restores a thread; **`get_thread` intentionally does not stamp `last_viewed_at`** — agent reads are passive and must not reset the unread indicator that the web UI relies on; source and category management tools (add/enable/disable/remove — `remove_source` and `remove_category` are destructive); ops/diagnostic tools (`pipeline_status`, `list_stuck`, `list_failures`, `reap_stale_claims`, `retry_failed`, `rerank`, `recluster`); brief tools (`get_daily_brief`, `refresh_brief`); resources including `article://{id}`, `feed://{view}`, `thread://{id}`, `brief://today`, `status://pipeline` for a quick health snapshot, and `status://llm` for per-service LLM usage stats; and prompts including `troubleshoot` for step-by-step pipeline diagnosis and `whats_developing` for surfacing in-progress story threads.
 - **janitor** — scheduled data-retention daemon that runs once per day at `JANITOR_RUN_HOUR` (default 04:00 in `JANITOR_TIMEZONE`). Deletes expired articles (`JANITOR_ARTICLE_RETENTION_DAYS`; unsaved, not in a live thread), archived threads (`JANITOR_THREAD_RETENTION_DAYS`), completed briefs (`JANITOR_BRIEF_RETENTION_DAYS`), and LLM telemetry rows (`JANITOR_LLM_TELEMETRY_RETENTION_DAYS`). Uses a distinct Postgres advisory lock so it never races the clusterer. Replaces the per-service retention logic previously in clusterer and brief.
+- **aggregator-tui** — Textual-based terminal UI reader. A pure HTTP client that consumes the `aggregator-api` JSON endpoints; it has **no direct database access**. Run with `uv run aggregator-tui [--api-url <url>]`; the API base URL defaults to `AGGREGATOR_API_URL` env var or `http://localhost:8000/api/v1`. Three-pane layout (nav sidebar / article list / reader pane) with responsive single-pane mode below 100 columns. Keyboard shortcuts: `j`/`k` move up/down the list; `g`/`G` jump to top/bottom; `Enter`/`o` open article or thread in the reader pane; `v` open article URL in the system browser; `Tab` cycle focus across panes; `Escape` return to the list (or exit search); `m` toggle read/unread; `n` mark read and advance to next; `s` toggle saved; `d` dismiss/restore the current thread (threads view only); `/` activate search; `?` show keybinding help overlay; `q` quit.
 - **admin** — Rich CLI for feed management and operational tasks. `llm-stats [--days N]` shows per-service LLM cost, token, and error breakdown.
 
 The shared contract lives in `aggregator-common`: SQLAlchemy models, DB access, config, and the **article state machine**. Because services integrate only through the DB, the schema and allowed state transitions are the API — treat them as such.
@@ -76,6 +78,7 @@ packages/
   aggregator-api/               # JSON REST API sub-app mounted at /api/v1 inside aggregator-web
   aggregator-brief/             # scheduled daily brief generator
   aggregator-mcp/               # FastMCP server — MCP/Streamable HTTP agent interface
+  aggregator-tui/               # Textual terminal UI reader — pure HTTP client, no DB access
   aggregator-janitor/           # scheduled data-retention daemon
   aggregator-admin/
 docker-compose.yml              # postgres only (app service definitions added per service spec)
@@ -194,6 +197,7 @@ At process startup, every service calls `aggregator_common.load_env()` (python-d
 | `WEB_IMPORTANT_THRESHOLD` | `70` | Minimum `importance_score` for the Important smart view |
 | `WEB_SHOW_UNREAD_COUNTS` | `false` | Show numeric unread counts in sidebar (`true`) or qualitative dot markers only (`false`) |
 | `API_CORS_ALLOW_ORIGINS` | `*` | Comma-separated allowed CORS origins for `/api/v1`; default `*` is acceptable only behind the network perimeter — restrict before any public exposure |
+| `AGGREGATOR_API_URL` | `http://localhost:8000/api/v1` | Base URL for the aggregator JSON API used by `aggregator-tui`; overridden by `--api-url` CLI flag |
 | `BRIEF_LLM_MODEL` | `gpt-4.1` | LLM model used for brief generation |
 | `BRIEF_LLM_MAX_OUTPUT_TOKENS` | `4096` | Maximum output tokens for LLM calls |
 | `BRIEF_LLM_TEMPERATURE` | `0.3` | LLM sampling temperature |
