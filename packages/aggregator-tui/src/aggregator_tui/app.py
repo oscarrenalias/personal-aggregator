@@ -7,7 +7,7 @@ from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, VerticalScroll
 from textual.events import Resize
-from textual.widgets import Input, Label, ListView, Tree
+from textual.widgets import Footer, Input, Label, ListView, Tree
 
 from .api_client import ApiClient, ApiError, ArticleResponse, ThreadResponse
 from .widgets.article_list import ArticleList, ArticleRow, ThreadRow
@@ -66,17 +66,19 @@ class AggregatorApp(App[None]):
         Binding("k", "list_up", "Previous", show=False),
         Binding("g", "list_top", "Top", show=False),
         Binding("G", "list_bottom", "Bottom", show=False),
-        Binding("o", "open_article", "Open", show=False),
+        Binding("o", "open_article", "Open", show=True),
         Binding("v", "view_in_browser", "View in browser", show=False),
         Binding("tab", "focus_next_pane", "Next pane", show=False, priority=True),
         Binding("escape", "focus_list", "Back to list", show=False, priority=True),
-        Binding("m", "toggle_read", "Toggle read", show=False),
+        Binding("m", "toggle_read", "Read", show=True),
         Binding("n", "mark_read_next", "Mark read + next", show=False),
-        Binding("s", "toggle_save", "Toggle save", show=False),
+        Binding("s", "toggle_save", "Save", show=True),
         Binding("d", "dismiss_thread", "Dismiss/restore thread", show=False),
-        Binding("/", "activate_search", "Search", show=False),
-        Binding("question_mark", "show_help", "Help", show=False),
-        Binding("q", "quit_app", "Quit", show=False),
+        Binding("/", "activate_search", "Search", show=True),
+        Binding("u", "toggle_filter", "Filter", show=True),
+        Binding("r", "toggle_sort", "Sort", show=False),
+        Binding("question_mark", "show_help", "Help", show=True),
+        Binding("q", "quit_app", "Quit", show=True),
     ]
 
     def __init__(self, api_url: str = "http://127.0.0.1:8000/api/v1", **kwargs: object) -> None:
@@ -104,6 +106,7 @@ class AggregatorApp(App[None]):
             id="panes",
         )
         yield StatusBar("", id="status-bar")
+        yield Footer()
 
     def on_mount(self) -> None:
         self.query_one("#article-listview", ListView).focus()
@@ -213,18 +216,18 @@ class AggregatorApp(App[None]):
         item = self._last_nav_item
         article_list = self.query_one("#list-pane", ArticleList)
         if item is None:
-            article_list.run_worker(article_list.load(view="all"), exclusive=True)
+            article_list.run_worker(article_list.load(view="all", title="All"), exclusive=True)
             return
         if item.kind == "smart":
-            article_list.run_worker(article_list.load(view=item.view or "all"), exclusive=True)
+            article_list.run_worker(article_list.load(view=item.view or "all", title=item.label), exclusive=True)
         elif item.kind == "today":
-            article_list.run_worker(article_list.load(view="today"), exclusive=True)
+            article_list.run_worker(article_list.load(view="today", title=item.label), exclusive=True)
         elif item.kind == "threads":
-            article_list.run_worker(article_list.load_threads(), exclusive=True)
+            article_list.run_worker(article_list.load_threads(title=item.label), exclusive=True)
         elif item.kind == "category":
-            article_list.run_worker(article_list.load(category=item.category), exclusive=True)
+            article_list.run_worker(article_list.load(category=item.category, title=item.label), exclusive=True)
         elif item.kind == "source":
-            article_list.run_worker(article_list.load(source_id=item.source_id), exclusive=True)
+            article_list.run_worker(article_list.load(source_id=item.source_id, title=item.label), exclusive=True)
 
     def _apply_pane_focus(self) -> None:
         try:
@@ -311,6 +314,14 @@ class AggregatorApp(App[None]):
             row.refresh_display()
             self.notify_status(f"Error: {exc}")
 
+    async def action_toggle_filter(self) -> None:
+        """Toggle the Show-all / Unread read filter on the current article view."""
+        await self.query_one("#list-pane", ArticleList).toggle_unread_filter()
+
+    async def action_toggle_sort(self) -> None:
+        """Toggle Importance / Recent sort on the current thread view."""
+        await self.query_one("#list-pane", ArticleList).toggle_sort()
+
     def action_show_help(self) -> None:
         """Push the keybinding help overlay (? key)."""
         self.push_screen(HelpOverlay())
@@ -369,12 +380,12 @@ class AggregatorApp(App[None]):
         self._selected_thread_row = None
         article_list = self.query_one("#list-pane", ArticleList)
         if item.kind == "smart":
-            article_list.run_worker(article_list.load(view=item.view or "all"), exclusive=True)
+            article_list.run_worker(article_list.load(view=item.view or "all", title=item.label), exclusive=True)
         elif item.kind == "today":
-            article_list.run_worker(article_list.load(view="today"), exclusive=True)
+            article_list.run_worker(article_list.load(view="today", title=item.label), exclusive=True)
         elif item.kind == "threads":
-            article_list.run_worker(article_list.load_threads(), exclusive=True)
+            article_list.run_worker(article_list.load_threads(title=item.label), exclusive=True)
         elif item.kind == "category":
-            article_list.run_worker(article_list.load(category=item.category), exclusive=True)
+            article_list.run_worker(article_list.load(category=item.category, title=item.label), exclusive=True)
         elif item.kind == "source":
-            article_list.run_worker(article_list.load(source_id=item.source_id), exclusive=True)
+            article_list.run_worker(article_list.load(source_id=item.source_id, title=item.label), exclusive=True)

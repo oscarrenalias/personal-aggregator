@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Optional
 
+from rich.markup import escape
 from textual.app import ComposeResult
 from textual.message import Message
 from textual.widget import Widget
@@ -28,7 +29,12 @@ class ArticleRow(ListItem):
     DEFAULT_CSS = """
     ArticleRow {
         height: auto;
-        padding: 0 1;
+        padding: 1 2;
+        border-bottom: solid $surface-lighten-1;
+    }
+    ArticleRow.-highlight {
+        background: $primary 25%;
+        border-left: thick $primary;
     }
     ArticleRow Static {
         width: 1fr;
@@ -40,13 +46,14 @@ class ArticleRow(ListItem):
         self.article = article
 
     def _make_markup(self) -> str:
-        read_dot = " " if self.article.is_read else "[bold green]●[/]"
+        read_dot = "  " if self.article.is_read else "[bold green]●[/]"
         saved_star = "[yellow]★[/]" if self.article.is_saved else " "
-        title = self.article.title or "(no title)"
-        source = self.article.source_name or ""
+        title = escape(self.article.title or "(no title)")
+        title_markup = f"[dim]{title}[/]" if self.article.is_read else f"[bold]{title}[/]"
+        source = escape(self.article.source_name or "")
         date_str = _format_date(self.article.feed_published_at)
         meta = f"{source}  {date_str}".strip()
-        return f"{read_dot}{saved_star} {title}\n[dim]   {meta}[/dim]"
+        return f"{read_dot}{saved_star} {title_markup}\n[dim]   {meta}[/dim]"
 
     def compose(self) -> ComposeResult:
         yield Static(self._make_markup(), markup=True)
@@ -64,7 +71,12 @@ class ThreadRow(ListItem):
     DEFAULT_CSS = """
     ThreadRow {
         height: auto;
-        padding: 0 1;
+        padding: 1 2;
+        border-bottom: solid $surface-lighten-1;
+    }
+    ThreadRow.-highlight {
+        background: $primary 25%;
+        border-left: thick $primary;
     }
     ThreadRow Static {
         width: 1fr;
@@ -76,9 +88,10 @@ class ThreadRow(ListItem):
         self.thread = thread
 
     def _make_markup(self) -> str:
-        updates_dot = "[bold cyan]●[/]" if self.thread.has_updates else " "
+        updates_dot = "[bold cyan]●[/]" if self.thread.has_updates else "  "
         dismissed_marker = "[dim]✗[/dim]" if self.thread.dismissed else " "
-        title = self.thread.representative_title or "(no title)"
+        _raw_title = escape(self.thread.representative_title or "(no title)")
+        title = f"[dim]{_raw_title}[/]" if self.thread.dismissed else f"[bold]{_raw_title}[/]"
         meta_parts: list[str] = []
         if self.thread.member_count:
             meta_parts.append(f"{self.thread.member_count} art.")
@@ -118,6 +131,13 @@ class ArticleList(Widget):
     DEFAULT_CSS = """
     ArticleList {
         height: 1fr;
+    }
+    ArticleList #list-header {
+        height: auto;
+        padding: 0 2;
+        background: $boost;
+        border-bottom: solid $primary;
+        text-style: none;
     }
     ArticleList ListView {
         height: 1fr;
@@ -175,20 +195,58 @@ class ArticleList(Widget):
         self._current_sort: str = "importance"
         self._current_show_dismissed: bool = False
         self._current_search_query: Optional[str] = None
+        self._current_title: str = "All"
+        self._current_unread_only: bool = False
 
     @property
     def articles(self) -> list[ArticleResponse]:
         return list(self._articles)
+
+    def _update_header(self) -> None:
+        """Render the list-pane header: view title + sort (threads) / read-filter (articles)."""
+        try:
+            header = self.query_one("#list-header", Static)
+        except Exception:
+            return
+
+        def pill(label: str, active: bool) -> str:
+            return f"[reverse] {label} [/]" if active else f"[dim] {label} [/]"
+
+        title = escape(self._current_title or "")
+        if self._current_mode == "threads":
+            controls = (
+                "   [dim]Sort[/] "
+                + pill("Importance", self._current_sort == "importance")
+                + pill("Recent", self._current_sort == "recent")
+                + " [dim]r[/]"
+            )
+            icon = "🧵"
+        elif self._current_mode == "search":
+            icon = "🔍"
+            controls = f"   [dim]query:[/] {escape(self._current_search_query or '')}"
+        else:
+            controls = (
+                "   [dim]Show[/] "
+                + pill("All", not self._current_unread_only)
+                + pill("Unread", self._current_unread_only)
+                + " [dim]u[/]"
+            )
+            icon = "📰"
+        header.update(f"[bold]{icon}  {title}[/]{controls}")
 
     def set_api_client(self, client: ApiClient) -> None:
         """Attach an API client after widget initialization."""
         self._api_client = client
 
     def compose(self) -> ComposeResult:
+        yield Static("", id="list-header", markup=True)
         yield Input(placeholder="Search articles…", id="search-input")
         yield Static("No results", id="no-results-placeholder")
         yield ListView(id="article-listview")
         yield Static("Loading…", id="loading-indicator")
+
+    def on_mount(self) -> None:
+        self._update_header()
 
     # ------------------------------------------------------------------
     # Search input lifecycle
@@ -298,6 +356,7 @@ class ArticleList(Widget):
                     view=self._current_view,
                     category=self._current_category,
                     source_id=self._current_source_id,
+                    unread_only=self._current_unread_only,
                     cursor=self._next_cursor,
                 )
                 if not self._is_loading:
@@ -335,6 +394,7 @@ class ArticleList(Widget):
         self._current_search_query = query
         self._current_category = None
         self._current_source_id = None
+        self._update_header()
 
         try:
             response = await self._api_client.search_articles(q=query)
@@ -362,6 +422,8 @@ class ArticleList(Widget):
         category: Optional[str] = None,
         source_id: Optional[int] = None,
         query: Optional[str] = None,
+        title: str = "",
+        unread_only: bool = False,
     ) -> None:
         """Load articles from the API and repopulate the list.
 
@@ -391,6 +453,10 @@ class ArticleList(Widget):
             self._current_view = view
             self._current_category = category
             self._current_source_id = source_id
+            self._current_unread_only = unread_only
+        if title:
+            self._current_title = title
+        self._update_header()
 
         try:
             if query:
@@ -404,6 +470,7 @@ class ArticleList(Widget):
                     view=view,
                     category=category,
                     source_id=source_id,
+                    unread_only=unread_only,
                 )
         except Exception:
             return
@@ -418,6 +485,7 @@ class ArticleList(Widget):
         self,
         sort: str = "importance",
         show_dismissed: bool = False,
+        title: str = "Threads",
     ) -> None:
         """Load threads from the API and repopulate the list."""
         if self._api_client is None:
@@ -435,6 +503,9 @@ class ArticleList(Widget):
         self._current_mode = "threads"
         self._current_sort = sort
         self._current_show_dismissed = show_dismissed
+        if title:
+            self._current_title = title
+        self._update_header()
 
         try:
             response = await self._api_client.list_threads(
@@ -449,3 +520,26 @@ class ArticleList(Widget):
 
         for thread in self._threads:
             listview.append(ThreadRow(thread))
+
+    async def toggle_unread_filter(self) -> None:
+        """Flip the Show-all / Unread filter and reload the current article view."""
+        if self._current_mode != "articles":
+            return
+        await self.load(
+            view=self._current_view,
+            category=self._current_category,
+            source_id=self._current_source_id,
+            title=self._current_title,
+            unread_only=not self._current_unread_only,
+        )
+
+    async def toggle_sort(self) -> None:
+        """Flip Importance / Recent sort and reload the current thread view."""
+        if self._current_mode != "threads":
+            return
+        new_sort = "recent" if self._current_sort == "importance" else "importance"
+        await self.load_threads(
+            sort=new_sort,
+            show_dismissed=self._current_show_dismissed,
+            title=self._current_title,
+        )

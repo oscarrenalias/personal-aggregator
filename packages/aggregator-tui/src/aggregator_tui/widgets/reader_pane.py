@@ -4,11 +4,23 @@ from rich.markup import escape
 from textual.app import ComposeResult
 from textual.containers import VerticalScroll
 from textual.widget import Widget
-from textual.widgets import Static
+from textual.widgets import Markdown, Static
 
 from ..api_client import ApiError, ArticleResponse, ThreadMemberResponse, ThreadResponse
 
 _PLACEHOLDER = "[dim]Select an article or thread to read.[/dim]"
+
+
+def _plaintext_to_markdown(text: str) -> str:
+    """Turn the processor's plain-text body into readable Markdown.
+
+    Each source line becomes its own block separated by a blank line, so the
+    Markdown widget renders paragraphs with spacing and ``- ``/``* `` lines as
+    proper lists — instead of one dense wall of text.
+    """
+    lines = [ln.strip() for ln in text.replace("\r\n", "\n").replace("\r", "\n").split("\n")]
+    blocks = [ln for ln in lines if ln]
+    return "\n\n".join(blocks)
 
 
 class ReaderPane(Widget):
@@ -26,16 +38,36 @@ class ReaderPane(Widget):
         height: 100%;
         padding: 1 2;
     }
+    #reader-body {
+        margin-top: 1;
+        padding: 0;
+        background: transparent;
+    }
+    #reader-body.-empty {
+        display: none;
+    }
     """
 
     def compose(self) -> ComposeResult:
         with VerticalScroll(id="reader-scroll"):
             yield Static(_PLACEHOLDER, id="reader-content")
+            yield Markdown("", id="reader-body")
 
     def clear(self) -> None:
         """Reset to placeholder text."""
         self.query_one("#reader-content", Static).update(_PLACEHOLDER)
+        self._set_body("")
         self.query_one("#reader-scroll", VerticalScroll).scroll_home(animate=False)
+
+    def _set_body(self, markdown: str) -> None:
+        """Update the Markdown body widget, hiding it when empty."""
+        body = self.query_one("#reader-body", Markdown)
+        if markdown:
+            body.remove_class("-empty")
+            body.update(markdown)
+        else:
+            body.add_class("-empty")
+            body.update("")
 
     def load_article(self, article_id: int) -> None:
         """Fetch and display an article asynchronously."""
@@ -97,18 +129,18 @@ class ReaderPane(Widget):
             lines.append("")
             lines.append("[bold underline]Topics[/bold underline]")
             if isinstance(article.topics, dict):
-                topics_str = escape(", ".join(str(k) for k in article.topics.keys()))
+                topic_items = [str(k) for k in article.topics.keys()]
+            elif isinstance(article.topics, list):
+                topic_items = [str(t) for t in article.topics]
             else:
-                topics_str = escape(str(article.topics))
-            lines.append(f"[dim]{topics_str}[/dim]")
-
-        body = article.clean_text or article.excerpt
-        if body:
-            lines.append("")
-            lines.append("[bold underline]Article[/bold underline]")
-            lines.append(escape(body))
+                topic_items = [str(article.topics)]
+            lines.append(f"[dim]{escape(', '.join(topic_items))}[/dim]")
 
         self.query_one("#reader-content", Static).update("\n".join(lines))
+
+        # Render the article body as Markdown (paragraphs/lists) in its own widget.
+        body = article.clean_text or article.excerpt
+        self._set_body(_plaintext_to_markdown(body) if body else "")
         self.query_one("#reader-scroll", VerticalScroll).scroll_home(animate=False)
 
     def _render_thread(
@@ -155,4 +187,5 @@ class ReaderPane(Widget):
                 lines.append(f"  • {member_title}{meta_suffix}")
 
         self.query_one("#reader-content", Static).update("\n".join(lines))
+        self._set_body("")  # threads have no markdown body
         self.query_one("#reader-scroll", VerticalScroll).scroll_home(animate=False)

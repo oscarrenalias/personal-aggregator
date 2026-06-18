@@ -43,7 +43,7 @@ class NavSidebar(Static):
     }
     NavSidebar Tree {
         height: 1fr;
-        padding: 0;
+        padding: 0 1 0 2;
     }
     """
 
@@ -71,33 +71,33 @@ class NavSidebar(Static):
     def _build_static_sections(self, tree: Tree[None]) -> None:
         """Add Today, Threads, and Smart Views nodes synchronously."""
         # Today
-        today_node = tree.root.add("Today", expand=True)
+        today_node = tree.root.add("📅  Today", expand=True)
         self._register(today_node, NavItem(kind="today", label="Today"))
 
         # Threads
-        threads_node = tree.root.add("Threads", expand=True)
+        threads_node = tree.root.add("🧵  Threads", expand=True)
         self._register(threads_node, NavItem(kind="threads", label="Threads"))
 
         # Smart Views section
-        smart_section = tree.root.add("Smart Views", expand=True)
+        smart_section = tree.root.add("📰  Smart Views", expand=True)
         smart_section.allow_expand = False
 
-        for view, label in [
-            ("all", "All"),
-            ("unread", "Unread"),
-            ("saved", "Saved"),
-            ("important", "Important"),
-            ("uncategorized", "Uncategorized"),
+        for view, label, icon in [
+            ("all", "All", "📋"),
+            ("unread", "Unread", "📨"),
+            ("saved", "Saved", "🔖"),
+            ("important", "Important", "⭐"),
+            ("uncategorized", "Uncategorized", "▫"),
         ]:
-            child = smart_section.add_leaf(label)
+            child = smart_section.add_leaf(f"{icon}  {label}")
             self._register(child, NavItem(kind="smart", view=view, label=label))
 
         # Placeholder sections until API data arrives
-        self._categories_section = tree.root.add("Categories", expand=True)
+        self._categories_section = tree.root.add("📁  Categories", expand=True)
         self._categories_section.allow_expand = False
         self._categories_section.add_leaf("Loading…")
 
-        self._sources_section = tree.root.add("Sources", expand=True)
+        self._sources_section = tree.root.add("📡  Sources", expand=True)
         self._sources_section.allow_expand = False
         self._sources_section.add_leaf("Loading…")
 
@@ -128,7 +128,7 @@ class NavSidebar(Static):
             section.add_leaf("(none)")
             return
         for cat in sorted(categories, key=lambda c: (c.sort_order, c.name)):
-            child = section.add_leaf(cat.name)
+            child = section.add_leaf(f"🏷️  {cat.name}")
             self._register(child, NavItem(kind="category", category=cat.name, label=cat.name))
 
     async def _load_sources(self) -> None:
@@ -146,7 +146,7 @@ class NavSidebar(Static):
             section.add_leaf("(none)")
             return
         for src in sorted(sources, key=lambda s: s.name.lower()):
-            child = section.add_leaf(src.name)
+            child = section.add_leaf(f"📡  {src.name}")
             self._register(child, NavItem(kind="source", source_id=src.id, label=src.name))
 
     def _post_status(self, message: str) -> None:
