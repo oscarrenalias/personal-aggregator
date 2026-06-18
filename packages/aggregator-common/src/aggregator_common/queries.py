@@ -41,11 +41,36 @@ def _article_keyset_filter(cursor_fp: Optional[str], cursor_id: int):
 
 
 def _thread_keyset_filter(cursor_lu: str, cursor_id: int):
-    """WHERE condition that restricts to rows after (last_updated, id) in DESC order."""
+    """WHERE condition that restricts to rows after (last_updated, id) in DESC order.
+
+    Matches the 'recent' sort (last_updated DESC, id DESC).
+    """
     cursor_dt = datetime.fromisoformat(cursor_lu)
     return or_(
         Thread.last_updated < cursor_dt,
         and_(Thread.last_updated == cursor_dt, Thread.id < cursor_id),
+    )
+
+
+def _thread_keyset_filter_importance(cursor_tg, cursor_lu: str, cursor_id: int):
+    """WHERE condition restricting to rows after (top_grade, last_updated, id) in the
+    'importance' sort order (top_grade DESC NULLS LAST, last_updated DESC, id DESC).
+
+    The keyset MUST match the ORDER BY columns or pages overlap/gap. cursor_tg may be
+    None (the cursor sits within the NULLS-LAST section).
+    """
+    cursor_dt = datetime.fromisoformat(cursor_lu)
+    lu_tiebreak = or_(
+        Thread.last_updated < cursor_dt,
+        and_(Thread.last_updated == cursor_dt, Thread.id < cursor_id),
+    )
+    if cursor_tg is None:
+        # Cursor is already in the NULLS-LAST section: only further NULL-grade rows remain.
+        return and_(Thread.top_grade.is_(None), lu_tiebreak)
+    return or_(
+        Thread.top_grade < cursor_tg,
+        Thread.top_grade.is_(None),  # NULL grades sort after any non-NULL grade (nulls_last)
+        and_(Thread.top_grade == cursor_tg, lu_tiebreak),
     )
 
 
@@ -516,12 +541,19 @@ def list_threads(
     if status is not None:
         filters.append(Thread.status == status)
     if cursor is not None:
-        cursor_lu, cursor_id = _decode_cursor(cursor)
-        filters.append(_thread_keyset_filter(str(cursor_lu), int(cursor_id)))
+        decoded = _decode_cursor(cursor)
+        if sort == "recent":
+            cursor_lu, cursor_id = decoded
+            filters.append(_thread_keyset_filter(str(cursor_lu), int(cursor_id)))
+        else:
+            cursor_tg, cursor_lu, cursor_id = decoded
+            filters.append(
+                _thread_keyset_filter_importance(cursor_tg, str(cursor_lu), int(cursor_id))
+            )
     order = (
-        (Thread.last_updated.desc(),)
+        (Thread.last_updated.desc(), Thread.id.desc())
         if sort == "recent"
-        else (Thread.top_grade.desc().nulls_last(), Thread.last_updated.desc())
+        else (Thread.top_grade.desc().nulls_last(), Thread.last_updated.desc(), Thread.id.desc())
     )
     effective_offset = 0 if cursor is not None else offset
     q = (
@@ -570,7 +602,10 @@ def list_threads(
     next_cursor: Optional[str] = None
     if len(threads) == limit:
         last = threads[-1]
-        next_cursor = _encode_cursor((last.last_updated.isoformat(), last.id))
+        if sort == "recent":
+            next_cursor = _encode_cursor((last.last_updated.isoformat(), last.id))
+        else:
+            next_cursor = _encode_cursor((last.top_grade, last.last_updated.isoformat(), last.id))
     return thread_results, next_cursor
 
 
