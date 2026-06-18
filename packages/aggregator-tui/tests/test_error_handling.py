@@ -119,6 +119,7 @@ def test_get_article_api_error_routes_to_status_bar(stub: StubApiClient) -> None
             await pilot.pause(0.1)
             await app.query_one("#list-pane", ArticleList).load(view="all")
             await pilot.pause(0.1)
+            app.query_one("#article-listview").focus()  # Enter acts on the focused list
 
             await pilot.press("j")
             await pilot.pause(0.1)

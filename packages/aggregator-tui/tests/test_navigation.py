@@ -147,6 +147,7 @@ def test_enter_loads_article_into_reader(stub: StubApiClient) -> None:
             await pilot.pause(0.1)
             await _load_articles(app, stub)
             await pilot.pause(0.1)
+            app.query_one("#article-listview", ListView).focus()  # Enter acts on the focused list
 
             await pilot.press("j")
             await pilot.pause(0.1)
@@ -382,7 +383,11 @@ def test_tab_cycles_pane_focus(stub: StubApiClient) -> None:
         app.api_client = stub
         async with app.run_test(size=(120, 40)) as pilot:
             await pilot.pause(0.1)
-            assert app._pane_focus_idx == 1  # list pane is default
+            assert app._pane_focus_idx == 0  # nav sidebar is focused on load
+
+            await pilot.press("tab")
+            await pilot.pause(0.1)
+            assert app._pane_focus_idx == 1  # list pane
 
             await pilot.press("tab")
             await pilot.pause(0.1)
@@ -390,11 +395,7 @@ def test_tab_cycles_pane_focus(stub: StubApiClient) -> None:
 
             await pilot.press("tab")
             await pilot.pause(0.1)
-            assert app._pane_focus_idx == 0  # nav sidebar
-
-            await pilot.press("tab")
-            await pilot.pause(0.1)
-            assert app._pane_focus_idx == 1  # wraps back to list pane
+            assert app._pane_focus_idx == 0  # wraps back to nav sidebar
 
     asyncio.run(inner())
 

@@ -113,7 +113,9 @@ class AggregatorApp(App[None]):
         yield Footer()
 
     def on_mount(self) -> None:
-        self.query_one("#article-listview", ListView).focus()
+        # Start with the nav sidebar (first panel) focused.
+        self._pane_focus_idx = 0
+        self.query_one("#nav-tree", Tree).focus()
         # Evaluate initial layout based on the actual terminal width at startup.
         self._apply_layout(self.app.size.width)
         # Background sidebar refresh every 60s (mirrors the web UI's poll).
