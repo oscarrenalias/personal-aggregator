@@ -109,16 +109,12 @@ class ReaderPane(Widget):
             meta.append(escape(article.feed_published_at[:10]))
         if article.author:
             meta.append(f"by {escape(article.author)}")
+        # Tuck the importance score into the meta line; the verbose
+        # importance_reason explanation is intentionally not shown.
+        if article.importance_score is not None:
+            meta.append(f"importance {article.importance_score}")
         if meta:
             lines.append(f"[dim]{' · '.join(meta)}[/dim]")
-
-        if article.importance_score is not None:
-            reason = (
-                f" — {escape(article.importance_reason)}"
-                if article.importance_reason
-                else ""
-            )
-            lines.append(f"[dim]Importance: {article.importance_score}{reason}[/dim]")
 
         if article.summary:
             lines.append("")
