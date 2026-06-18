@@ -411,7 +411,7 @@ class TestListThreadsSort:
         from aggregator_common.queries import list_threads
         _make_thread(db_session, title="Low Grade", top_grade=20)
         _make_thread(db_session, title="High Grade", top_grade=95)
-        results = list_threads(db_session)
+        results, _ = list_threads(db_session)
         titles = [r.representative_title for r in results]
         assert titles.index("High Grade") < titles.index("Low Grade")
 
@@ -443,7 +443,7 @@ class TestListThreadsSort:
         )
         db_session.add_all([older, newer])
         db_session.commit()
-        results = list_threads(db_session, sort="recent")
+        results, _ = list_threads(db_session, sort="recent")
         titles = [r.representative_title for r in results]
         assert titles.index("Newer Thread") < titles.index("Older Thread")
 
@@ -475,7 +475,7 @@ class TestListThreadsSort:
         )
         db_session.add_all([low_grade_recent, high_grade_older])
         db_session.commit()
-        results = list_threads(db_session, sort="importance")
+        results, _ = list_threads(db_session, sort="importance")
         titles = [r.representative_title for r in results]
         assert titles.index("High Grade Older") < titles.index("Low Grade Recent")
 
