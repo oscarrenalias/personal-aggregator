@@ -6,12 +6,16 @@ from typing import Optional
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, VerticalScroll
+from textual.events import Resize
 from textual.widgets import Label, ListView, Tree
 
 from .api_client import ApiClient, ApiError, ArticleResponse, ThreadResponse
 from .widgets.article_list import ArticleList, ArticleRow, ThreadRow
 from .widgets.nav_sidebar import NavItem, NavSidebar
 from .widgets.reader_pane import ReaderPane
+
+# Below this column count only one pane is visible at a time (narrow/single-pane mode).
+NARROW_THRESHOLD = 100
 
 
 class StatusBar(Label):
@@ -84,6 +88,7 @@ class AggregatorApp(App[None]):
         self._pane_focus_idx: int = 1  # 0=nav, 1=list, 2=reader
         self._in_search_mode: bool = False
         self._last_nav_item: Optional[NavItem] = None
+        self._narrow_mode: bool = False  # set correctly after first Resize
 
     async def on_unmount(self) -> None:
         await self.api_client.aclose()
@@ -99,6 +104,36 @@ class AggregatorApp(App[None]):
 
     def on_mount(self) -> None:
         self.query_one("#article-listview", ListView).focus()
+        # Evaluate initial layout based on the actual terminal width at startup.
+        self._apply_layout(self.app.size.width)
+
+    def on_resize(self, event: Resize) -> None:
+        """Switch between narrow (single-pane) and wide (three-pane) layout."""
+        self._apply_layout(event.size.width)
+
+    def _apply_layout(self, columns: int) -> None:
+        """Show/hide panes according to whether we are in narrow or wide mode."""
+        narrow = columns < NARROW_THRESHOLD
+        if narrow == self._narrow_mode:
+            return
+        self._narrow_mode = narrow
+        if narrow:
+            # Default visible pane in narrow mode is the list (idx 1).
+            self._pane_focus_idx = 1
+            self._show_narrow_pane(1)
+        else:
+            # Wide mode: all three panes visible simultaneously.
+            for widget_id in ("#nav-sidebar", "#list-pane", "#reader-pane"):
+                self.query_one(widget_id).display = True
+            self._apply_pane_focus()
+
+    def _show_narrow_pane(self, idx: int) -> None:
+        """In narrow mode, show only the pane at *idx* (0=nav, 1=list, 2=reader)."""
+        ids = ("#nav-sidebar", "#list-pane", "#reader-pane")
+        for i, widget_id in enumerate(ids):
+            self.query_one(widget_id).display = i == idx
+        self._pane_focus_idx = idx
+        self._apply_pane_focus()
 
     def notify_status(self, message: str) -> None:
         """Write a short message to the status bar."""
@@ -134,6 +169,9 @@ class AggregatorApp(App[None]):
             self.query_one("#reader-pane", ReaderPane).load_article(self._selected_article.id)
         elif self._selected_thread is not None:
             self.query_one("#reader-pane", ReaderPane).load_thread(self._selected_thread.id)
+        # In narrow mode, switch focus to the reader pane after loading content.
+        if self._narrow_mode:
+            self._show_narrow_pane(2)
 
     def action_view_in_browser(self) -> None:
         if self._selected_article is not None and self._selected_article.url:
@@ -142,8 +180,12 @@ class AggregatorApp(App[None]):
             self.notify_status("No URL available for this article.")
 
     def action_focus_next_pane(self) -> None:
-        self._pane_focus_idx = (self._pane_focus_idx + 1) % 3
-        self._apply_pane_focus()
+        next_idx = (self._pane_focus_idx + 1) % 3
+        if self._narrow_mode:
+            self._show_narrow_pane(next_idx)
+        else:
+            self._pane_focus_idx = next_idx
+            self._apply_pane_focus()
 
     def action_focus_list(self) -> None:
         if self._in_search_mode:
@@ -152,8 +194,11 @@ class AggregatorApp(App[None]):
             article_list.deactivate_search()
             self._restore_last_nav()
             return
-        self._pane_focus_idx = 1
-        self._apply_pane_focus()
+        if self._narrow_mode:
+            self._show_narrow_pane(1)
+        else:
+            self._pane_focus_idx = 1
+            self._apply_pane_focus()
 
     def action_activate_search(self) -> None:
         """Show and focus the search input (/ key)."""
@@ -284,11 +329,15 @@ class AggregatorApp(App[None]):
         """Load the selected article into the reader pane (Enter)."""
         self._selected_article = event.article
         self.query_one("#reader-pane", ReaderPane).load_article(event.article.id)
+        if self._narrow_mode:
+            self._show_narrow_pane(2)
 
     def on_article_list_thread_selected(self, event: ArticleList.ThreadSelected) -> None:
         """Load the selected thread into the reader pane (Enter)."""
         self._selected_thread = event.thread
         self.query_one("#reader-pane", ReaderPane).load_thread(event.thread.id)
+        if self._narrow_mode:
+            self._show_narrow_pane(2)
 
     def on_article_list_search_failed(self, event: ArticleList.SearchFailed) -> None:
         """Route a search ApiError to the status bar."""
