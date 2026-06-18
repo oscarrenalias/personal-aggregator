@@ -10,7 +10,7 @@ from textual.widgets import Label, ListView, Tree
 
 from .api_client import ApiClient, ApiError, ArticleResponse, ThreadResponse
 from .widgets.article_list import ArticleList, ArticleRow, ThreadRow
-from .widgets.nav_sidebar import NavSidebar
+from .widgets.nav_sidebar import NavItem, NavSidebar
 from .widgets.reader_pane import ReaderPane
 
 
@@ -69,6 +69,7 @@ class AggregatorApp(App[None]):
         Binding("n", "mark_read_next", "Mark read + next", show=False),
         Binding("s", "toggle_save", "Toggle save", show=False),
         Binding("d", "dismiss_thread", "Dismiss/restore thread", show=False),
+        Binding("/", "activate_search", "Search", show=False),
     ]
 
     def __init__(self, api_url: str = "http://127.0.0.1:8000/api/v1", **kwargs: object) -> None:
@@ -81,6 +82,8 @@ class AggregatorApp(App[None]):
         self._selected_thread_row: Optional[ThreadRow] = None
         self._current_nav_kind: str = "smart"
         self._pane_focus_idx: int = 1  # 0=nav, 1=list, 2=reader
+        self._in_search_mode: bool = False
+        self._last_nav_item: Optional[NavItem] = None
 
     async def on_unmount(self) -> None:
         await self.api_client.aclose()
@@ -143,8 +146,37 @@ class AggregatorApp(App[None]):
         self._apply_pane_focus()
 
     def action_focus_list(self) -> None:
+        if self._in_search_mode:
+            self._in_search_mode = False
+            article_list = self.query_one("#list-pane", ArticleList)
+            article_list.deactivate_search()
+            self._restore_last_nav()
+            return
         self._pane_focus_idx = 1
         self._apply_pane_focus()
+
+    def action_activate_search(self) -> None:
+        """Show and focus the search input (/ key)."""
+        self._in_search_mode = True
+        self.query_one("#list-pane", ArticleList).activate_search()
+
+    def _restore_last_nav(self) -> None:
+        """Re-load the view that was active before the user entered search mode."""
+        item = self._last_nav_item
+        article_list = self.query_one("#list-pane", ArticleList)
+        if item is None:
+            article_list.run_worker(article_list.load(view="all"), exclusive=True)
+            return
+        if item.kind == "smart":
+            article_list.run_worker(article_list.load(view=item.view or "all"), exclusive=True)
+        elif item.kind == "today":
+            article_list.run_worker(article_list.load(view="today"), exclusive=True)
+        elif item.kind == "threads":
+            article_list.run_worker(article_list.load_threads(), exclusive=True)
+        elif item.kind == "category":
+            article_list.run_worker(article_list.load(category=item.category), exclusive=True)
+        elif item.kind == "source":
+            article_list.run_worker(article_list.load(source_id=item.source_id), exclusive=True)
 
     def _apply_pane_focus(self) -> None:
         try:
@@ -258,10 +290,18 @@ class AggregatorApp(App[None]):
         self._selected_thread = event.thread
         self.query_one("#reader-pane", ReaderPane).load_thread(event.thread.id)
 
+    def on_article_list_search_failed(self, event: ArticleList.SearchFailed) -> None:
+        """Route a search ApiError to the status bar."""
+        self.notify_status(f"Search error: {event.error}")
+
     def on_nav_sidebar_nav_item_selected(self, event: NavSidebar.NavItemSelected) -> None:
         """Reload the article list based on the selected nav item."""
         item = event.item
+        self._last_nav_item = item
         self._current_nav_kind = item.kind
+        if self._in_search_mode:
+            self._in_search_mode = False
+            self.query_one("#list-pane", ArticleList).deactivate_search()
         self._selected_article = None
         self._selected_article_row = None
         self._selected_thread = None

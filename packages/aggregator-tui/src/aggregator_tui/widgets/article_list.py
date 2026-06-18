@@ -5,9 +5,9 @@ from typing import Optional
 from textual.app import ComposeResult
 from textual.message import Message
 from textual.widget import Widget
-from textual.widgets import ListItem, ListView, Static
+from textual.widgets import Input, ListItem, ListView, Static
 
-from ..api_client import ApiClient, ArticleResponse, ThreadResponse
+from ..api_client import ApiClient, ApiError, ArticleResponse, ThreadResponse
 
 
 def _format_date(dt_str: Optional[str]) -> str:
@@ -104,6 +104,10 @@ class ArticleList(Widget):
 
     Exposes load() for articles and load_threads() for threads. Posts
     ArticleSelected or ThreadSelected when the user activates an item.
+
+    Call activate_search() to show the search input (/ key). Submitting a
+    query runs _execute_search() which posts SearchFailed on ApiError.
+    Call deactivate_search() to hide the input and restore list focus.
     """
 
     DEFAULT_CSS = """
@@ -112,6 +116,15 @@ class ArticleList(Widget):
     }
     ArticleList ListView {
         height: 1fr;
+    }
+    ArticleList #search-input {
+        display: none;
+    }
+    ArticleList #no-results-placeholder {
+        display: none;
+        height: 1fr;
+        content-align: center middle;
+        color: $text-muted;
     }
     """
 
@@ -129,6 +142,13 @@ class ArticleList(Widget):
             super().__init__()
             self.thread = thread
 
+    class SearchFailed(Message):
+        """Posted when a search API call fails with an ApiError."""
+
+        def __init__(self, error: str) -> None:
+            super().__init__()
+            self.error = error
+
     def __init__(self, api_client: Optional[ApiClient] = None, **kwargs: object) -> None:
         super().__init__(**kwargs)
         self._api_client: Optional[ApiClient] = api_client
@@ -145,7 +165,34 @@ class ArticleList(Widget):
         self._api_client = client
 
     def compose(self) -> ComposeResult:
+        yield Input(placeholder="Search articles…", id="search-input")
+        yield Static("No results", id="no-results-placeholder")
         yield ListView(id="article-listview")
+
+    # ------------------------------------------------------------------
+    # Search input lifecycle
+    # ------------------------------------------------------------------
+
+    def activate_search(self) -> None:
+        """Show the search input and give it focus."""
+        search_input = self.query_one("#search-input", Input)
+        search_input.display = True
+        search_input.focus()
+
+    def deactivate_search(self) -> None:
+        """Hide and clear the search input; restore focus to the list."""
+        search_input = self.query_one("#search-input", Input)
+        search_input.display = False
+        search_input.value = ""
+        no_results = self.query_one("#no-results-placeholder", Static)
+        no_results.display = False
+        listview = self.query_one("#article-listview", ListView)
+        listview.display = True
+        listview.focus()
+
+    # ------------------------------------------------------------------
+    # Event handlers
+    # ------------------------------------------------------------------
 
     def on_list_view_selected(self, event: ListView.Selected) -> None:
         event.stop()
@@ -153,6 +200,51 @@ class ArticleList(Widget):
             self.post_message(self.ArticleSelected(event.item.article))
         elif isinstance(event.item, ThreadRow):
             self.post_message(self.ThreadSelected(event.item.thread))
+
+    async def on_input_submitted(self, event: Input.Submitted) -> None:
+        """Run a search when the user presses Enter in the search input."""
+        query = event.value.strip()
+        if not query:
+            return
+        await self._execute_search(query)
+
+    # ------------------------------------------------------------------
+    # Search execution
+    # ------------------------------------------------------------------
+
+    async def _execute_search(self, query: str) -> None:
+        """Call search_articles and populate the list; post SearchFailed on ApiError."""
+        if self._api_client is None:
+            return
+
+        listview = self.query_one("#article-listview", ListView)
+        no_results = self.query_one("#no-results-placeholder", Static)
+        listview.clear()
+        listview.display = True
+        no_results.display = False
+        self._articles = []
+        self._threads = []
+        self._next_cursor = None
+
+        try:
+            response = await self._api_client.search_articles(q=query)
+        except ApiError as exc:
+            self.post_message(self.SearchFailed(str(exc)))
+            return
+
+        self._articles = response.items
+        self._next_cursor = response.next_cursor
+
+        if not self._articles:
+            listview.display = False
+            no_results.display = True
+        else:
+            for article in self._articles:
+                listview.append(ArticleRow(article))
+
+    # ------------------------------------------------------------------
+    # Navigation loading (called by app on nav-item selection)
+    # ------------------------------------------------------------------
 
     async def load(
         self,
@@ -170,7 +262,10 @@ class ArticleList(Widget):
             return
 
         listview = self.query_one("#article-listview", ListView)
+        no_results = self.query_one("#no-results-placeholder", Static)
         listview.clear()
+        listview.display = True
+        no_results.display = False
         self._articles = []
         self._threads = []
         self._next_cursor = None
@@ -207,7 +302,10 @@ class ArticleList(Widget):
             return
 
         listview = self.query_one("#article-listview", ListView)
+        no_results = self.query_one("#no-results-placeholder", Static)
         listview.clear()
+        listview.display = True
+        no_results.display = False
         self._articles = []
         self._threads = []
         self._next_cursor = None
