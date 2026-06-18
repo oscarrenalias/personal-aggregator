@@ -75,6 +75,8 @@ class AggregatorApp(App[None]):
         Binding("s", "toggle_save", "Toggle save", show=False),
         Binding("d", "dismiss_thread", "Dismiss/restore thread", show=False),
         Binding("/", "activate_search", "Search", show=False),
+        Binding("question_mark", "show_help", "Help", show=False),
+        Binding("q", "quit_app", "Quit", show=False),
     ]
 
     def __init__(self, api_url: str = "http://127.0.0.1:8000/api/v1", **kwargs: object) -> None:
@@ -308,6 +310,15 @@ class AggregatorApp(App[None]):
             thread.dismissed = old_dismissed
             row.refresh_display()
             self.notify_status(f"Error: {exc}")
+
+    def action_show_help(self) -> None:
+        """Push the keybinding help overlay (? key)."""
+        self.push_screen(HelpOverlay())
+
+    def action_quit_app(self) -> None:
+        """Quit unless a text input widget currently has focus."""
+        if not isinstance(self.focused, Input):
+            self.exit()
 
     # ------------------------------------------------------------------
     # Message handlers
