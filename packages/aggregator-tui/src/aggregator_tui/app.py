@@ -83,7 +83,7 @@ class AggregatorApp(App[None]):
         Binding("q", "quit_app", "Quit", show=True),
     ]
 
-    def __init__(self, api_url: str = "http://127.0.0.1:8000/api/v1", **kwargs: object) -> None:
+    def __init__(self, api_url: str = "http://localhost:8000/api/v1", **kwargs: object) -> None:
         super().__init__(**kwargs)
         self.api_url = api_url
         self.api_client = ApiClient(api_url)
