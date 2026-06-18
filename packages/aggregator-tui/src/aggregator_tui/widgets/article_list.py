@@ -7,7 +7,7 @@ from textual.message import Message
 from textual.widget import Widget
 from textual.widgets import ListItem, ListView, Static
 
-from ..api_client import ApiClient, ArticleResponse
+from ..api_client import ApiClient, ArticleResponse, ThreadResponse
 
 
 def _format_date(dt_str: Optional[str]) -> str:
@@ -39,25 +39,71 @@ class ArticleRow(ListItem):
         super().__init__()
         self.article = article
 
-    def compose(self) -> ComposeResult:
+    def _make_markup(self) -> str:
         read_dot = " " if self.article.is_read else "[bold green]●[/]"
         saved_star = "[yellow]★[/]" if self.article.is_saved else " "
         title = self.article.title or "(no title)"
         source = self.article.source_name or ""
         date_str = _format_date(self.article.feed_published_at)
         meta = f"{source}  {date_str}".strip()
+        return f"{read_dot}{saved_star} {title}\n[dim]   {meta}[/dim]"
 
-        yield Static(
-            f"{read_dot}{saved_star} {title}\n[dim]   {meta}[/dim]",
-            markup=True,
-        )
+    def compose(self) -> ComposeResult:
+        yield Static(self._make_markup(), markup=True)
+
+    def refresh_display(self) -> None:
+        try:
+            self.query_one(Static).update(self._make_markup())
+        except Exception:
+            pass
+
+
+class ThreadRow(ListItem):
+    """A list item representing one thread."""
+
+    DEFAULT_CSS = """
+    ThreadRow {
+        height: auto;
+        padding: 0 1;
+    }
+    ThreadRow Static {
+        width: 1fr;
+    }
+    """
+
+    def __init__(self, thread: ThreadResponse) -> None:
+        super().__init__()
+        self.thread = thread
+
+    def _make_markup(self) -> str:
+        updates_dot = "[bold cyan]●[/]" if self.thread.has_updates else " "
+        dismissed_marker = "[dim]✗[/dim]" if self.thread.dismissed else " "
+        title = self.thread.representative_title or "(no title)"
+        meta_parts: list[str] = []
+        if self.thread.member_count:
+            meta_parts.append(f"{self.thread.member_count} art.")
+        if self.thread.source_count:
+            meta_parts.append(f"{self.thread.source_count} src.")
+        if self.thread.tier:
+            meta_parts.append(self.thread.tier)
+        meta = "  ".join(meta_parts)
+        return f"{updates_dot}{dismissed_marker} {title}\n[dim]   {meta}[/dim]"
+
+    def compose(self) -> ComposeResult:
+        yield Static(self._make_markup(), markup=True)
+
+    def refresh_display(self) -> None:
+        try:
+            self.query_one(Static).update(self._make_markup())
+        except Exception:
+            pass
 
 
 class ArticleList(Widget):
-    """Scrollable list of article rows with selection tracking.
+    """Scrollable list of article rows or thread rows with selection tracking.
 
-    Exposes a load() method that fetches articles from the API and populates
-    the list. Posts ArticleSelected when the user moves the selection cursor.
+    Exposes load() for articles and load_threads() for threads. Posts
+    ArticleSelected or ThreadSelected when the user activates an item.
     """
 
     DEFAULT_CSS = """
@@ -76,10 +122,18 @@ class ArticleList(Widget):
             super().__init__()
             self.article = article
 
+    class ThreadSelected(Message):
+        """Posted when the user selects a thread from the list."""
+
+        def __init__(self, thread: ThreadResponse) -> None:
+            super().__init__()
+            self.thread = thread
+
     def __init__(self, api_client: Optional[ApiClient] = None, **kwargs: object) -> None:
         super().__init__(**kwargs)
         self._api_client: Optional[ApiClient] = api_client
         self._articles: list[ArticleResponse] = []
+        self._threads: list[ThreadResponse] = []
         self._next_cursor: Optional[str] = None
 
     @property
@@ -97,6 +151,8 @@ class ArticleList(Widget):
         event.stop()
         if isinstance(event.item, ArticleRow):
             self.post_message(self.ArticleSelected(event.item.article))
+        elif isinstance(event.item, ThreadRow):
+            self.post_message(self.ThreadSelected(event.item.thread))
 
     async def load(
         self,
@@ -116,6 +172,7 @@ class ArticleList(Widget):
         listview = self.query_one("#article-listview", ListView)
         listview.clear()
         self._articles = []
+        self._threads = []
         self._next_cursor = None
 
         try:
@@ -139,3 +196,32 @@ class ArticleList(Widget):
 
         for article in self._articles:
             listview.append(ArticleRow(article))
+
+    async def load_threads(
+        self,
+        sort: str = "importance",
+        show_dismissed: bool = False,
+    ) -> None:
+        """Load threads from the API and repopulate the list."""
+        if self._api_client is None:
+            return
+
+        listview = self.query_one("#article-listview", ListView)
+        listview.clear()
+        self._articles = []
+        self._threads = []
+        self._next_cursor = None
+
+        try:
+            response = await self._api_client.list_threads(
+                sort=sort,
+                show_dismissed=show_dismissed,
+            )
+        except Exception:
+            return
+
+        self._threads = response.items
+        self._next_cursor = response.next_cursor
+
+        for thread in self._threads:
+            listview.append(ThreadRow(thread))

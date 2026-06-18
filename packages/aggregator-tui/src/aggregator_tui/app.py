@@ -8,8 +8,8 @@ from textual.binding import Binding
 from textual.containers import Horizontal, VerticalScroll
 from textual.widgets import Label, ListView, Tree
 
-from .api_client import ApiClient, ArticleResponse
-from .widgets.article_list import ArticleList, ArticleRow
+from .api_client import ApiClient, ApiError, ArticleResponse, ThreadResponse
+from .widgets.article_list import ArticleList, ArticleRow, ThreadRow
 from .widgets.nav_sidebar import NavSidebar
 from .widgets.reader_pane import ReaderPane
 
@@ -65,6 +65,10 @@ class AggregatorApp(App[None]):
         Binding("v", "view_in_browser", "View in browser", show=False),
         Binding("tab", "focus_next_pane", "Next pane", show=False, priority=True),
         Binding("escape", "focus_list", "Back to list", show=False, priority=True),
+        Binding("m", "toggle_read", "Toggle read", show=False),
+        Binding("n", "mark_read_next", "Mark read + next", show=False),
+        Binding("s", "toggle_save", "Toggle save", show=False),
+        Binding("d", "dismiss_thread", "Dismiss/restore thread", show=False),
     ]
 
     def __init__(self, api_url: str = "http://127.0.0.1:8000/api/v1", **kwargs: object) -> None:
@@ -72,6 +76,10 @@ class AggregatorApp(App[None]):
         self.api_url = api_url
         self.api_client = ApiClient(api_url)
         self._selected_article: Optional[ArticleResponse] = None
+        self._selected_article_row: Optional[ArticleRow] = None
+        self._selected_thread: Optional[ThreadResponse] = None
+        self._selected_thread_row: Optional[ThreadRow] = None
+        self._current_nav_kind: str = "smart"
         self._pane_focus_idx: int = 1  # 0=nav, 1=list, 2=reader
 
     async def on_unmount(self) -> None:
@@ -121,6 +129,8 @@ class AggregatorApp(App[None]):
     def action_open_article(self) -> None:
         if self._selected_article is not None:
             self.query_one("#reader-pane", ReaderPane).load_article(self._selected_article.id)
+        elif self._selected_thread is not None:
+            self.query_one("#reader-pane", ReaderPane).load_thread(self._selected_thread.id)
 
     def action_view_in_browser(self) -> None:
         if self._selected_article is not None and self._selected_article.url:
@@ -147,28 +157,122 @@ class AggregatorApp(App[None]):
         except Exception:
             pass
 
+    async def action_toggle_read(self) -> None:
+        row = self._selected_article_row
+        if row is None:
+            return
+        article = row.article
+        old_read = article.is_read
+        article.is_read = not old_read
+        row.refresh_display()
+        try:
+            if article.is_read:
+                await self.api_client.mark_read(article.id)
+            else:
+                await self.api_client.mark_unread(article.id)
+        except ApiError as exc:
+            article.is_read = old_read
+            row.refresh_display()
+            self.notify_status(f"Error: {exc}")
+
+    async def action_mark_read_next(self) -> None:
+        row = self._selected_article_row
+        if row is None:
+            return
+        article = row.article
+        if not article.is_read:
+            old_read = article.is_read
+            article.is_read = True
+            row.refresh_display()
+            try:
+                await self.api_client.mark_read(article.id)
+            except ApiError as exc:
+                article.is_read = old_read
+                row.refresh_display()
+                self.notify_status(f"Error: {exc}")
+                return
+        self.query_one("#article-listview", ListView).action_cursor_down()
+
+    async def action_toggle_save(self) -> None:
+        row = self._selected_article_row
+        if row is None:
+            return
+        article = row.article
+        old_saved = article.is_saved
+        article.is_saved = not old_saved
+        row.refresh_display()
+        try:
+            if article.is_saved:
+                await self.api_client.save_article(article.id)
+            else:
+                await self.api_client.unsave_article(article.id)
+        except ApiError as exc:
+            article.is_saved = old_saved
+            row.refresh_display()
+            self.notify_status(f"Error: {exc}")
+
+    async def action_dismiss_thread(self) -> None:
+        if self._current_nav_kind != "threads":
+            return
+        row = self._selected_thread_row
+        if row is None:
+            return
+        thread = row.thread
+        old_dismissed = thread.dismissed
+        thread.dismissed = not old_dismissed
+        row.refresh_display()
+        try:
+            if thread.dismissed:
+                await self.api_client.dismiss_thread(thread.id)
+            else:
+                await self.api_client.restore_thread(thread.id)
+        except ApiError as exc:
+            thread.dismissed = old_dismissed
+            row.refresh_display()
+            self.notify_status(f"Error: {exc}")
+
     # ------------------------------------------------------------------
     # Message handlers
     # ------------------------------------------------------------------
 
     def on_list_view_highlighted(self, event: ListView.Highlighted) -> None:
-        """Track the highlighted article so o/v can act on it without Enter."""
+        """Track the highlighted row so action keys can act on it without Enter."""
         if event.item is not None and isinstance(event.item, ArticleRow):
             self._selected_article = event.item.article
+            self._selected_article_row = event.item
+            self._selected_thread = None
+            self._selected_thread_row = None
+        elif event.item is not None and isinstance(event.item, ThreadRow):
+            self._selected_thread = event.item.thread
+            self._selected_thread_row = event.item
+            self._selected_article = None
+            self._selected_article_row = None
 
     def on_article_list_article_selected(self, event: ArticleList.ArticleSelected) -> None:
         """Load the selected article into the reader pane (Enter)."""
         self._selected_article = event.article
         self.query_one("#reader-pane", ReaderPane).load_article(event.article.id)
 
+    def on_article_list_thread_selected(self, event: ArticleList.ThreadSelected) -> None:
+        """Load the selected thread into the reader pane (Enter)."""
+        self._selected_thread = event.thread
+        self.query_one("#reader-pane", ReaderPane).load_thread(event.thread.id)
+
     def on_nav_sidebar_nav_item_selected(self, event: NavSidebar.NavItemSelected) -> None:
         """Reload the article list based on the selected nav item."""
         item = event.item
+        self._current_nav_kind = item.kind
+        self._selected_article = None
+        self._selected_article_row = None
+        self._selected_thread = None
+        self._selected_thread_row = None
         article_list = self.query_one("#list-pane", ArticleList)
         if item.kind == "smart":
             article_list.run_worker(article_list.load(view=item.view or "all"), exclusive=True)
         elif item.kind == "today":
             article_list.run_worker(article_list.load(view="today"), exclusive=True)
+        elif item.kind == "threads":
+            article_list.run_worker(article_list.load_threads(), exclusive=True)
         elif item.kind == "category":
             article_list.run_worker(article_list.load(category=item.category), exclusive=True)
         elif item.kind == "source":
