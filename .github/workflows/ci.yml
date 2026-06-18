@@ -128,6 +128,13 @@ jobs:
           sed -i "s/^version = .*/version = \"${VERSION#v}\"/" packages/aggregator-tui/pyproject.toml
           uv build --package aggregator-tui --out-dir dist
 
+      - name: Generate OpenAPI spec
+        run: |
+          # Regenerate fresh from the code so the released contract can never
+          # drift from what the API actually serves.
+          uv run --package aggregator-api python -c \
+            "import json; from aggregator_api.app import app; open('dist/openapi.json','w').write(json.dumps(app.openapi(), indent=2))"
+
       - name: Create GitHub release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -146,4 +153,5 @@ jobs:
             deploy/aggregator \
             env.example \
             dist/aggregator_tui-*.whl \
-            dist/aggregator_tui-*.tar.gz
+            dist/aggregator_tui-*.tar.gz \
+            dist/openapi.json
