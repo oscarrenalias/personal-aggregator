@@ -445,3 +445,42 @@ def test_thread_member_optionlist_is_populated_and_navigable(stub: StubApiClient
             assert option_list.get_option_at_index(0).id == "7"
 
     asyncio.run(inner())
+
+
+def test_left_returns_from_member_article_to_its_thread(stub: StubApiClient) -> None:
+    """After opening a member article, Left (action_back_to_thread) reloads the origin thread."""
+
+    async def inner() -> None:
+        app = AggregatorApp(api_url="http://test")
+        app.api_client = stub
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause(0.1)
+            # Simulate viewing thread 5, then opening one of its member articles.
+            app._selected_thread = make_thread(id=5)
+            app.action_open_member_article(7)
+            await pilot.pause(0.1)
+            assert app._member_origin_thread_id == 5
+            assert ("get_article", 7) in stub.calls
+
+            # Left goes back to the thread.
+            app.action_back_to_thread()
+            await pilot.pause(0.1)
+            assert ("get_thread", 5) in stub.calls
+            assert app._member_origin_thread_id is None
+
+    asyncio.run(inner())
+
+
+def test_back_to_thread_is_noop_without_origin(stub: StubApiClient) -> None:
+    """Left does nothing when the current article wasn't opened from a thread."""
+
+    async def inner() -> None:
+        app = AggregatorApp(api_url="http://test")
+        app.api_client = stub
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause(0.1)
+            app.action_back_to_thread()  # no origin set
+            await pilot.pause(0.1)
+            assert not any(c[0] == "get_thread" for c in stub.calls)
+
+    asyncio.run(inner())

@@ -70,6 +70,7 @@ class AggregatorApp(App[None]):
         Binding("v", "view_in_browser", "View in browser", show=False),
         Binding("tab", "focus_next_pane", "Next pane", show=False, priority=True),
         Binding("escape", "focus_list", "Back to list", show=False, priority=True),
+        Binding("left", "back_to_thread", "Back to thread", show=False),
         Binding("m", "toggle_read", "Read", show=True),
         Binding("n", "mark_read_next", "Mark read + next", show=False),
         Binding("s", "toggle_save", "Save", show=True),
@@ -95,6 +96,8 @@ class AggregatorApp(App[None]):
         self._in_search_mode: bool = False
         self._last_nav_item: Optional[NavItem] = None
         self._narrow_mode: bool = False  # set correctly after first Resize
+        # Thread to return to when 'left' is pressed after opening a member article.
+        self._member_origin_thread_id: Optional[int] = None
 
     async def on_unmount(self) -> None:
         await self.api_client.aclose()
@@ -188,6 +191,7 @@ class AggregatorApp(App[None]):
             listview.index = count - 1
 
     def action_open_article(self) -> None:
+        self._member_origin_thread_id = None  # opening from the list resets the back target
         if self._selected_article is not None:
             self.query_one("#reader-pane", ReaderPane).load_article(self._selected_article.id)
         elif self._selected_thread is not None:
@@ -198,7 +202,20 @@ class AggregatorApp(App[None]):
 
     def action_open_member_article(self, article_id: int) -> None:
         """Open a thread member's article in the reader (clickable member link)."""
+        # Remember the thread so 'left' can return to it.
+        if self._selected_thread is not None:
+            self._member_origin_thread_id = self._selected_thread.id
         self.query_one("#reader-pane", ReaderPane).load_article(article_id)
+        if self._narrow_mode:
+            self._show_narrow_pane(2)
+
+    def action_back_to_thread(self) -> None:
+        """Left arrow: return from a member-opened article to its thread."""
+        if self._member_origin_thread_id is None:
+            return
+        thread_id = self._member_origin_thread_id
+        self._member_origin_thread_id = None
+        self.query_one("#reader-pane", ReaderPane).load_thread(thread_id)
         if self._narrow_mode:
             self._show_narrow_pane(2)
 
@@ -388,6 +405,7 @@ class AggregatorApp(App[None]):
     def on_article_list_article_selected(self, event: ArticleList.ArticleSelected) -> None:
         """Load the selected article into the reader pane (Enter)."""
         self._selected_article = event.article
+        self._member_origin_thread_id = None  # opened from the list, not a thread
         self.query_one("#reader-pane", ReaderPane).load_article(event.article.id)
         if self._narrow_mode:
             self._show_narrow_pane(2)
@@ -395,6 +413,7 @@ class AggregatorApp(App[None]):
     def on_article_list_thread_selected(self, event: ArticleList.ThreadSelected) -> None:
         """Load the selected thread into the reader pane (Enter)."""
         self._selected_thread = event.thread
+        self._member_origin_thread_id = None  # now viewing the thread itself
         self.query_one("#reader-pane", ReaderPane).load_thread(event.thread.id)
         if self._narrow_mode:
             self._show_narrow_pane(2)
@@ -415,6 +434,7 @@ class AggregatorApp(App[None]):
         self._selected_article_row = None
         self._selected_thread = None
         self._selected_thread_row = None
+        self._member_origin_thread_id = None
         article_list = self.query_one("#list-pane", ArticleList)
         if item.kind == "smart":
             article_list.run_worker(article_list.load(view=item.view or "all", title=item.label), exclusive=True)
