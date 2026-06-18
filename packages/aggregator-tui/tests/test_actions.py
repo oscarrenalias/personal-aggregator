@@ -416,3 +416,32 @@ def test_open_member_article_loads_it_into_reader(stub: StubApiClient) -> None:
             assert ("get_article", 42) in stub.calls
 
     asyncio.run(inner())
+
+
+def test_thread_member_optionlist_is_populated_and_navigable(stub: StubApiClient) -> None:
+    """Thread members render in a focusable OptionList carrying their article ids,
+    so they can be navigated by keyboard (↑/↓/Enter) and opened."""
+    from textual.widgets import OptionList
+
+    from aggregator_tui.api_client import ThreadMemberResponse
+    from aggregator_tui.widgets.reader_pane import ReaderPane
+
+    async def inner() -> None:
+        app = AggregatorApp(api_url="http://test")
+        app.api_client = stub
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause(0.1)
+            reader = app.query_one("#reader-pane", ReaderPane)
+            member = ThreadMemberResponse(
+                id=1, thread_id=1, article_id=7, suppressed=False,
+                assigned_at="2024-01-15T00:00:00Z", clean_title="Member X",
+                source_name="Src",
+            )
+            reader._set_members([member])
+            await pilot.pause(0.05)
+
+            option_list = app.query_one("#reader-members", OptionList)
+            assert option_list.option_count == 1
+            assert option_list.get_option_at_index(0).id == "7"
+
+    asyncio.run(inner())

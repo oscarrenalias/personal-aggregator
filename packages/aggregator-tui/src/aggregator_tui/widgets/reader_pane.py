@@ -4,7 +4,8 @@ from rich.markup import escape
 from textual.app import ComposeResult
 from textual.containers import VerticalScroll
 from textual.widget import Widget
-from textual.widgets import Markdown, Static
+from textual.widgets import Markdown, OptionList, Static
+from textual.widgets.option_list import Option
 
 from ..api_client import ApiError, ArticleResponse, ThreadMemberResponse, ThreadResponse
 
@@ -46,16 +47,30 @@ class ReaderPane(Widget):
     #reader-body.-empty {
         display: none;
     }
+    #reader-members {
+        height: auto;
+        margin-top: 1;
+        background: transparent;
+        border: none;
+        padding: 0;
+    }
+    #reader-members.-empty {
+        display: none;
+    }
     """
 
     def compose(self) -> ComposeResult:
         with VerticalScroll(id="reader-scroll"):
             yield Static(_PLACEHOLDER, id="reader-content")
+            members: OptionList = OptionList(id="reader-members")
+            members.add_class("-empty")
+            yield members
             yield Markdown("", id="reader-body")
 
     def clear(self) -> None:
         """Reset to placeholder text."""
         self.query_one("#reader-content", Static).update(_PLACEHOLDER)
+        self._set_members([])
         self._set_body("")
         self.query_one("#reader-scroll", VerticalScroll).scroll_home(animate=False)
 
@@ -68,6 +83,36 @@ class ReaderPane(Widget):
         else:
             body.add_class("-empty")
             body.update("")
+
+    def _set_members(self, members: list["ThreadMemberResponse"]) -> None:
+        """Populate the keyboard-navigable member OptionList (hidden when empty)."""
+        option_list = self.query_one("#reader-members", OptionList)
+        option_list.clear_options()
+        if not members:
+            option_list.add_class("-empty")
+            return
+        option_list.remove_class("-empty")
+        for m in members:
+            title = m.clean_title or "(No title)"
+            meta_parts: list[str] = []
+            if m.source_name:
+                meta_parts.append(m.source_name)
+            if m.published_at:
+                meta_parts.append(m.published_at[:10])
+            suffix = f"  ({', '.join(meta_parts)})" if meta_parts else ""
+            option_list.add_option(Option(f"{title}{suffix}", id=str(m.article_id)))
+
+    def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
+        """Open the selected thread member's article in this reader pane."""
+        event.stop()
+        opt_id = event.option.id
+        if opt_id is None:
+            return
+        try:
+            article_id = int(opt_id)
+        except ValueError:
+            return
+        self.app.action_open_member_article(article_id)  # type: ignore[attr-defined]
 
     def load_article(self, article_id: int) -> None:
         """Fetch and display an article asynchronously."""
@@ -133,6 +178,7 @@ class ReaderPane(Widget):
             lines.append(f"[dim]{escape(', '.join(topic_items))}[/dim]")
 
         self.query_one("#reader-content", Static).update("\n".join(lines))
+        self._set_members([])  # articles have no member list
 
         # Render the article body as Markdown (paragraphs/lists) in its own widget.
         body = article.clean_text or article.excerpt
@@ -169,22 +215,13 @@ class ReaderPane(Widget):
         visible_members = [m for m in members if not m.suppressed]
         if visible_members:
             lines.append("")
-            lines.append("[bold underline]Articles[/bold underline]  [dim](click a title to open)[/dim]")
-            for m in visible_members:
-                member_title = escape(m.clean_title or "(No title)")
-                member_meta: list[str] = []
-                if m.source_name:
-                    member_meta.append(escape(m.source_name))
-                if m.published_at:
-                    member_meta.append(escape(m.published_at[:10]))
-                meta_suffix = (
-                    f"  [dim]({', '.join(member_meta)})[/dim]" if member_meta else ""
-                )
-                # Make each member title a clickable link that opens the article
-                # in this reader pane (jump from a thread to one of its sources).
-                link = f"[@click=app.open_member_article({m.article_id})][u]{member_title}[/u][/]"
-                lines.append(f"  • {link}{meta_suffix}")
+            lines.append(
+                "[bold underline]Articles[/bold underline]"
+                "  [dim](Tab here, ↑/↓, Enter — or click — to open)[/dim]"
+            )
 
         self.query_one("#reader-content", Static).update("\n".join(lines))
+        # Members go in a focusable OptionList so they're keyboard-navigable.
+        self._set_members(visible_members)
         self._set_body("")  # threads have no markdown body
         self.query_one("#reader-scroll", VerticalScroll).scroll_home(animate=False)

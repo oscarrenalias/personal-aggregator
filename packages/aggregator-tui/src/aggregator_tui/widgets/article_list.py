@@ -543,3 +543,23 @@ class ArticleList(Widget):
             show_dismissed=self._current_show_dismissed,
             title=self._current_title,
         )
+
+    async def reload_current(self) -> None:
+        """Re-issue the current view to pick up new data (manual refresh), preserving state."""
+        if self._current_mode == "threads":
+            await self.load_threads(
+                sort=self._current_sort,
+                show_dismissed=self._current_show_dismissed,
+                title=self._current_title,
+            )
+        elif self._current_mode == "search":
+            if self._current_search_query:
+                await self._execute_search(self._current_search_query)
+        else:
+            await self.load(
+                view=self._current_view,
+                category=self._current_category,
+                source_id=self._current_source_id,
+                title=self._current_title,
+                unread_only=self._current_unread_only,
+            )

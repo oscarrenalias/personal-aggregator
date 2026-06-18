@@ -64,6 +64,10 @@ class NavSidebar(Static):
         # Load dynamic data asynchronously
         self.run_worker(self._load_dynamic(), exclusive=False)
 
+    def reload(self) -> None:
+        """Re-fetch categories and sources (manual or background refresh)."""
+        self.run_worker(self._load_dynamic(), exclusive=True)
+
     # ------------------------------------------------------------------
     # Static nav sections
     # ------------------------------------------------------------------

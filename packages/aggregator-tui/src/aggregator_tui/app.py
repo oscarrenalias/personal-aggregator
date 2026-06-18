@@ -7,7 +7,7 @@ from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, VerticalScroll
 from textual.events import Resize
-from textual.widgets import Footer, Input, Label, ListView, Tree
+from textual.widgets import Footer, Input, Label, ListView, OptionList, Tree
 
 from .api_client import ApiClient, ApiError, ArticleResponse, ThreadResponse
 from .widgets.article_list import ArticleList, ArticleRow, ThreadRow
@@ -77,6 +77,7 @@ class AggregatorApp(App[None]):
         Binding("/", "activate_search", "Search", show=True),
         Binding("u", "toggle_filter", "Filter", show=True),
         Binding("r", "toggle_sort", "Sort", show=False),
+        Binding("R", "refresh", "Refresh", show=True),
         Binding("question_mark", "show_help", "Help", show=True),
         Binding("q", "quit_app", "Quit", show=True),
     ]
@@ -112,6 +113,22 @@ class AggregatorApp(App[None]):
         self.query_one("#article-listview", ListView).focus()
         # Evaluate initial layout based on the actual terminal width at startup.
         self._apply_layout(self.app.size.width)
+        # Background sidebar refresh every 60s (mirrors the web UI's poll).
+        self.set_interval(60.0, self._background_refresh)
+
+    def _background_refresh(self) -> None:
+        """Periodic refresh of the nav sidebar (sources/categories)."""
+        try:
+            self.query_one("#nav-sidebar", NavSidebar).reload()
+        except Exception:
+            pass
+
+    def action_refresh(self) -> None:
+        """Manual refresh (Shift-R): re-fetch the sidebar and reload the current list."""
+        self.query_one("#nav-sidebar", NavSidebar).reload()
+        article_list = self.query_one("#list-pane", ArticleList)
+        article_list.run_worker(article_list.reload_current(), exclusive=True)
+        self.notify_status("Refreshed")
 
     def on_resize(self, event: Resize) -> None:
         """Switch between narrow (single-pane) and wide (three-pane) layout."""
@@ -242,7 +259,13 @@ class AggregatorApp(App[None]):
             elif self._pane_focus_idx == 1:
                 self.query_one("#article-listview", ListView).focus()
             else:
-                self.query_one("#reader-scroll", VerticalScroll).focus()
+                # Reader pane: focus the member list when a thread with members
+                # is shown (so ↑/↓/Enter navigate the links), else the scroll.
+                members = self.query_one("#reader-members", OptionList)
+                if members.option_count > 0:
+                    members.focus()
+                else:
+                    self.query_one("#reader-scroll", VerticalScroll).focus()
         except Exception:
             pass
 
