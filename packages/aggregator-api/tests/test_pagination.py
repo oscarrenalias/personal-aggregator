@@ -89,6 +89,40 @@ class TestArticlePaginationCursor:
         assert data["next_cursor"] is None
 
 
+    def test_no_gaps_or_duplicates_adversarial_importance_ordering(self, client, db_session):
+        """Regression: cursor must encode importance_score or pages overlap when
+        importance_score and feed_published_at are inversely correlated."""
+        src = make_source(db_session)
+        seeded_ids = set()
+        for i in range(7):
+            importance = 70 - i * 10  # 70, 60, 50, 40, 30, 20, 10
+            published = datetime(2025, 1, 7 - i, tzinfo=timezone.utc)  # oldest = highest importance
+            a = make_article(
+                db_session,
+                source_id=src.id,
+                dedup_key=f"adv-imp-{i}",
+                feed_published_at=published,
+                importance_score=importance,
+            )
+            seeded_ids.add(a.id)
+
+        all_ids = []
+        cursor = None
+        while True:
+            url = "/articles?view=all&limit=3"
+            if cursor:
+                url += f"&cursor={cursor}"
+            page = client.get(url).json()
+            assert page["items"], "Empty page before cursor exhausted"
+            all_ids.extend(item["id"] for item in page["items"])
+            cursor = page.get("next_cursor")
+            if cursor is None:
+                break
+
+        assert len(all_ids) == len(set(all_ids)), "Duplicate article ids across pages"
+        assert set(all_ids) == seeded_ids, "Gaps detected: not all seeded articles returned"
+
+
 class TestThreadPaginationCursor:
     def test_thread_first_page_has_next_cursor(self, client, db_session):
         now = datetime.now(tz=timezone.utc)

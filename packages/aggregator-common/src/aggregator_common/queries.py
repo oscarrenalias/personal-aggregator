@@ -28,15 +28,33 @@ def _decode_cursor(cursor: str) -> tuple:
     return tuple(json.loads(payload))
 
 
-def _article_keyset_filter(cursor_fp: Optional[str], cursor_id: int):
-    """WHERE condition that restricts to rows after (feed_published_at, id) in DESC NULLS LAST order."""
+def _article_keyset_filter(cursor_sc, cursor_fp: Optional[str], cursor_id: int):
+    """WHERE condition restricting to rows after (importance_score, feed_published_at, id) in the
+    default article sort order (importance_score DESC NULLS LAST, feed_published_at DESC NULLS LAST, id DESC).
+
+    Mirrors _thread_keyset_filter_importance. cursor_sc may be None (cursor is in the
+    importance_score NULLS-LAST section). cursor_fp may be None (cursor is in the
+    feed_published_at NULLS-LAST section within an importance_score group).
+    """
+    # Tiebreaker for (feed_published_at DESC NULLS LAST, id DESC) within an importance group.
     if cursor_fp is None:
-        return and_(Article.feed_published_at.is_(None), Article.id < cursor_id)
-    cursor_dt = datetime.fromisoformat(cursor_fp)
+        fp_tiebreak = and_(Article.feed_published_at.is_(None), Article.id < cursor_id)
+    else:
+        cursor_dt = datetime.fromisoformat(cursor_fp)
+        fp_tiebreak = or_(
+            Article.feed_published_at < cursor_dt,
+            Article.feed_published_at.is_(None),  # NULL sorts after any non-NULL value
+            and_(Article.feed_published_at == cursor_dt, Article.id < cursor_id),
+        )
+
+    if cursor_sc is None:
+        # Cursor is already in the importance_score NULLS-LAST section.
+        return and_(Article.importance_score.is_(None), fp_tiebreak)
+
     return or_(
-        Article.feed_published_at < cursor_dt,
-        and_(Article.feed_published_at == cursor_dt, Article.id < cursor_id),
-        Article.feed_published_at.is_(None),
+        Article.importance_score < cursor_sc,
+        Article.importance_score.is_(None),  # NULL sorts after any non-NULL value
+        and_(Article.importance_score == cursor_sc, fp_tiebreak),
     )
 
 
@@ -265,8 +283,8 @@ def search_articles(
     if since is not None:
         filters.append(Article.feed_published_at >= since)
     if cursor is not None:
-        cursor_fp, cursor_id = _decode_cursor(cursor)
-        filters.append(_article_keyset_filter(cursor_fp, int(cursor_id)))
+        cursor_sc, cursor_fp, cursor_id = _decode_cursor(cursor)
+        filters.append(_article_keyset_filter(cursor_sc, cursor_fp, int(cursor_id)))
 
     q = _default_order(select(Article).where(*filters)).limit(limit)
     articles = list(session.execute(q).scalars().all())
@@ -276,6 +294,7 @@ def search_articles(
     if len(articles) == limit:
         last = articles[-1]
         next_cursor = _encode_cursor((
+            last.importance_score,
             last.feed_published_at.isoformat() if last.feed_published_at else None,
             last.id,
         ))
@@ -330,8 +349,8 @@ def list_articles(
     if unread_only and view != "unread":
         filters.append(Article.is_read == False)
     if cursor is not None:
-        cursor_fp, cursor_id = _decode_cursor(cursor)
-        filters.append(_article_keyset_filter(cursor_fp, int(cursor_id)))
+        cursor_sc, cursor_fp, cursor_id = _decode_cursor(cursor)
+        filters.append(_article_keyset_filter(cursor_sc, cursor_fp, int(cursor_id)))
 
     q = _default_order(select(Article).where(*filters)).limit(limit)
     articles = list(session.execute(q).scalars().all())
@@ -341,6 +360,7 @@ def list_articles(
     if len(articles) == limit:
         last = articles[-1]
         next_cursor = _encode_cursor((
+            last.importance_score,
             last.feed_published_at.isoformat() if last.feed_published_at else None,
             last.id,
         ))

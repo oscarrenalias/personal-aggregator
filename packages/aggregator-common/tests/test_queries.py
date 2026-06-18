@@ -210,6 +210,95 @@ class TestListArticlesViews:
         assert isinstance(results, list)
 
 
+class TestListArticlesCursorPagination:
+    """Regression tests for the keyset-cursor / ORDER-BY mismatch fix.
+
+    Seeds articles where importance_score and feed_published_at are INVERSELY
+    correlated (highest importance = oldest published_at). Before the fix, the
+    cursor only encoded (feed_published_at, id); pages overlapped because the
+    keyset filter matched rows that had already been returned on the previous page.
+
+    Each test uses a dedicated source and passes source_id to list_articles so
+    the query is scoped to only the articles seeded by that test (the session
+    fixture does not truncate between tests).
+    """
+
+    def test_no_gaps_or_duplicates_adversarial_ordering(self, session: Session):
+        src = _make_source(session, "-adv")
+        # importance DESC = oldest-published-first order, so cursoring by published_at
+        # would re-return already-seen rows if not encoding importance_score.
+        articles = []
+        for i in range(7):
+            importance = 70 - i * 10  # 70, 60, 50, 40, 30, 20, 10
+            published = _TODAY_START - timedelta(days=6 - i)  # day1 oldest, day7 newest
+            a = _make_ready_article(
+                session,
+                src.id,
+                f"adv-{i}",
+                importance_score=importance,
+                feed_published_at=published,
+            )
+            articles.append(a)
+        session.commit()
+
+        limit = 3
+        seen_ids: list[int] = []
+        cursor = None
+        while True:
+            results, next_cursor = queries.list_articles(
+                session, "all", source_id=src.id, limit=limit, cursor=cursor
+            )
+            page_ids = [r.id for r in results]
+            seen_ids.extend(page_ids)
+            if next_cursor is None:
+                break
+            cursor = next_cursor
+
+        assert len(seen_ids) == len(set(seen_ids)), "Duplicate article ids across pages"
+        assert set(seen_ids) == {a.id for a in articles}, "Gaps detected: not all seeded articles returned"
+
+    def test_no_gaps_or_duplicates_null_importance(self, session: Session):
+        """NULL importance_score rows (sorted last) must not re-appear on subsequent pages."""
+        src = _make_source(session, "-nullimp")
+        articles = []
+        # 3 articles with importance_score, 4 without (NULL)
+        for i in range(3):
+            a = _make_ready_article(
+                session,
+                src.id,
+                f"nullimp-scored-{i}",
+                importance_score=80 - i * 10,
+                feed_published_at=_TODAY_START - timedelta(hours=i),
+            )
+            articles.append(a)
+        for i in range(4):
+            a = _make_ready_article(
+                session,
+                src.id,
+                f"nullimp-null-{i}",
+                importance_score=None,
+                feed_published_at=_TODAY_START - timedelta(hours=10 + i),
+            )
+            articles.append(a)
+        session.commit()
+
+        limit = 3
+        seen_ids: list[int] = []
+        cursor = None
+        while True:
+            results, next_cursor = queries.list_articles(
+                session, "all", source_id=src.id, limit=limit, cursor=cursor
+            )
+            page_ids = [r.id for r in results]
+            seen_ids.extend(page_ids)
+            if next_cursor is None:
+                break
+            cursor = next_cursor
+
+        assert len(seen_ids) == len(set(seen_ids)), "Duplicate article ids across pages"
+        assert set(seen_ids) == {a.id for a in articles}, "Gaps detected: not all seeded articles returned"
+
+
 class TestSearchArticles:
     def test_matching_articles_returned(self, session: Session):
         src = _make_source(session, "-srch")
