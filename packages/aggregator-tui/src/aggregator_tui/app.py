@@ -49,7 +49,7 @@ class AggregatorApp(App[None]):
         height: 1fr;
     }
     #nav-sidebar {
-        width: 24;
+        width: 34;
         border-right: solid $surface-darken-1;
     }
     #list-pane {
@@ -176,6 +176,12 @@ class AggregatorApp(App[None]):
         elif self._selected_thread is not None:
             self.query_one("#reader-pane", ReaderPane).load_thread(self._selected_thread.id)
         # In narrow mode, switch focus to the reader pane after loading content.
+        if self._narrow_mode:
+            self._show_narrow_pane(2)
+
+    def action_open_member_article(self, article_id: int) -> None:
+        """Open a thread member's article in the reader (clickable member link)."""
+        self.query_one("#reader-pane", ReaderPane).load_article(article_id)
         if self._narrow_mode:
             self._show_narrow_pane(2)
 

@@ -395,3 +395,24 @@ def test_d_reverts_dismissed_on_api_error(stub: StubApiClient) -> None:
             assert len(status.strip()) > 0
 
     asyncio.run(inner())
+
+
+# ---------------------------------------------------------------------------
+# Thread member articles are openable from the reader
+# ---------------------------------------------------------------------------
+
+
+def test_open_member_article_loads_it_into_reader(stub: StubApiClient) -> None:
+    """Clicking a thread member title (action_open_member_article) opens that
+    article in the reader pane — enabling a jump from a thread to one of its sources."""
+
+    async def inner() -> None:
+        app = AggregatorApp(api_url="http://test")
+        app.api_client = stub
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause(0.1)
+            app.action_open_member_article(42)
+            await pilot.pause(0.1)
+            assert ("get_article", 42) in stub.calls
+
+    asyncio.run(inner())

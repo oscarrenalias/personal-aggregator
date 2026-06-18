@@ -169,7 +169,7 @@ class ReaderPane(Widget):
         visible_members = [m for m in members if not m.suppressed]
         if visible_members:
             lines.append("")
-            lines.append("[bold underline]Articles[/bold underline]")
+            lines.append("[bold underline]Articles[/bold underline]  [dim](click a title to open)[/dim]")
             for m in visible_members:
                 member_title = escape(m.clean_title or "(No title)")
                 member_meta: list[str] = []
@@ -180,7 +180,10 @@ class ReaderPane(Widget):
                 meta_suffix = (
                     f"  [dim]({', '.join(member_meta)})[/dim]" if member_meta else ""
                 )
-                lines.append(f"  • {member_title}{meta_suffix}")
+                # Make each member title a clickable link that opens the article
+                # in this reader pane (jump from a thread to one of its sources).
+                link = f"[@click=app.open_member_article({m.article_id})][u]{member_title}[/u][/]"
+                lines.append(f"  • {link}{meta_suffix}")
 
         self.query_one("#reader-content", Static).update("\n".join(lines))
         self._set_body("")  # threads have no markdown body
