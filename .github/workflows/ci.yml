@@ -129,6 +129,11 @@ jobs:
           uv build --package aggregator-tui --out-dir dist
 
       - name: Generate OpenAPI spec
+        env:
+          # Importing the app constructs Settings, which requires DATABASE_URL.
+          # OpenAPI generation never connects (create_engine is lazy), so a
+          # placeholder DSN is enough to build the schema.
+          DATABASE_URL: postgresql://placeholder@localhost/aggregator
         run: |
           # Regenerate fresh from the code so the released contract can never
           # drift from what the API actually serves.
