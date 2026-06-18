@@ -274,7 +274,15 @@ class AggregatorApp(App[None]):
                 row.refresh_display()
                 self.notify_status(f"Error: {exc}")
                 return
-        self.query_one("#article-listview", ListView).action_cursor_down()
+        # Advance to the next item and load it into the reader so the content
+        # follows (mark-read-and-read-next flow).
+        listview = self.query_one("#article-listview", ListView)
+        listview.action_cursor_down()
+        next_item = listview.highlighted_child
+        if isinstance(next_item, ArticleRow):
+            self._selected_article = next_item.article
+            self._selected_article_row = next_item
+            self.query_one("#reader-pane", ReaderPane).load_article(next_item.article.id)
 
     async def action_toggle_save(self) -> None:
         row = self._selected_article_row

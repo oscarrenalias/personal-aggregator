@@ -178,6 +178,33 @@ def test_n_on_already_read_article_still_advances(stub: StubApiClient) -> None:
     asyncio.run(inner())
 
 
+def test_n_loads_next_article_into_reader(stub: StubApiClient) -> None:
+    """n advances AND loads the next article into the reader pane (reading flow)."""
+    articles = [make_article(1, is_read=False), make_article(2, is_read=False)]
+    stub.set_articles(articles)
+
+    async def inner() -> None:
+        app = AggregatorApp(api_url="http://test")
+        app.api_client = stub
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause(0.1)
+            await app.query_one("#list-pane", ArticleList).load(view="all")
+            await pilot.pause(0.1)
+
+            await pilot.press("j")
+            await pilot.pause(0.1)
+            assert app._selected_article.id == 1
+
+            await pilot.press("n")
+            await pilot.pause(0.1)
+
+            # The next article (2) was fetched into the reader pane.
+            assert ("get_article", 2) in stub.calls
+            assert app._selected_article.id == 2
+
+    asyncio.run(inner())
+
+
 # ---------------------------------------------------------------------------
 # s — toggle save / unsave
 # ---------------------------------------------------------------------------
