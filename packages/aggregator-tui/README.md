@@ -44,8 +44,32 @@ AGGREGATOR_API_URL=http://host:8000/api/v1 aggregator-tui
 Resolution order for the API base URL: `--api-url` flag → `AGGREGATOR_API_URL`
 env var → default `http://localhost:8000/api/v1`.
 
-> The aggregator API has no authentication yet, so point the TUI at an instance
-> reachable only over your trusted network (Tailscale / localhost).
+### Cloudflare Access (service token)
+
+If the API is published behind **Cloudflare Access** with a service-token
+(Service Auth) policy, supply the token and the TUI sends it as the
+`CF-Access-Client-Id` / `CF-Access-Client-Secret` headers on every request:
+
+```bash
+aggregator-tui \
+  --api-url https://aggregator-api.example.com/api/v1 \
+  --cf-access-id   <client-id> \
+  --cf-access-secret <client-secret>
+
+# or via env vars (both must be set; e.g. `set -a; . ./.cf; set +a`):
+export CF_ACCESS_CLIENT_ID=<client-id>
+export CF_ACCESS_CLIENT_SECRET=<client-secret>
+aggregator-tui --api-url https://aggregator-api.example.com/api/v1
+```
+
+Resolution: `--cf-access-id`/`--cf-access-secret` → `CF_ACCESS_CLIENT_ID`/
+`CF_ACCESS_CLIENT_SECRET`. Both must be present or no header is sent. This lets
+the TUI reach an instance over a public hostname — handy when a corporate VPN
+blocks direct LAN access to a self-hosted box.
+
+> Without Cloudflare Access (or equivalent), the API has no authentication of
+> its own — point the TUI at an instance reachable only over your trusted
+> network (Tailscale / localhost).
 
 ## Keys
 

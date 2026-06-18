@@ -132,9 +132,10 @@ class ThreadMemberResponse:
 class ApiClient:
     """Async HTTP client for the aggregator JSON API."""
 
-    def __init__(self, base_url: str) -> None:
+    def __init__(self, base_url: str, headers: Optional[Dict[str, str]] = None) -> None:
         self._client = httpx.AsyncClient(
             base_url=base_url.rstrip("/"),
+            headers=headers or None,
             timeout=httpx.Timeout(connect=5.0, read=10.0, write=10.0, pool=5.0),
         )
 

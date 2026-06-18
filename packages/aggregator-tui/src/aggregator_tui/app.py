@@ -83,10 +83,23 @@ class AggregatorApp(App[None]):
         Binding("q", "quit_app", "Quit", show=True),
     ]
 
-    def __init__(self, api_url: str = "http://localhost:8000/api/v1", **kwargs: object) -> None:
+    def __init__(
+        self,
+        api_url: str = "http://localhost:8000/api/v1",
+        cf_access_client_id: Optional[str] = None,
+        cf_access_client_secret: Optional[str] = None,
+        **kwargs: object,
+    ) -> None:
         super().__init__(**kwargs)
         self.api_url = api_url
-        self.api_client = ApiClient(api_url)
+        # When both Cloudflare Access service-token credentials are present,
+        # send them on every request so the TUI can reach an instance behind
+        # Cloudflare Access (e.g. over a public hostname).
+        headers: dict[str, str] = {}
+        if cf_access_client_id and cf_access_client_secret:
+            headers["CF-Access-Client-Id"] = cf_access_client_id
+            headers["CF-Access-Client-Secret"] = cf_access_client_secret
+        self.api_client = ApiClient(api_url, headers=headers or None)
         self._selected_article: Optional[ArticleResponse] = None
         self._selected_article_row: Optional[ArticleRow] = None
         self._selected_thread: Optional[ThreadResponse] = None
