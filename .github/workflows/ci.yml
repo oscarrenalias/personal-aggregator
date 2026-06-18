@@ -116,6 +116,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Build version-matched TUI wheel
+        run: |
+          VERSION="${{ needs.build.outputs.version }}"
+          # Match the standalone TUI package version to the release tag (without
+          # the leading 'v'). Done ephemerally here — the committed pyproject
+          # version stays at its dev value and is never bumped per release.
+          sed -i "s/^version = .*/version = \"${VERSION#v}\"/" packages/aggregator-tui/pyproject.toml
+          uv build --package aggregator-tui --out-dir dist
+
       - name: Create GitHub release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -132,4 +144,6 @@ jobs:
             deploy/install.sh \
             deploy/bootstrap.sh \
             deploy/aggregator \
-            env.example
+            env.example \
+            dist/aggregator_tui-*.whl \
+            dist/aggregator_tui-*.tar.gz
