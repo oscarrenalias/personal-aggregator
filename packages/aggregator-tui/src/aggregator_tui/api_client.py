@@ -133,7 +133,10 @@ class ApiClient:
     """Async HTTP client for the aggregator JSON API."""
 
     def __init__(self, base_url: str) -> None:
-        self._client = httpx.AsyncClient(base_url=base_url.rstrip("/"))
+        self._client = httpx.AsyncClient(
+            base_url=base_url.rstrip("/"),
+            timeout=httpx.Timeout(connect=5.0, read=10.0, write=10.0, pool=5.0),
+        )
 
     async def __aenter__(self) -> ApiClient:
         return self
@@ -143,6 +146,18 @@ class ApiClient:
 
     async def aclose(self) -> None:
         await self._client.aclose()
+
+    async def _post(self, path: str) -> bool:
+        try:
+            response = await self._client.post(path)
+        except httpx.HTTPError as exc:
+            raise ApiError(f"Network error: {exc}") from exc
+        if not response.is_success:
+            raise ApiError(
+                f"API error {response.status_code}: {response.text}",
+                status_code=response.status_code,
+            )
+        return True
 
     async def _get(self, path: str, params: Optional[Dict[str, Any]] = None) -> Any:
         filtered = {k: v for k, v in (params or {}).items() if v is not None}
@@ -253,3 +268,21 @@ class ApiClient:
     async def list_categories(self) -> List[CategoryResponse]:
         data = await self._get("/categories")
         return [CategoryResponse(**item) for item in data]
+
+    async def mark_read(self, article_id: int) -> bool:
+        return await self._post(f"/articles/{article_id}/read")
+
+    async def mark_unread(self, article_id: int) -> bool:
+        return await self._post(f"/articles/{article_id}/unread")
+
+    async def save_article(self, article_id: int) -> bool:
+        return await self._post(f"/articles/{article_id}/save")
+
+    async def unsave_article(self, article_id: int) -> bool:
+        return await self._post(f"/articles/{article_id}/unsave")
+
+    async def dismiss_thread(self, thread_id: int) -> bool:
+        return await self._post(f"/threads/{thread_id}/dismiss")
+
+    async def restore_thread(self, thread_id: int) -> bool:
+        return await self._post(f"/threads/{thread_id}/restore")
