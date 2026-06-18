@@ -195,7 +195,7 @@ class TestHasUpdatesLogic:
         thread.surfaced = True
         session.flush()
 
-        results = queries.list_threads(session)
+        results, _ = queries.list_threads(session)
         matching = [r for r in results if r.id == thread.id]
         assert len(matching) == 1
         assert matching[0].has_updates is True

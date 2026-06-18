@@ -86,7 +86,7 @@ class TestListThreadsTopGradeAndSurfaced:
     def test_top_grade_present_and_populated(self, session: Session):
         _make_thread(session, "-tg-present", surfaced=True, top_grade=90)
 
-        results = queries.list_threads(session)
+        results, _ = queries.list_threads(session)
 
         assert len(results) >= 1
         matching = [r for r in results if r.representative_title == "Query Test Thread -tg-present"]
@@ -98,7 +98,7 @@ class TestListThreadsTopGradeAndSurfaced:
     def test_surfaced_field_present_and_true(self, session: Session):
         _make_thread(session, "-sf-present", surfaced=True, top_grade=75)
 
-        results = queries.list_threads(session)
+        results, _ = queries.list_threads(session)
 
         matching = [r for r in results if r.representative_title == "Query Test Thread -sf-present"]
         assert len(matching) == 1
@@ -109,7 +109,7 @@ class TestListThreadsTopGradeAndSurfaced:
     def test_unsurfaced_thread_excluded(self, session: Session):
         _make_thread(session, "-unsurfaced", surfaced=False, top_grade=95)
 
-        results = queries.list_threads(session)
+        results, _ = queries.list_threads(session)
 
         titles = [r.representative_title for r in results]
         assert "Query Test Thread -unsurfaced" not in titles
@@ -117,21 +117,21 @@ class TestListThreadsTopGradeAndSurfaced:
     def test_top_grade_none_when_unset(self, session: Session):
         _make_thread(session, "-tg-none", surfaced=True, top_grade=None)
 
-        results = queries.list_threads(session)
+        results, _ = queries.list_threads(session)
 
         matching = [r for r in results if r.representative_title == "Query Test Thread -tg-none"]
         assert len(matching) == 1
         assert matching[0].top_grade is None
 
     def test_returns_list_type(self, session: Session):
-        results = queries.list_threads(session)
+        results, _ = queries.list_threads(session)
         assert isinstance(results, list)
 
     def test_limit_applied(self, session: Session):
         for i in range(5):
             _make_thread(session, f"-lim-{i}", surfaced=True, top_grade=50 + i)
 
-        results = queries.list_threads(session, limit=2)
+        results, _ = queries.list_threads(session, limit=2)
 
         assert len(results) <= 2
 
@@ -200,7 +200,7 @@ class TestListThreadsDismissed:
         thread.dismissed = True  # type: ignore[attr-defined]
         session.flush()
 
-        results = queries.list_threads(session)
+        results, _ = queries.list_threads(session)
 
         titles = [r.representative_title for r in results]
         assert "Query Test Thread -dismissed-excl" not in titles
@@ -210,7 +210,7 @@ class TestListThreadsDismissed:
         thread.dismissed = True  # type: ignore[attr-defined]
         session.flush()
 
-        results = queries.list_threads(session, include_dismissed=True)
+        results, _ = queries.list_threads(session, include_dismissed=True)
 
         titles = [r.representative_title for r in results]
         assert "Query Test Thread -dismissed-incl" in titles
@@ -219,7 +219,7 @@ class TestListThreadsDismissed:
         thread = _make_thread(session, "-not-dismissed", surfaced=True)
         assert thread.dismissed is False  # type: ignore[attr-defined]
 
-        results = queries.list_threads(session)
+        results, _ = queries.list_threads(session)
 
         titles = [r.representative_title for r in results]
         assert "Query Test Thread -not-dismissed" in titles
@@ -227,7 +227,7 @@ class TestListThreadsDismissed:
     def test_thread_result_dismissed_field_false_by_default(self, session: Session):
         _make_thread(session, "-dis-false", surfaced=True)
 
-        results = queries.list_threads(session)
+        results, _ = queries.list_threads(session)
 
         matching = [r for r in results if r.representative_title == "Query Test Thread -dis-false"]
         assert len(matching) == 1
@@ -239,7 +239,7 @@ class TestListThreadsDismissed:
         thread.dismissed = True  # type: ignore[attr-defined]
         session.flush()
 
-        results = queries.list_threads(session, include_dismissed=True)
+        results, _ = queries.list_threads(session, include_dismissed=True)
 
         matching = [r for r in results if r.representative_title == "Query Test Thread -dis-true"]
         assert len(matching) == 1

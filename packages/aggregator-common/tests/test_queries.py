@@ -85,7 +85,7 @@ class TestListArticlesViews:
         a1 = _make_ready_article(session, src.id, "all-1")
         a2 = _make_ready_article(session, src.id, "all-2")
 
-        results = queries.list_articles(session, "all")
+        results, _ = queries.list_articles(session, "all")
         ids = {r.id for r in results}
 
         assert a1.id in ids
@@ -96,7 +96,7 @@ class TestListArticlesViews:
         hidden = _make_ready_article(session, src.id, "allhid-hidden", is_hidden=True)
         visible = _make_ready_article(session, src.id, "allhid-visible")
 
-        results = queries.list_articles(session, "all")
+        results, _ = queries.list_articles(session, "all")
         ids = {r.id for r in results}
 
         assert visible.id in ids
@@ -107,7 +107,7 @@ class TestListArticlesViews:
         unread = _make_ready_article(session, src.id, "unread-no", is_read=False)
         read = _make_ready_article(session, src.id, "unread-yes", is_read=True)
 
-        results = queries.list_articles(session, "unread")
+        results, _ = queries.list_articles(session, "unread")
         ids = {r.id for r in results}
 
         assert unread.id in ids
@@ -119,7 +119,7 @@ class TestListArticlesViews:
         low = _make_ready_article(session, src.id, "imp-low", importance_score=30)
         no_score = _make_ready_article(session, src.id, "imp-none")
 
-        results = queries.list_articles(session, "important", important_threshold=70)
+        results, _ = queries.list_articles(session, "important", important_threshold=70)
         ids = {r.id for r in results}
 
         assert high.id in ids
@@ -131,7 +131,7 @@ class TestListArticlesViews:
         saved = _make_ready_article(session, src.id, "saved-yes", is_saved=True)
         unsaved = _make_ready_article(session, src.id, "saved-no", is_saved=False)
 
-        results = queries.list_articles(session, "saved")
+        results, _ = queries.list_articles(session, "saved")
         ids = {r.id for r in results}
 
         assert saved.id in ids
@@ -143,7 +143,7 @@ class TestListArticlesViews:
         empty_cat = _make_ready_article(session, src.id, "uncat-empty", categories=[])
         has_cat = _make_ready_article(session, src.id, "uncat-has", categories=["tech"])
 
-        results = queries.list_articles(session, "uncategorized")
+        results, _ = queries.list_articles(session, "uncategorized")
         ids = {r.id for r in results}
 
         assert no_cat.id in ids
@@ -161,7 +161,7 @@ class TestListArticlesViews:
             feed_published_at=_YESTERDAY,
         )
 
-        results = queries.list_articles(session, "today")
+        results, _ = queries.list_articles(session, "today")
         ids = {r.id for r in results}
 
         assert today_art.id in ids
@@ -176,7 +176,7 @@ class TestListArticlesViews:
         tech = _make_ready_article(session, src.id, "catf-tech", categories=["tech"])
         news = _make_ready_article(session, src.id, "catf-news", categories=["news"])
 
-        results = queries.list_articles(session, "all", category="tech")
+        results, _ = queries.list_articles(session, "all", category="tech")
         ids = {r.id for r in results}
 
         assert tech.id in ids
@@ -188,7 +188,7 @@ class TestListArticlesViews:
         a1 = _make_ready_article(session, src1.id, "srcf-a1")
         a2 = _make_ready_article(session, src2.id, "srcf-a2")
 
-        results = queries.list_articles(session, "all", source_id=src1.id)
+        results, _ = queries.list_articles(session, "all", source_id=src1.id)
         ids = {r.id for r in results}
 
         assert a1.id in ids
@@ -199,14 +199,14 @@ class TestListArticlesViews:
         unread = _make_ready_article(session, src.id, "uo-unread", is_read=False)
         read = _make_ready_article(session, src.id, "uo-read", is_read=True)
 
-        results = queries.list_articles(session, "all", unread_only=True)
+        results, _ = queries.list_articles(session, "all", unread_only=True)
         ids = {r.id for r in results}
 
         assert unread.id in ids
         assert read.id not in ids
 
     def test_empty_view_returns_list(self, session: Session):
-        results = queries.list_articles(session, "saved")
+        results, _ = queries.list_articles(session, "saved")
         assert isinstance(results, list)
 
 
@@ -216,7 +216,7 @@ class TestSearchArticles:
         article = _make_ready_article(session, src.id, "srch-match")
         _index_article(session, article.id, "quantum computing breakthrough research")
 
-        results = queries.search_articles(session, "quantum computing")
+        results, _ = queries.search_articles(session, "quantum computing")
         ids = {r.id for r in results}
 
         assert article.id in ids
@@ -226,7 +226,7 @@ class TestSearchArticles:
         article = _make_ready_article(session, src.id, "srch-nomatch")
         _index_article(session, article.id, "cooking recipes food")
 
-        results = queries.search_articles(session, "zzxnomatchxyz")
+        results, _ = queries.search_articles(session, "zzxnomatchxyz")
 
         assert results == []
 
@@ -237,7 +237,7 @@ class TestSearchArticles:
         for art in [tech, news]:
             _index_article(session, art.id, "python programming language")
 
-        results = queries.search_articles(session, "python programming", category="tech")
+        results, _ = queries.search_articles(session, "python programming", category="tech")
         ids = {r.id for r in results}
 
         assert tech.id in ids
@@ -251,7 +251,7 @@ class TestSearchArticles:
         for art in [a1, a2]:
             _index_article(session, art.id, "machine learning artificial intelligence")
 
-        results = queries.search_articles(session, "machine learning", source_id=src1.id)
+        results, _ = queries.search_articles(session, "machine learning", source_id=src1.id)
         ids = {r.id for r in results}
 
         assert a1.id in ids
@@ -270,7 +270,7 @@ class TestSearchArticles:
             _index_article(session, art.id, "blockchain distributed ledger")
 
         since = _NOW - timedelta(days=1)
-        results = queries.search_articles(session, "blockchain distributed", since=since)
+        results, _ = queries.search_articles(session, "blockchain distributed", since=since)
         ids = {r.id for r in results}
 
         assert recent.id in ids
@@ -590,7 +590,7 @@ class TestListThreads:
             source_list=["Source A", "Source B", "Source C"],
         )
 
-        results = queries.list_threads(session)
+        results, _ = queries.list_threads(session)
         ids = {r.id: r for r in results}
 
         assert thread.id in ids
@@ -599,7 +599,7 @@ class TestListThreads:
     def test_source_count_is_zero_when_source_list_is_none(self, session: Session):
         thread = _make_thread(session, title="Thread No Sources", source_list=None)
 
-        results = queries.list_threads(session)
+        results, _ = queries.list_threads(session)
         ids = {r.id: r for r in results}
 
         assert thread.id in ids
@@ -613,7 +613,7 @@ class TestListThreads:
         _make_thread_membership(session, thread.id, article_active.id, suppressed=False)
         _make_thread_membership(session, thread.id, article_suppressed.id, suppressed=True)
 
-        results = queries.list_threads(session)
+        results, _ = queries.list_threads(session)
         ids = {r.id: r for r in results}
 
         assert thread.id in ids
@@ -622,7 +622,7 @@ class TestListThreads:
     def test_member_count_is_zero_when_no_memberships(self, session: Session):
         thread = _make_thread(session, title="Thread No Members")
 
-        results = queries.list_threads(session)
+        results, _ = queries.list_threads(session)
         ids = {r.id: r for r in results}
 
         assert thread.id in ids
@@ -635,7 +635,7 @@ class TestListThreads:
             article = _make_ready_article(session, src.id, f"tlt3-art{i}")
             _make_thread_membership(session, thread.id, article.id, suppressed=False)
 
-        results = queries.list_threads(session)
+        results, _ = queries.list_threads(session)
         ids = {r.id: r for r in results}
 
         assert thread.id in ids
@@ -646,7 +646,7 @@ class TestListThreads:
         _make_thread(session, title="Not Surfaced", surfaced=False)
         surfaced = _make_thread(session, title="Surfaced", surfaced=True)
 
-        results = queries.list_threads(session)
+        results, _ = queries.list_threads(session)
         ids = {r.id for r in results}
 
         assert surfaced.id in ids
@@ -655,7 +655,7 @@ class TestListThreads:
         """Threads with surfaced=False are excluded."""
         not_surfaced = _make_thread(session, title="Hidden Thread", surfaced=False)
 
-        results = queries.list_threads(session)
+        results, _ = queries.list_threads(session)
         ids = {r.id for r in results}
 
         assert not_surfaced.id not in ids
@@ -665,7 +665,7 @@ class TestListThreads:
         low = _make_thread(session, title="Low Grade Thread", surfaced=True, top_grade=40)
         high = _make_thread(session, title="High Grade Thread", surfaced=True, top_grade=90)
 
-        results = queries.list_threads(session)
+        results, _ = queries.list_threads(session)
         ids = [r.id for r in results]
 
         high_idx = ids.index(high.id)
@@ -677,7 +677,7 @@ class TestListThreads:
         old_time = datetime.now(tz=timezone.utc) - timedelta(days=8)
         old = _make_thread(session, title="Old Surfaced Thread", surfaced=True, last_updated=old_time)
 
-        results = queries.list_threads(session)
+        results, _ = queries.list_threads(session)
         ids = {r.id for r in results}
 
         assert old.id not in ids

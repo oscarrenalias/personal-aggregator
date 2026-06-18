@@ -112,7 +112,7 @@ class TestListThreadsImageUrl:
         art = _make_article(session, src.id, "lt-no-img-1", header_image_url=None)
         _make_membership(session, thread.id, art.id)
 
-        results = queries.list_threads(session)
+        results, _ = queries.list_threads(session)
         match = next(
             (r for r in results if r.representative_title == "ImgTest Thread -lt-no-img"),
             None,
@@ -136,7 +136,7 @@ class TestListThreadsImageUrl:
         _make_membership(session, thread.id, low_art.id)
         _make_membership(session, thread.id, high_art.id)
 
-        results = queries.list_threads(session)
+        results, _ = queries.list_threads(session)
         match = next(
             (r for r in results if r.representative_title == "ImgTest Thread -lt-hi-imp"),
             None,
@@ -162,7 +162,7 @@ class TestListThreadsImageUrl:
         _make_membership(session, thread.id, older.id)
         _make_membership(session, thread.id, newer.id)
 
-        results = queries.list_threads(session)
+        results, _ = queries.list_threads(session)
         match = next(
             (r for r in results if r.representative_title == "ImgTest Thread -lt-recency"),
             None,
@@ -186,7 +186,7 @@ class TestListThreadsImageUrl:
         _make_membership(session, thread.id, suppressed_art.id, suppressed=True)
         _make_membership(session, thread.id, active_art.id, suppressed=False)
 
-        results = queries.list_threads(session)
+        results, _ = queries.list_threads(session)
         match = next(
             (r for r in results if r.representative_title == "ImgTest Thread -lt-supp"),
             None,
@@ -205,7 +205,7 @@ class TestListThreadsImageUrl:
         )
         _make_membership(session, thread.id, art.id, suppressed=True)
 
-        results = queries.list_threads(session)
+        results, _ = queries.list_threads(session)
         match = next(
             (r for r in results if r.representative_title == "ImgTest Thread -lt-all-supp"),
             None,
