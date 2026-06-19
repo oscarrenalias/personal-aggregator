@@ -112,6 +112,7 @@ class ArticleResult:
     author: Optional[str]
     word_count: Optional[int]
     language: Optional[str]
+    image_url: Optional[str] = None
 
 
 @dataclass
@@ -246,6 +247,7 @@ def _to_result(article: Article, source_name: Optional[str] = None) -> ArticleRe
         author=article.author,
         word_count=article.word_count,
         language=article.language,
+        image_url=article.header_image_url,
     )
 
 

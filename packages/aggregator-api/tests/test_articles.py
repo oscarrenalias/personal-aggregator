@@ -147,6 +147,34 @@ class TestGetArticle:
         assert data["is_read"] is False
         assert data["is_saved"] is False
 
+    def test_get_article_returns_image_url_when_set(self, client, db_session):
+        src = make_source(db_session)
+        article = make_article(
+            db_session,
+            source_id=src.id,
+            header_image_url="https://img.example.com/hero.jpg",
+        )
+        data = client.get(f"/articles/{article.id}").json()
+        assert data["image_url"] == "https://img.example.com/hero.jpg"
+
+    def test_get_article_image_url_is_null_when_absent(self, client, db_session):
+        src = make_source(db_session)
+        article = make_article(db_session, source_id=src.id)  # no header image
+        data = client.get(f"/articles/{article.id}").json()
+        assert "image_url" in data
+        assert data["image_url"] is None
+
+    def test_mark_read_response_carries_image_url(self, client, db_session):
+        # Mutation responses also serialize the article, so they must carry image_url too.
+        src = make_source(db_session)
+        article = make_article(
+            db_session,
+            source_id=src.id,
+            header_image_url="https://img.example.com/hero.jpg",
+        )
+        data = client.post(f"/articles/{article.id}/read").json()
+        assert data["image_url"] == "https://img.example.com/hero.jpg"
+
     def test_get_unknown_article_returns_404(self, client, db_session):
         response = client.get("/articles/999999")
         assert response.status_code == 404

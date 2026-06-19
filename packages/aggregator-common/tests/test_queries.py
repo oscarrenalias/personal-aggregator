@@ -817,3 +817,43 @@ class TestGetThreadMembers:
         members = queries.get_thread_members(session, thread.id)
 
         assert members == []
+
+
+class TestArticleImageUrl:
+    def test_get_article_exposes_header_image_as_image_url(self, session: Session) -> None:
+        src = _make_source(session, suffix="-img1")
+        article = _make_ready_article(session, src.id, "img-key")
+        article.header_image_url = "https://img.example.com/hero.jpg"
+        session.flush()
+
+        result = queries.get_article(session, article.id)
+        assert result.image_url == "https://img.example.com/hero.jpg"
+
+    def test_image_url_none_when_header_image_absent(self, session: Session) -> None:
+        src = _make_source(session, suffix="-img2")
+        article = _make_ready_article(session, src.id, "noimg-key")
+        session.flush()
+
+        result = queries.get_article(session, article.id)
+        assert result.image_url is None
+
+    def test_mutation_dict_carries_image_url(self, session: Session) -> None:
+        # mark_read/save/etc. return asdict(ArticleResult); the field must survive.
+        src = _make_source(session, suffix="-img3")
+        article = _make_ready_article(session, src.id, "mut-key")
+        article.header_image_url = "https://img.example.com/hero.jpg"
+        session.flush()
+
+        payload = queries.mark_read(session, article.id)
+        assert payload["image_url"] == "https://img.example.com/hero.jpg"
+
+    def test_list_articles_results_have_image_url(self, session: Session) -> None:
+        src = _make_source(session, suffix="-img4")
+        article = _make_ready_article(session, src.id, "list-img-key")
+        article.header_image_url = "https://img.example.com/list.jpg"
+        session.flush()
+
+        results, _ = queries.list_articles(session)
+        match = next((r for r in results if r.id == article.id), None)
+        assert match is not None
+        assert match.image_url == "https://img.example.com/list.jpg"

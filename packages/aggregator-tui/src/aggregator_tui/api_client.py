@@ -17,6 +17,17 @@ class ApiError(Exception):
 T = TypeVar("T")
 
 
+def _decode(cls: type, data: Dict[str, Any]) -> Any:
+    """Build a response dataclass from an API dict, ignoring unknown keys.
+
+    The API may add response fields over time (a backwards-compatible change);
+    the client must tolerate unknown keys rather than crash on an unexpected
+    keyword argument.
+    """
+    fields = cls.__dataclass_fields__  # type: ignore[attr-defined]
+    return cls(**{k: v for k, v in data.items() if k in fields})
+
+
 @dataclass
 class PaginatedResponse(Generic[T]):
     items: List[T]
@@ -194,7 +205,7 @@ class ApiClient:
             },
         )
         return PaginatedResponse(
-            items=[ArticleResponse(**item) for item in data["items"]],
+            items=[_decode(ArticleResponse, item) for item in data["items"]],
             next_cursor=data.get("next_cursor"),
         )
 
@@ -217,13 +228,13 @@ class ApiClient:
             },
         )
         return PaginatedResponse(
-            items=[ArticleResponse(**item) for item in data["items"]],
+            items=[_decode(ArticleResponse, item) for item in data["items"]],
             next_cursor=data.get("next_cursor"),
         )
 
     async def get_article(self, article_id: int) -> ArticleResponse:
         data = await self._get(f"/articles/{article_id}")
-        return ArticleResponse(**data)
+        return _decode(ArticleResponse, data)
 
     async def list_threads(
         self,
@@ -242,33 +253,33 @@ class ApiClient:
             },
         )
         return PaginatedResponse(
-            items=[ThreadResponse(**item) for item in data["items"]],
+            items=[_decode(ThreadResponse, item) for item in data["items"]],
             next_cursor=data.get("next_cursor"),
         )
 
     async def get_thread(self, thread_id: int) -> ThreadResponse:
         data = await self._get(f"/threads/{thread_id}")
-        return ThreadResponse(**data)
+        return _decode(ThreadResponse, data)
 
     async def get_thread_members(self, thread_id: int) -> PaginatedResponse[ThreadMemberResponse]:
         data = await self._get(f"/threads/{thread_id}/members")
         return PaginatedResponse(
-            items=[ThreadMemberResponse(**item) for item in data["items"]],
+            items=[_decode(ThreadMemberResponse, item) for item in data["items"]],
             next_cursor=data.get("next_cursor"),
         )
 
     async def get_brief_today(self) -> BriefResponse:
         data = await self._get("/brief/today")
-        topics = [BriefTopicResponse(**t) for t in data.get("topics", [])]
-        return BriefResponse(**{**data, "topics": topics})
+        topics = [_decode(BriefTopicResponse, t) for t in data.get("topics", [])]
+        return _decode(BriefResponse, {**data, "topics": topics})
 
     async def list_sources(self) -> List[SourceResponse]:
         data = await self._get("/sources")
-        return [SourceResponse(**item) for item in data]
+        return [_decode(SourceResponse, item) for item in data]
 
     async def list_categories(self) -> List[CategoryResponse]:
         data = await self._get("/categories")
-        return [CategoryResponse(**item) for item in data]
+        return [_decode(CategoryResponse, item) for item in data]
 
     async def mark_read(self, article_id: int) -> bool:
         return await self._post(f"/articles/{article_id}/read")

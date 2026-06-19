@@ -213,6 +213,7 @@ def make_article(
     is_read: bool = False,
     is_saved: bool = False,
     search_text: str | None = None,
+    header_image_url: str | None = None,
 ) -> Article:
     article = Article(
         source_id=source_id,
@@ -227,6 +228,7 @@ def make_article(
         raw_payload=raw_payload or {"link": feed_url},
         retrieved_at=retrieved_at,
         categories=categories,
+        header_image_url=header_image_url,
         # Default to a realistic list of topic strings (matches production data,
         # where Article.topics is a JSON array) so serialization tests exercise
         # the real shape — not a dict, which previously masked a 500 bug.
