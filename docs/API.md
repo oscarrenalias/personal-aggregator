@@ -79,7 +79,7 @@ middleware so every request carries them.
 | Method & path | Purpose | Key query params |
 |---|---|---|
 | `GET /healthz` | Liveness + running version | — |
-| `GET /articles` | List articles | `view`, `category`, `source_id`, `unread_only`, `limit`, `cursor` |
+| `GET /articles` | List articles | `view`, `sort` (`importance`\|`recent`, default `importance`), `category`, `source_id`, `unread_only`, `limit`, `cursor` |
 | `GET /articles/search` | Full-text search | `q` (required), `category`, `source_id`, `limit`, `cursor` |
 | `GET /articles/{id}` | Single article | — |
 | `GET /threads` | List story threads | `sort`, `show_dismissed`, `limit`, `cursor` |
@@ -110,7 +110,8 @@ that perimeter.
 
 - **`view`** (on `GET /articles`): `all` · `unread` · `important` · `saved` ·
   `today` · `uncategorized`.
-- **`sort`** (on `GET /threads`): `importance` (default) · `recent`.
+- **`sort`** (on `GET /articles` and `GET /threads`): `importance` (default) · `recent`.
+  For articles, `recent` orders by `feed_published_at DESC` independent of importance score.
 - **`unread_only`**, **`show_dismissed`**: boolean (`true`/`false`).
 - **`limit`**: page size (server default ~50).
 

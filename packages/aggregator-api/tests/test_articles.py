@@ -93,6 +93,65 @@ class TestListArticles:
         assert response.status_code == 422
 
 
+class TestListArticlesSort:
+    def test_sort_recent_returns_most_recent_first(self, client, db_session):
+        src = make_source(db_session)
+        from datetime import timedelta
+        now = datetime.now(tz=timezone.utc)
+        old = make_article(db_session, source_id=src.id, dedup_key="sort-old",
+                           feed_published_at=now - timedelta(days=3))
+        new = make_article(db_session, source_id=src.id, dedup_key="sort-new",
+                           feed_published_at=now)
+        response = client.get("/articles?sort=recent")
+        assert response.status_code == 200
+        ids = [item["id"] for item in response.json()["items"]]
+        assert ids.index(new.id) < ids.index(old.id)
+
+    def test_sort_importance_is_default(self, client, db_session):
+        src = make_source(db_session)
+        from datetime import timedelta
+        now = datetime.now(tz=timezone.utc)
+        low = make_article(db_session, source_id=src.id, dedup_key="simp-low",
+                           importance_score=10, feed_published_at=now)
+        high = make_article(db_session, source_id=src.id, dedup_key="simp-high",
+                            importance_score=90, feed_published_at=now - timedelta(days=1))
+        # Omit sort param — should default to importance ordering
+        response = client.get("/articles")
+        assert response.status_code == 200
+        ids = [item["id"] for item in response.json()["items"]]
+        assert ids.index(high.id) < ids.index(low.id)
+
+    def test_invalid_sort_returns_400(self, client, db_session):
+        response = client.get("/articles?sort=bogus")
+        assert response.status_code == 400
+        assert "Invalid sort" in response.json()["detail"]
+
+    def test_sort_recent_cursor_round_trip(self, client, db_session):
+        src = make_source(db_session)
+        from datetime import timedelta
+        now = datetime.now(tz=timezone.utc)
+        seeded_ids = set()
+        for i in range(5):
+            a = make_article(db_session, source_id=src.id, dedup_key=f"rcursor-{i}",
+                             feed_published_at=now - timedelta(hours=i))
+            seeded_ids.add(a.id)
+
+        all_ids = []
+        cursor = None
+        while True:
+            url = "/articles?sort=recent&limit=3"
+            if cursor:
+                url += f"&cursor={cursor}"
+            page = client.get(url).json()
+            all_ids.extend(item["id"] for item in page["items"])
+            cursor = page.get("next_cursor")
+            if cursor is None:
+                break
+
+        assert len(all_ids) == len(set(all_ids)), "Duplicate ids across pages"
+        assert seeded_ids.issubset(set(all_ids)), "Not all seeded articles returned"
+
+
 class TestSearchArticles:
     def test_search_with_no_results_returns_empty(self, client, db_session):
         response = client.get("/articles/search?q=xyznonexistentterm9999")

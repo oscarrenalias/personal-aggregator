@@ -58,6 +58,22 @@ def _article_keyset_filter(cursor_sc, cursor_fp: Optional[str], cursor_id: int):
     )
 
 
+def _article_recent_keyset_filter(cursor_fp: Optional[str], cursor_id: int):
+    """WHERE condition restricting to rows after (feed_published_at, id) in the
+    'recent' sort order (feed_published_at DESC NULLS LAST, id DESC).
+
+    cursor_fp may be None when the cursor is in the NULLS-LAST section.
+    """
+    if cursor_fp is None:
+        return and_(Article.feed_published_at.is_(None), Article.id < cursor_id)
+    cursor_dt = datetime.fromisoformat(cursor_fp)
+    return or_(
+        Article.feed_published_at < cursor_dt,
+        Article.feed_published_at.is_(None),  # NULL sorts after any non-NULL value
+        and_(Article.feed_published_at == cursor_dt, Article.id < cursor_id),
+    )
+
+
 def _thread_keyset_filter(cursor_lu: str, cursor_id: int):
     """WHERE condition that restricts to rows after (last_updated, id) in DESC order.
 
@@ -307,6 +323,7 @@ def list_articles(
     session: Session,
     view: str = "all",
     *,
+    sort: str = "importance",
     category: Optional[str] = None,
     source_id: Optional[int] = None,
     unread_only: bool = False,
@@ -316,8 +333,12 @@ def list_articles(
 ) -> Tuple[List[ArticleResult], Optional[str]]:
     """List articles by view with optional category/source/unread filters.
 
+    sort='importance' (default): importance_score DESC NULLS LAST, feed_published_at DESC NULLS LAST, id DESC.
+    sort='recent': feed_published_at DESC NULLS LAST, id DESC — independent of importance_score.
+
     Returns (results, next_cursor). next_cursor is None when there are no further pages.
     Pass cursor to fetch the next page; omit for the first page (behaviour is identical to before).
+    Cursors are sort-mode-aware; a cursor minted under one sort is only valid for that same sort.
     """
     filters = [_ready_base()]
 
@@ -350,22 +371,43 @@ def list_articles(
         filters.append(Article.source_id == source_id)
     if unread_only and view != "unread":
         filters.append(Article.is_read == False)
-    if cursor is not None:
-        cursor_sc, cursor_fp, cursor_id = _decode_cursor(cursor)
-        filters.append(_article_keyset_filter(cursor_sc, cursor_fp, int(cursor_id)))
 
-    q = _default_order(select(Article).where(*filters)).limit(limit)
+    if sort == "recent":
+        if cursor is not None:
+            cursor_fp, cursor_id = _decode_cursor(cursor)
+            filters.append(_article_recent_keyset_filter(cursor_fp, int(cursor_id)))
+        q = (
+            select(Article)
+            .where(*filters)
+            .order_by(
+                Article.feed_published_at.desc().nulls_last(),
+                Article.id.desc(),
+            )
+            .limit(limit)
+        )
+    else:
+        if cursor is not None:
+            cursor_sc, cursor_fp, cursor_id = _decode_cursor(cursor)
+            filters.append(_article_keyset_filter(cursor_sc, cursor_fp, int(cursor_id)))
+        q = _default_order(select(Article).where(*filters)).limit(limit)
+
     articles = list(session.execute(q).scalars().all())
     names = _resolve_source_names(articles, session)
     results = [_to_result(a, names.get(a.source_id)) for a in articles]
     next_cursor: Optional[str] = None
     if len(articles) == limit:
         last = articles[-1]
-        next_cursor = _encode_cursor((
-            last.importance_score,
-            last.feed_published_at.isoformat() if last.feed_published_at else None,
-            last.id,
-        ))
+        if sort == "recent":
+            next_cursor = _encode_cursor((
+                last.feed_published_at.isoformat() if last.feed_published_at else None,
+                last.id,
+            ))
+        else:
+            next_cursor = _encode_cursor((
+                last.importance_score,
+                last.feed_published_at.isoformat() if last.feed_published_at else None,
+                last.id,
+            ))
     return results, next_cursor
 
 

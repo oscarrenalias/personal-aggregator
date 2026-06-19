@@ -15,11 +15,13 @@ _UNAUTHENTICATED_NOTE = (
 router = APIRouter(prefix="/articles", tags=["articles"])
 
 _VALID_VIEWS = {"all", "unread", "important", "saved", "today", "uncategorized"}
+_VALID_SORT_MODES = {"importance", "recent"}
 
 
 @router.get("", response_model=PaginatedResponse[ArticleResponse])
 def list_articles(
     view: str = "all",
+    sort: str = "importance",
     category: Optional[str] = None,
     source_id: Optional[int] = None,
     unread_only: bool = False,
@@ -29,10 +31,13 @@ def list_articles(
 ):
     if view not in _VALID_VIEWS:
         raise HTTPException(status_code=400, detail=f"Invalid view {view!r}. Must be one of: {sorted(_VALID_VIEWS)}")
+    if sort not in _VALID_SORT_MODES:
+        raise HTTPException(status_code=400, detail=f"Invalid sort {sort!r}. Must be one of: {sorted(_VALID_SORT_MODES)}")
     try:
         results, next_cursor = queries.list_articles(
             db,
             view=view,
+            sort=sort,
             category=category,
             source_id=source_id,
             unread_only=unread_only,

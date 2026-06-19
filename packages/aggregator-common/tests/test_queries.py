@@ -299,6 +299,140 @@ class TestListArticlesCursorPagination:
         assert set(seen_ids) == {a.id for a in articles}, "Gaps detected: not all seeded articles returned"
 
 
+class TestListArticlesSortRecent:
+    """Regression tests for sort=recent on list_articles.
+
+    sort=recent must order by feed_published_at DESC NULLS LAST regardless of
+    importance_score, and paginate correctly via the (feed_published_at, id) keyset.
+    """
+
+    def test_recent_orders_by_published_at_desc(self, session: Session):
+        src = _make_source(session, "-recentsort")
+        old = _make_ready_article(
+            session, src.id, "recent-old",
+            importance_score=99,
+            feed_published_at=_TODAY_START - timedelta(days=2),
+        )
+        new = _make_ready_article(
+            session, src.id, "recent-new",
+            importance_score=10,
+            feed_published_at=_TODAY_START,
+        )
+        session.commit()
+
+        results, _ = queries.list_articles(session, "all", sort="recent", source_id=src.id)
+        ids = [r.id for r in results]
+
+        assert ids.index(new.id) < ids.index(old.id), "Most recent article must come before older one"
+
+    def test_recent_ignores_importance_score(self, session: Session):
+        """sort=recent must not be affected by importance_score ordering."""
+        src = _make_source(session, "-recentign")
+        high_imp_old = _make_ready_article(
+            session, src.id, "recentign-high-old",
+            importance_score=95,
+            feed_published_at=_TODAY_START - timedelta(days=5),
+        )
+        low_imp_new = _make_ready_article(
+            session, src.id, "recentign-low-new",
+            importance_score=5,
+            feed_published_at=_TODAY_START,
+        )
+        session.commit()
+
+        results, _ = queries.list_articles(session, "all", sort="recent", source_id=src.id)
+        ids = [r.id for r in results]
+
+        assert ids.index(low_imp_new.id) < ids.index(high_imp_old.id), "Newer article must come first regardless of importance"
+
+    def test_recent_pagination_no_gaps_or_duplicates(self, session: Session):
+        src = _make_source(session, "-recentpag")
+        articles = []
+        for i in range(7):
+            a = _make_ready_article(
+                session, src.id, f"recentpag-{i}",
+                importance_score=i * 10,
+                feed_published_at=_TODAY_START - timedelta(hours=i),
+            )
+            articles.append(a)
+        session.commit()
+
+        limit = 3
+        seen_ids: list[int] = []
+        cursor = None
+        while True:
+            results, next_cursor = queries.list_articles(
+                session, "all", sort="recent", source_id=src.id, limit=limit, cursor=cursor
+            )
+            seen_ids.extend(r.id for r in results)
+            if next_cursor is None:
+                break
+            cursor = next_cursor
+
+        assert len(seen_ids) == len(set(seen_ids)), "Duplicate article ids across pages"
+        assert set(seen_ids) == {a.id for a in articles}, "Gaps detected: not all seeded articles returned"
+
+    def test_recent_null_published_at_sorts_last(self, session: Session):
+        src = _make_source(session, "-recentnull")
+        dated = _make_ready_article(
+            session, src.id, "recentnull-dated",
+            feed_published_at=_TODAY_START,
+        )
+        null_date = _make_ready_article(
+            session, src.id, "recentnull-null",
+            feed_published_at=None,
+        )
+        null_date.feed_published_at = None
+        session.flush()
+        session.commit()
+
+        results, _ = queries.list_articles(session, "all", sort="recent", source_id=src.id)
+        ids = [r.id for r in results]
+
+        assert ids.index(dated.id) < ids.index(null_date.id), "Null published_at must sort last"
+
+    def test_recent_composes_with_source_id_filter(self, session: Session):
+        src1 = _make_source(session, "-recsrc1")
+        src2 = _make_source(session, "-recsrc2")
+        a1 = _make_ready_article(session, src1.id, "recsrc-a1", feed_published_at=_TODAY_START)
+        a2 = _make_ready_article(session, src2.id, "recsrc-a2", feed_published_at=_TODAY_START)
+        session.commit()
+
+        results, _ = queries.list_articles(session, "all", sort="recent", source_id=src1.id)
+        ids = {r.id for r in results}
+
+        assert a1.id in ids
+        assert a2.id not in ids
+
+    def test_recent_composes_with_unread_only(self, session: Session):
+        src = _make_source(session, "-recunread")
+        unread = _make_ready_article(session, src.id, "recunread-unread", is_read=False,
+                                      feed_published_at=_TODAY_START)
+        read = _make_ready_article(session, src.id, "recunread-read", is_read=True,
+                                    feed_published_at=_TODAY_START - timedelta(hours=1))
+        session.commit()
+
+        results, _ = queries.list_articles(session, "all", sort="recent", source_id=src.id, unread_only=True)
+        ids = {r.id for r in results}
+
+        assert unread.id in ids
+        assert read.id not in ids
+
+    def test_importance_sort_unchanged(self, session: Session):
+        """sort=importance (default) must still order by importance_score DESC."""
+        src = _make_source(session, "-impsort2")
+        low = _make_ready_article(session, src.id, "impsort2-low", importance_score=20,
+                                   feed_published_at=_TODAY_START)
+        high = _make_ready_article(session, src.id, "impsort2-high", importance_score=80,
+                                    feed_published_at=_TODAY_START - timedelta(days=1))
+        session.commit()
+
+        results, _ = queries.list_articles(session, "all", sort="importance", source_id=src.id)
+        ids = [r.id for r in results]
+
+        assert ids.index(high.id) < ids.index(low.id), "Higher importance must come first"
+
+
 class TestSearchArticles:
     def test_matching_articles_returned(self, session: Session):
         src = _make_source(session, "-srch")

@@ -121,6 +121,16 @@
             }
           },
           {
+            "name": "sort",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "importance",
+              "title": "Sort"
+            }
+          },
+          {
             "name": "category",
             "in": "query",
             "required": false,
