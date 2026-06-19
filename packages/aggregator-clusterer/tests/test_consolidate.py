@@ -134,6 +134,72 @@ class TestRunMergePass:
         count = run_merge_pass(db_session, settings, _ALWAYS_MERGE)
         assert count == 0  # max_merge_checks=0 means no LLM calls allowed → 0 merges
 
+    def test_title_pre_pass_auto_merges_near_identical_title_threads(self, db_session):
+        """Regression: two active threads with near-identical representative_titles are merged
+        by the title pre-pass without an LLM verdict call (llm_fn is NEVER_MERGE stub).
+
+        Before the fix only the LLM-verdict path ran, so these duplicates persisted.
+        """
+        src1 = make_source(db_session, url="https://title-prepass-a.test/feed.xml")
+        src2 = make_source(db_session, url="https://title-prepass-b.test/feed.xml")
+        title = "SpaceX surpasses Amazon with 2.7T valuation"
+        t1 = make_thread(db_session, title=title, status="active", source_list=[src1.feed_url])
+        t2 = make_thread(db_session, title=title, status="active", source_list=[src2.feed_url])
+
+        # NEVER_MERGE ensures zero LLM merges; any merge that happens is from the title pre-pass
+        count = run_merge_pass(db_session, _SETTINGS, _NEVER_MERGE)
+        db_session.flush()
+
+        assert count >= 1, "Title pre-pass must merge near-identical-title thread pair"
+
+        from sqlalchemy import select as sa_select
+        from aggregator_common.models import Thread as ThreadModel
+        remaining_ids = {
+            row.id for row in db_session.execute(
+                sa_select(ThreadModel).where(ThreadModel.id.in_([t1.id, t2.id]))
+            ).scalars()
+        }
+        assert len(remaining_ids) == 1, "One of the two duplicate threads must be absorbed"
+
+    def test_title_pre_pass_bypasses_max_merge_checks(self, db_session):
+        """Regression: title pre-pass merges succeed even when max_merge_checks=0
+        (the LLM-verdict budget does not gate the title pre-pass).
+        """
+        settings = ClustererSettings(clusterer_max_merge_checks=0)
+        title = "US and Iran reach preliminary deal amid internal opposition"
+        t1 = make_thread(db_session, title=title, status="active")
+        t2 = make_thread(db_session, title=title, status="active")
+
+        count = run_merge_pass(db_session, settings, _NEVER_MERGE)
+        db_session.flush()
+
+        assert count >= 1, "Title pre-pass must merge identical-title threads even when max_merge_checks=0"
+
+        from sqlalchemy import select as sa_select
+        from aggregator_common.models import Thread as ThreadModel
+        remaining = list(db_session.execute(
+            sa_select(ThreadModel).where(ThreadModel.id.in_([t1.id, t2.id]))
+        ).scalars())
+        assert len(remaining) == 1
+
+    def test_title_pre_pass_does_not_merge_low_title_overlap_pairs(self, db_session):
+        """Negative case: thread pairs with dissimilar titles are NOT auto-merged by the title pre-pass."""
+        settings = ClustererSettings(clusterer_max_merge_checks=0)  # block LLM pass too
+        t1 = make_thread(db_session, title="Apple Announces New iPhone Model", status="active")
+        t2 = make_thread(db_session, title="NASA Discovers Water Ice on Mars Surface", status="active")
+
+        count = run_merge_pass(db_session, settings, _NEVER_MERGE)
+        db_session.flush()
+
+        assert count == 0, "Dissimilar-title threads must NOT be auto-merged by the title pre-pass"
+
+        from sqlalchemy import select as sa_select
+        from aggregator_common.models import Thread as ThreadModel
+        remaining = list(db_session.execute(
+            sa_select(ThreadModel).where(ThreadModel.id.in_([t1.id, t2.id]))
+        ).scalars())
+        assert len(remaining) == 2, "Both dissimilar-title threads must still exist"
+
 
 class TestRunSurfacingPass:
     def test_empty_db_returns_zero(self, db_session):

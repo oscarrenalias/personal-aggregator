@@ -26,6 +26,7 @@ from sqlalchemy.orm import Session
 from aggregator_common.management import merge_threads
 from aggregator_common.models import Article, Thread, ThreadMembership, ThreadMergeVerdict
 from aggregator_clusterer.config import ClustererSettings
+from aggregator_clusterer.dedup import _normalize_title
 from aggregator_clusterer.scoring import compute_surfaced
 
 logger = logging.getLogger(__name__)
@@ -204,24 +205,63 @@ def run_merge_pass(
     changed_since: datetime | None = None,
     bypass_verdict_cache: bool = False,
 ) -> int:
-    """Merge near-duplicate thread pairs confirmed by llm_classify_fn.
+    """Merge near-duplicate thread pairs.
 
-    Iterates candidates from find_merge_candidates up to
-    clusterer_max_merge_checks LLM calls. Returns the number of merges
-    performed. llm_classify_fn is injectable so tests can stub the LLM call.
+    Two sequential sub-passes:
+
+    1. **Title pre-pass** — auto-merges thread pairs whose representative_title
+       token-Jaccard >= clusterer_title_jaccard_threshold.  No LLM call; not
+       subject to clusterer_max_merge_checks.  High-precision: only triggered
+       when the threshold is cleared.
+
+    2. **LLM-verdict pass** — iterates candidates from find_merge_candidates up
+       to clusterer_max_merge_checks LLM calls.
+
+    Returns the total number of merges performed.  llm_classify_fn is injectable
+    so tests can stub the LLM call.
 
     changed_since is forwarded to find_merge_candidates for incremental scoping.
     bypass_verdict_cache disables cache reads for this pass (used on explicit
     recluster so operators always get a fresh full evaluation).
     """
+    absorbed: set[int] = set()
+    threshold = settings.clusterer_title_jaccard_threshold
+
+    # --- Title pre-pass: merge near-identical-title threads without an LLM call ---
+    active_threads: list[Thread] = list(
+        session.execute(select(Thread).where(Thread.status == "active")).scalars().all()
+    )
+    title_merges = 0
+    for i, t1 in enumerate(active_threads):
+        for t2 in active_threads[i + 1:]:
+            if t1.id in absorbed or t2.id in absorbed:
+                continue
+            t1_tokens = _normalize_title(t1.representative_title or "")
+            t2_tokens = _normalize_title(t2.representative_title or "")
+            if not t1_tokens or not t2_tokens:
+                continue
+            title_jac = _jaccard(t1_tokens, t2_tokens)
+            if title_jac >= threshold:
+                lo, hi = (t1.id, t2.id) if t1.id < t2.id else (t2.id, t1.id)
+                merge_threads(session, lo, hi)
+                absorbed.add(hi)
+                title_merges += 1
+                logger.info(
+                    "title pre-pass: auto-merged thread %d into %d (jaccard=%.2f)",
+                    hi, lo, title_jac,
+                )
+    if title_merges:
+        session.flush()  # ensure absorbed rows are gone before find_merge_candidates re-queries
+        logger.info("title pre-pass complete: %d auto-merge(s)", title_merges)
+
+    # --- LLM-verdict pass ---
     candidates = find_merge_candidates(session, settings, changed_since=changed_since)
 
     max_checks = settings.clusterer_max_merge_checks
     use_cache = settings.clusterer_merge_verdict_cache and not bypass_verdict_cache
     llm_calls = 0
-    merge_count = 0
+    llm_merges = 0
     cache_skips = 0
-    absorbed: set[int] = set()
 
     for keep_id, absorb_id in candidates:
         if llm_calls >= max_checks:
@@ -264,18 +304,21 @@ def run_merge_pass(
         if is_same:
             merge_threads(session, keep_id, absorb_id)
             absorbed.add(absorb_id)
-            merge_count += 1
+            llm_merges += 1
             logger.info("merged thread %s into %s", absorb_id, keep_id)
         elif use_cache:
             _upsert_merge_verdict(session, keep, absorb)
 
+    total_merges = title_merges + llm_merges
     logger.info(
-        "merge pass complete: merges=%d llm_calls=%d cache_skips=%d",
-        merge_count,
+        "merge pass complete: merges=%d (title=%d llm=%d) llm_calls=%d cache_skips=%d",
+        total_merges,
+        title_merges,
+        llm_merges,
         llm_calls,
         cache_skips,
     )
-    return merge_count
+    return total_merges
 
 
 def run_surfacing_pass(session: Session, settings: ClustererSettings) -> int:

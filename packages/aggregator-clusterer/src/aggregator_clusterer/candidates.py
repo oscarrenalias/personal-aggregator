@@ -10,11 +10,13 @@ from sqlalchemy.orm import Session
 
 from aggregator_common.models import Article, Thread, ThreadMembership
 from aggregator_clusterer.config import ClustererSettings
+from aggregator_clusterer.dedup import _normalize_title
 
-_ENTITY_W = 0.35
-_TOPIC_W = 0.25
-_FTS_W = 0.25
+_ENTITY_W = 0.30
+_TOPIC_W = 0.20
+_FTS_W = 0.20
 _URL_W = 0.10
+_TITLE_W = 0.15
 _TIME_W = 0.05
 
 
@@ -22,7 +24,7 @@ _TIME_W = 0.05
 class CandidateMatch:
     thread_id: int
     composite_score: float
-    signals: dict  # keys: entity_overlap, topic_overlap, fts_score, url_match, time_delta_hours
+    signals: dict  # keys: entity_overlap, topic_overlap, fts_score, url_match, title_jaccard, time_delta_hours
 
 
 def _to_set(value: Any) -> frozenset:
@@ -108,6 +110,7 @@ def get_candidates(
     article_entities = _to_set(article.entities)
     article_topics = _to_set(article.topics)
     article_url = _raw_url(article)
+    article_title_tokens = _normalize_title(article.clean_title or article.feed_title or "")
 
     candidates: list[CandidateMatch] = []
 
@@ -135,6 +138,10 @@ def get_candidates(
             member_urls = {_raw_url(art) for _, art in thread_members}
             url_match = article_url in member_urls
 
+        # Title Jaccard against the thread's representative title
+        thread_title_tokens = _normalize_title(thread.representative_title or "")
+        title_jaccard = _jaccard(article_title_tokens, thread_title_tokens)
+
         # Normalise time proximity: 1.0 at t=0, 0.0 at the window boundary
         time_proximity = max(0.0, 1.0 - time_delta_hours / window_hours)
 
@@ -143,6 +150,7 @@ def get_candidates(
             + _TOPIC_W * topic_overlap
             + _FTS_W * min(fts_score, 1.0)
             + _URL_W * (1.0 if url_match else 0.0)
+            + _TITLE_W * title_jaccard
             + _TIME_W * time_proximity
         )
 
@@ -155,10 +163,20 @@ def get_candidates(
                     "topic_overlap": topic_overlap,
                     "fts_score": fts_score,
                     "url_match": url_match,
+                    "title_jaccard": title_jaccard,
                     "time_delta_hours": time_delta_hours,
                 },
             )
         )
 
     candidates.sort(key=lambda c: c.composite_score, reverse=True)
-    return candidates[: settings.clusterer_max_candidate_threads]
+
+    # Guaranteed inclusion: threads whose representative_title is a near-duplicate
+    # of the article title must reach the classifier even if they score low on
+    # entity/topic/fts overlap and would otherwise be cut by the cap.
+    threshold = settings.clusterer_title_jaccard_threshold
+    cap = settings.clusterer_max_candidate_threads
+    guaranteed = [c for c in candidates if c.signals["title_jaccard"] >= threshold]
+    others = [c for c in candidates if c.signals["title_jaccard"] < threshold]
+    remaining = max(0, cap - len(guaranteed))
+    return guaranteed + others[:remaining]
