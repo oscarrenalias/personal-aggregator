@@ -1,6 +1,6 @@
 [project]
 name = "personal-aggregator"
-version = "0.1.51"
+version = "0.1.52"
 requires-python = ">=3.12"
 
 [tool.uv]
