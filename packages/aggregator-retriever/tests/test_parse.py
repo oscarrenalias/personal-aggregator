@@ -285,3 +285,95 @@ class TestCommentsUrl:
         entries = parse_feed(_RSS2_FEED, source_id=1)
         for e in entries:
             assert e.comments_url is None
+
+
+# ---------------------------------------------------------------------------
+# Reddit link-post URL resolution
+# ---------------------------------------------------------------------------
+
+# Realistic Reddit RSS entry for a link post. The description contains the
+# standard Reddit table markup: thumbnail anchor (href = external article URL),
+# user link, [link] anchor (external), [comments] anchor (reddit comments URL).
+_REDDIT_LINK_POST_FEED = b"""<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>r/worldnews</title>
+    <link>https://www.reddit.com/r/worldnews/.rss</link>
+    <description>The latest news from r/worldnews</description>
+    <item>
+      <title>Ukrainian drones hit gas storage</title>
+      <link>https://www.reddit.com/r/worldnews/comments/1uatfze/ukrainian_drones/</link>
+      <guid isPermaLink="false">t3_1uatfze</guid>
+      <pubDate>Fri, 20 Jun 2025 10:00:00 +0000</pubDate>
+      <description><![CDATA[<table><tr><td><a href="https://kyivindependent.com/ukrainian-drones-hit-gas-storage/"><img src="https://b.thumbs.redditmedia.com/t.jpg" /></a></td><td> submitted by &#32; <a href="https://www.reddit.com/user/newsuser">/u/newsuser</a> &#32; <span><a href="https://kyivindependent.com/ukrainian-drones-hit-gas-storage/">[link]</a></span> &#32; <span><a href="https://www.reddit.com/r/worldnews/comments/1uatfze/ukrainian_drones/">[comments]</a></span></td></tr></table>]]></description>
+    </item>
+  </channel>
+</rss>
+"""
+
+# Reddit self/text post: description contains only reddit links and post body.
+_REDDIT_SELF_POST_FEED = b"""<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>r/worldnews</title>
+    <link>https://www.reddit.com/r/worldnews/.rss</link>
+    <description>The latest news from r/worldnews</description>
+    <item>
+      <title>Live Thread: Breaking News</title>
+      <link>https://www.reddit.com/r/worldnews/comments/live123/live_thread/</link>
+      <guid isPermaLink="false">t3_live123</guid>
+      <pubDate>Fri, 20 Jun 2025 09:00:00 +0000</pubDate>
+      <description><![CDATA[<!-- SC_OFF --><div class="md"><p>This is a self post discussion thread.</p></div><!-- SC_ON --> submitted by <a href="https://www.reddit.com/user/moduser">/u/moduser</a> <span><a href="https://www.reddit.com/r/worldnews/comments/live123/live_thread/">[comments]</a></span>]]></description>
+    </item>
+  </channel>
+</rss>
+"""
+
+
+class TestRedditLinkPostResolution:
+    def test_link_post_resolves_external_article_url(self):
+        """Reddit link post: feed_url becomes the external article URL, not the comments page."""
+        entries = parse_feed(_REDDIT_LINK_POST_FEED, source_id=20)
+        assert len(entries) == 1
+        e = entries[0]
+        assert e.feed_url == "https://kyivindependent.com/ukrainian-drones-hit-gas-storage/"
+
+    def test_link_post_sets_comments_url_to_reddit_page(self):
+        """Reddit link post: comments_url is the reddit comments page."""
+        entries = parse_feed(_REDDIT_LINK_POST_FEED, source_id=20)
+        e = entries[0]
+        assert e.comments_url == "https://www.reddit.com/r/worldnews/comments/1uatfze/ukrainian_drones/"
+
+    def test_link_post_raw_payload_link_is_external_url(self):
+        """raw_payload['link'] is patched to the external URL so the processor fetches it."""
+        entries = parse_feed(_REDDIT_LINK_POST_FEED, source_id=20)
+        e = entries[0]
+        assert e.raw_payload["link"] == "https://kyivindependent.com/ukrainian-drones-hit-gas-storage/"
+
+    def test_self_post_keeps_reddit_link_as_feed_url(self):
+        """Reddit self/text post (no external href): feed_url stays as the reddit comments URL."""
+        entries = parse_feed(_REDDIT_SELF_POST_FEED, source_id=21)
+        assert len(entries) == 1
+        e = entries[0]
+        assert e.feed_url == "https://www.reddit.com/r/worldnews/comments/live123/live_thread/"
+
+    def test_self_post_raw_payload_link_unchanged(self):
+        """Reddit self/text post: raw_payload['link'] is not patched."""
+        entries = parse_feed(_REDDIT_SELF_POST_FEED, source_id=21)
+        e = entries[0]
+        assert e.raw_payload["link"] == "https://www.reddit.com/r/worldnews/comments/live123/live_thread/"
+
+    def test_non_reddit_feed_is_completely_unchanged(self):
+        """Non-Reddit RSS entry: feed_url, comments_url, and raw_payload are unaffected."""
+        entries = parse_feed(_RSS2_FEED, source_id=1)
+        assert len(entries) == 2
+        for e in entries:
+            assert "rss.example.com" in (e.feed_url or "")
+            assert e.comments_url is None
+            assert e.raw_payload.get("link", "").startswith("https://rss.example.com")
+
+    def test_link_post_dedup_key_from_guid_not_affected(self):
+        """Reddit link post: dedup_key still uses the guid (t3_...), not the resolved URL."""
+        entries = parse_feed(_REDDIT_LINK_POST_FEED, source_id=20)
+        e = entries[0]
+        assert e.dedup_key == "t3_1uatfze"
