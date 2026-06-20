@@ -585,8 +585,11 @@ class TestSourceActivityFlags:
     """Regression tests for source_activity_flags — must match web sidebar computation."""
 
     def test_no_articles_returns_empty_dict(self, session: Session):
+        # Create a source with no articles; it must be absent from the flags dict.
+        # Cannot assert result == {} because the shared DB may hold committed data from earlier tests.
+        src = _make_source(session, "-saf0")
         result = queries.source_activity_flags(session, important_threshold=70)
-        assert result == {}
+        assert src.id not in result
 
     def test_unread_ready_article_sets_has_new(self, session: Session):
         src = _make_source(session, "-saf1")
