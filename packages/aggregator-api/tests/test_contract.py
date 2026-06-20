@@ -39,6 +39,7 @@ _ARTICLE_FIELDS = {
     "word_count",
     "language",
     "image_url",
+    "comments_url",
 }
 
 _THREAD_FIELDS = {

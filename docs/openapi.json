@@ -973,6 +973,17 @@
               }
             ],
             "title": "Image Url"
+          },
+          "comments_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Comments Url"
           }
         },
         "type": "object",

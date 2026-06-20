@@ -30,6 +30,7 @@ class ArticleResponse(BaseModel):
     word_count: Optional[int]
     language: Optional[str]
     image_url: Optional[str] = None
+    comments_url: Optional[str] = None
 
 
 class SourceResponse(BaseModel):

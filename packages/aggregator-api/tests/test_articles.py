@@ -234,6 +234,34 @@ class TestGetArticle:
         data = client.post(f"/articles/{article.id}/read").json()
         assert data["image_url"] == "https://img.example.com/hero.jpg"
 
+    def test_get_article_returns_comments_url_when_set(self, client, db_session):
+        src = make_source(db_session)
+        article = make_article(
+            db_session,
+            source_id=src.id,
+            comments_url="https://news.ycombinator.com/item?id=12345",
+        )
+        data = client.get(f"/articles/{article.id}").json()
+        assert data["comments_url"] == "https://news.ycombinator.com/item?id=12345"
+
+    def test_get_article_comments_url_is_null_when_absent(self, client, db_session):
+        src = make_source(db_session)
+        article = make_article(db_session, source_id=src.id)  # no comments_url
+        data = client.get(f"/articles/{article.id}").json()
+        assert "comments_url" in data
+        assert data["comments_url"] is None
+
+    def test_mark_read_response_carries_comments_url(self, client, db_session):
+        # Mutation responses also serialize the article, so they must carry comments_url too.
+        src = make_source(db_session)
+        article = make_article(
+            db_session,
+            source_id=src.id,
+            comments_url="https://news.ycombinator.com/item?id=12345",
+        )
+        data = client.post(f"/articles/{article.id}/read").json()
+        assert data["comments_url"] == "https://news.ycombinator.com/item?id=12345"
+
     def test_get_unknown_article_returns_404(self, client, db_session):
         response = client.get("/articles/999999")
         assert response.status_code == 404

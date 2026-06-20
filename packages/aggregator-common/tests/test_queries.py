@@ -991,3 +991,31 @@ class TestArticleImageUrl:
         match = next((r for r in results if r.id == article.id), None)
         assert match is not None
         assert match.image_url == "https://img.example.com/list.jpg"
+
+
+class TestArticleCommentsUrl:
+    def test_get_article_exposes_comments_url(self, session: Session) -> None:
+        src = _make_source(session, suffix="-cmts1")
+        article = _make_ready_article(session, src.id, "cmts-key")
+        article.comments_url = "https://news.ycombinator.com/item?id=12345"
+        session.flush()
+
+        result = queries.get_article(session, article.id)
+        assert result.comments_url == "https://news.ycombinator.com/item?id=12345"
+
+    def test_comments_url_none_when_absent(self, session: Session) -> None:
+        src = _make_source(session, suffix="-cmts2")
+        article = _make_ready_article(session, src.id, "nocmts-key")
+        session.flush()
+
+        result = queries.get_article(session, article.id)
+        assert result.comments_url is None
+
+    def test_mutation_dict_carries_comments_url(self, session: Session) -> None:
+        src = _make_source(session, suffix="-cmts3")
+        article = _make_ready_article(session, src.id, "cmts-mut-key")
+        article.comments_url = "https://news.ycombinator.com/item?id=12345"
+        session.flush()
+
+        payload = queries.mark_read(session, article.id)
+        assert payload["comments_url"] == "https://news.ycombinator.com/item?id=12345"
