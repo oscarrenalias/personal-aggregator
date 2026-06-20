@@ -29,8 +29,8 @@ sources → retriever → processor → summarize-rank → clusterer → web UI
   - `GET /api/v1/threads/{id}` — single thread (does **not** stamp `last_viewed_at` — API reads are passive and must not clear the unread indicator); backed by `queries.get_thread()`
   - `GET /api/v1/threads/{id}/members` — thread article members; backed by `queries.get_thread_members()`
   - `GET /api/v1/brief/today` — today's generated brief; backed by `queries.get_latest_brief()`
-  - `GET /api/v1/sources` — list all sources; backed by `queries.list_sources()`
-  - `GET /api/v1/categories` — list all categories; backed by `queries.list_categories()`
+  - `GET /api/v1/sources` — list all sources with sidebar activity signals; `SourceResponse` includes `has_new` (source has ≥1 unread ready article) and `has_priority` (has ≥1 unread ready article with `importance_score ≥ WEB_IMPORTANT_THRESHOLD`); backed by `queries.list_sources()`
+  - `GET /api/v1/categories` — list all categories with sidebar activity signals; `CategoryResponse` includes `has_priority` (category has ≥1 unread ready article above the threshold) and `last_activity` (ISO-8601 timestamp of most-recent ready article in that category); backed by `queries.list_categories()`
   - `GET /api/v1/interest-profile` — current interest profile text; reads `InterestProfile` model directly
   - `GET /api/v1/healthz` — liveness check; returns `{ "version": "...", "db": "ok"|"error" }`
 
