@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from conftest import make_brief, make_brief_topic, make_category, make_source
+from datetime import datetime
+
+from conftest import make_article, make_brief, make_brief_topic, make_category, make_source
 
 
 class TestBriefToday:
@@ -77,6 +79,41 @@ class TestSources:
         assert len(data) >= 1
         assert set(data[0].keys()) == _SOURCE_FIELDS
 
+    def test_sources_has_new_false_when_no_unread(self, client, db_session):
+        src = make_source(db_session, name="Read Source")
+        make_article(db_session, source_id=src.id, dedup_key="src-read-1", is_read=True, importance_score=50)
+        data = client.get("/sources").json()
+        src_data = next(s for s in data if s["name"] == "Read Source")
+        assert src_data["has_new"] is False
+        assert src_data["has_priority"] is False
+
+    def test_sources_has_new_true_when_unread_ready(self, client, db_session):
+        src = make_source(db_session, name="Unread Source")
+        make_article(db_session, source_id=src.id, dedup_key="src-unread-1", is_read=False, importance_score=40)
+        data = client.get("/sources").json()
+        src_data = next(s for s in data if s["name"] == "Unread Source")
+        assert src_data["has_new"] is True
+        assert src_data["has_priority"] is False
+
+    def test_sources_has_priority_true_when_unread_above_threshold(self, client, db_session):
+        src = make_source(db_session, name="Priority Source")
+        make_article(db_session, source_id=src.id, dedup_key="src-pri-1", is_read=False, importance_score=80)
+        data = client.get("/sources").json()
+        src_data = next(s for s in data if s["name"] == "Priority Source")
+        assert src_data["has_new"] is True
+        assert src_data["has_priority"] is True
+
+    def test_sources_hidden_article_excluded_from_flags(self, client, db_session):
+        src = make_source(db_session, name="Hidden Only Source")
+        art = make_article(db_session, source_id=src.id, dedup_key="src-hid-1", is_read=False, importance_score=90)
+        # Mark the article hidden directly
+        art.is_hidden = True
+        db_session.commit()
+        data = client.get("/sources").json()
+        src_data = next(s for s in data if s["name"] == "Hidden Only Source")
+        assert src_data["has_new"] is False
+        assert src_data["has_priority"] is False
+
 
 class TestCategories:
     def test_categories_returns_200(self, client, db_session):
@@ -106,6 +143,42 @@ class TestCategories:
         data = client.get("/categories").json()
         assert len(data) >= 1
         assert set(data[0].keys()) == _CATEGORY_FIELDS
+
+    def test_categories_last_activity_null_when_no_articles(self, client, db_session):
+        make_category(db_session, name="Empty Cat")
+        data = client.get("/categories").json()
+        cat_data = next(c for c in data if c["name"] == "Empty Cat")
+        assert cat_data["last_activity"] is None
+        assert cat_data["has_priority"] is False
+
+    def test_categories_last_activity_iso_when_articles_present(self, client, db_session):
+        src = make_source(db_session, name="Cat Test Source")
+        make_category(db_session, name="Activity Cat")
+        make_article(db_session, source_id=src.id, dedup_key="cat-act-1", categories=["Activity Cat"], is_read=True, importance_score=30)
+        data = client.get("/categories").json()
+        cat_data = next(c for c in data if c["name"] == "Activity Cat")
+        assert cat_data["last_activity"] is not None
+        # Verify it's a valid ISO string
+        datetime.fromisoformat(cat_data["last_activity"])
+        assert cat_data["has_priority"] is False
+
+    def test_categories_has_priority_true_when_unread_important(self, client, db_session):
+        src = make_source(db_session, name="Cat Priority Source")
+        make_category(db_session, name="Priority Cat")
+        make_article(db_session, source_id=src.id, dedup_key="cat-pri-1", categories=["Priority Cat"], is_read=False, importance_score=80)
+        data = client.get("/categories").json()
+        cat_data = next(c for c in data if c["name"] == "Priority Cat")
+        assert cat_data["has_priority"] is True
+        assert cat_data["last_activity"] is not None
+
+    def test_categories_has_priority_false_when_below_threshold(self, client, db_session):
+        src = make_source(db_session, name="Cat Low Source")
+        make_category(db_session, name="LowScore Cat")
+        make_article(db_session, source_id=src.id, dedup_key="cat-low-1", categories=["LowScore Cat"], is_read=False, importance_score=50)
+        data = client.get("/categories").json()
+        cat_data = next(c for c in data if c["name"] == "LowScore Cat")
+        assert cat_data["has_priority"] is False
+        assert cat_data["last_activity"] is not None
 
 
 class TestInterestProfile:

@@ -19,8 +19,10 @@ from aggregator_api.models import (
     PaginatedResponse,
     SourceResponse,
 )
+from aggregator_api.settings import ApiSettings
 
 router = APIRouter()
+_settings = ApiSettings()
 
 
 def _brief_result_to_response(result) -> BriefResponse:
@@ -67,12 +69,12 @@ def get_brief(brief_id: int, db: Session = Depends(get_db)):
 
 @router.get("/sources", response_model=List[SourceResponse])
 def get_sources(db: Session = Depends(get_db)):
-    return [SourceResponse.model_validate(s) for s in queries.list_sources(db)]
+    return [SourceResponse.model_validate(s) for s in queries.list_sources(db, important_threshold=_settings.web_important_threshold)]
 
 
 @router.get("/categories", response_model=List[CategoryResponse])
 def get_categories(db: Session = Depends(get_db)):
-    return [CategoryResponse.model_validate(c) for c in queries.list_categories(db)]
+    return [CategoryResponse.model_validate(c) for c in queries.list_categories(db, important_threshold=_settings.web_important_threshold)]
 
 
 @router.get("/interest-profile", response_model=InterestProfileResponse)

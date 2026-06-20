@@ -1255,6 +1255,22 @@
           "sort_order": {
             "type": "integer",
             "title": "Sort Order"
+          },
+          "last_activity": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Activity"
+          },
+          "has_priority": {
+            "type": "boolean",
+            "title": "Has Priority",
+            "default": false
           }
         },
         "type": "object",
@@ -1425,6 +1441,16 @@
           "feed_url": {
             "type": "string",
             "title": "Feed Url"
+          },
+          "has_new": {
+            "type": "boolean",
+            "title": "Has New",
+            "default": false
+          },
+          "has_priority": {
+            "type": "boolean",
+            "title": "Has Priority",
+            "default": false
           }
         },
         "type": "object",

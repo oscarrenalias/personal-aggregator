@@ -88,8 +88,8 @@ middleware so every request carries them.
 | `GET /brief/today` | Today's generated brief (alias for newest ready brief) | — |
 | `GET /briefs` | Paginated list of ready briefs, newest-first | `limit`, `cursor` |
 | `GET /briefs/{id}` | Single brief by id (404 if not ready) | — |
-| `GET /sources` | All feed sources | — |
-| `GET /categories` | All categories | — |
+| `GET /sources` | All feed sources; each item includes `has_new` (bool) and `has_priority` (bool) activity signals matching the web sidebar | — |
+| `GET /categories` | All categories; each item includes `has_priority` (bool) and `last_activity` (ISO-8601 string or null) activity signals matching the web sidebar | — |
 | `GET /interest-profile` | Current interest-profile text | — |
 
 ### Writes

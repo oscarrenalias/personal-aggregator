@@ -581,6 +581,208 @@ class TestListCategoriesAndSources:
         assert "q-disabled-src" not in names
 
 
+class TestSourceActivityFlags:
+    """Regression tests for source_activity_flags — must match web sidebar computation."""
+
+    def test_no_articles_returns_empty_dict(self, session: Session):
+        result = queries.source_activity_flags(session, important_threshold=70)
+        assert result == {}
+
+    def test_unread_ready_article_sets_has_new(self, session: Session):
+        src = _make_source(session, "-saf1")
+        _make_ready_article(session, src.id, "saf1-a1", importance_score=40, is_read=False)
+
+        result = queries.source_activity_flags(session, important_threshold=70)
+
+        has_new, has_priority = result[src.id]
+        assert has_new is True
+        assert has_priority is False
+
+    def test_read_article_excluded_from_has_new(self, session: Session):
+        src = _make_source(session, "-saf2")
+        _make_ready_article(session, src.id, "saf2-a1", importance_score=40, is_read=True)
+
+        result = queries.source_activity_flags(session, important_threshold=70)
+
+        assert src.id not in result
+
+    def test_unread_above_threshold_sets_has_priority(self, session: Session):
+        src = _make_source(session, "-saf3")
+        _make_ready_article(session, src.id, "saf3-a1", importance_score=80, is_read=False)
+
+        result = queries.source_activity_flags(session, important_threshold=70)
+
+        has_new, has_priority = result[src.id]
+        assert has_new is True
+        assert has_priority is True
+
+    def test_threshold_boundary_exact_score_counts_as_priority(self, session: Session):
+        src = _make_source(session, "-saf4")
+        _make_ready_article(session, src.id, "saf4-a1", importance_score=70, is_read=False)
+
+        result = queries.source_activity_flags(session, important_threshold=70)
+
+        _, has_priority = result[src.id]
+        assert has_priority is True
+
+    def test_threshold_boundary_one_below_does_not_count(self, session: Session):
+        src = _make_source(session, "-saf5")
+        _make_ready_article(session, src.id, "saf5-a1", importance_score=69, is_read=False)
+
+        result = queries.source_activity_flags(session, important_threshold=70)
+
+        _, has_priority = result[src.id]
+        assert has_priority is False
+
+    def test_hidden_article_excluded(self, session: Session):
+        src = _make_source(session, "-saf6")
+        _make_ready_article(session, src.id, "saf6-a1", importance_score=90, is_read=False, is_hidden=True)
+
+        result = queries.source_activity_flags(session, important_threshold=70)
+
+        assert src.id not in result
+
+    def test_non_ready_article_excluded(self, session: Session):
+        src = _make_source(session, "-saf7")
+        article = Article(
+            source_id=src.id,
+            dedup_key="saf7-pending",
+            status=ArticleStatus.pending_processing,
+            is_read=False,
+            is_hidden=False,
+            importance_score=90,
+            feed_published_at=_NOW,
+            raw_payload={"link": "https://example.com/saf7"},
+            retrieved_at=_NOW,
+        )
+        session.add(article)
+        session.flush()
+
+        result = queries.source_activity_flags(session, important_threshold=70)
+
+        assert src.id not in result
+
+
+class TestCategoryActivityStats:
+    """Regression tests for category_activity_stats — must match web sidebar computation."""
+
+    def test_no_articles_returns_empty_dict(self, session: Session):
+        result = queries.category_activity_stats(session, important_threshold=70)
+        assert isinstance(result, dict)
+
+    def test_has_priority_true_when_unread_above_threshold(self, session: Session):
+        src = _make_source(session, "-cas1")
+        _make_ready_article(session, src.id, "cas1-a1", importance_score=80, is_read=False, categories=["tech-cas1"])
+
+        result = queries.category_activity_stats(session, important_threshold=70)
+
+        has_priority, last_activity = result["tech-cas1"]
+        assert has_priority is True
+        assert last_activity is not None
+
+    def test_has_priority_false_when_read(self, session: Session):
+        src = _make_source(session, "-cas2")
+        _make_ready_article(session, src.id, "cas2-a1", importance_score=80, is_read=True, categories=["tech-cas2"])
+
+        result = queries.category_activity_stats(session, important_threshold=70)
+
+        has_priority, last_activity = result["tech-cas2"]
+        assert has_priority is False
+        assert last_activity is not None
+
+    def test_last_activity_is_max_retrieved_at_over_ready_articles(self, session: Session):
+        src = _make_source(session, "-cas3")
+        older = _NOW - timedelta(hours=2)
+        newer = _NOW
+        _make_ready_article(session, src.id, "cas3-a1", importance_score=30, is_read=False, categories=["tech-cas3"])
+        _make_ready_article(session, src.id, "cas3-a2", importance_score=30, is_read=False, categories=["tech-cas3"])
+
+        result = queries.category_activity_stats(session, important_threshold=70)
+
+        # last_activity should be an ISO string present for the category
+        _, last_activity = result["tech-cas3"]
+        assert last_activity is not None
+        # Parse to confirm it's a valid ISO datetime
+        datetime.fromisoformat(last_activity)
+
+    def test_last_activity_null_when_no_articles(self, session: Session):
+        result = queries.category_activity_stats(session, important_threshold=70)
+        assert "nonexistent-category-xyz" not in result
+
+    def test_threshold_boundary_exact_score_counts_as_priority(self, session: Session):
+        src = _make_source(session, "-cas4")
+        _make_ready_article(session, src.id, "cas4-a1", importance_score=70, is_read=False, categories=["tech-cas4"])
+
+        result = queries.category_activity_stats(session, important_threshold=70)
+
+        has_priority, _ = result["tech-cas4"]
+        assert has_priority is True
+
+    def test_threshold_boundary_one_below_is_not_priority(self, session: Session):
+        src = _make_source(session, "-cas5")
+        _make_ready_article(session, src.id, "cas5-a1", importance_score=69, is_read=False, categories=["tech-cas5"])
+
+        result = queries.category_activity_stats(session, important_threshold=70)
+
+        has_priority, _ = result["tech-cas5"]
+        assert has_priority is False
+
+    def test_hidden_article_excluded(self, session: Session):
+        src = _make_source(session, "-cas6")
+        _make_ready_article(session, src.id, "cas6-a1", importance_score=90, is_read=False, categories=["tech-cas6"], is_hidden=True)
+
+        result = queries.category_activity_stats(session, important_threshold=70)
+
+        assert "tech-cas6" not in result
+
+
+class TestListSourcesWithFlags:
+    def test_list_sources_populates_has_new(self, session: Session):
+        src = Source(name="q-src-hasnew", feed_url="https://q-hasnew.example.com/feed.xml", enabled=True)
+        session.add(src)
+        session.flush()
+        _make_ready_article(session, src.id, "q-hasnew-a1", importance_score=30, is_read=False)
+
+        results = queries.list_sources(session, important_threshold=70)
+        r = next(x for x in results if x.name == "q-src-hasnew")
+        assert r.has_new is True
+        assert r.has_priority is False
+
+    def test_list_sources_no_flags_when_no_unread(self, session: Session):
+        src = Source(name="q-src-quiet", feed_url="https://q-quiet.example.com/feed.xml", enabled=True)
+        session.add(src)
+        session.flush()
+
+        results = queries.list_sources(session, important_threshold=70)
+        r = next(x for x in results if x.name == "q-src-quiet")
+        assert r.has_new is False
+        assert r.has_priority is False
+
+
+class TestListCategoriesWithFlags:
+    def test_list_categories_populates_has_priority(self, session: Session):
+        cat = Category(name="q-cat-pri", enabled=True, sort_order=99)
+        session.add(cat)
+        session.flush()
+        src = _make_source(session, "-catpri")
+        _make_ready_article(session, src.id, "catpri-a1", importance_score=80, is_read=False, categories=["q-cat-pri"])
+
+        results = queries.list_categories(session, important_threshold=70)
+        r = next(x for x in results if x.name == "q-cat-pri")
+        assert r.has_priority is True
+        assert r.last_activity is not None
+
+    def test_list_categories_last_activity_null_when_no_articles(self, session: Session):
+        cat = Category(name="q-cat-empty", enabled=True, sort_order=98)
+        session.add(cat)
+        session.flush()
+
+        results = queries.list_categories(session, important_threshold=70)
+        r = next(x for x in results if x.name == "q-cat-empty")
+        assert r.last_activity is None
+        assert r.has_priority is False
+
+
 class TestMutationHelpers:
     def test_mark_read_sets_is_read_true(self, session: Session):
         src = _make_source(session, "-mr")

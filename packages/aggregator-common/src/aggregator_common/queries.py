@@ -137,6 +137,8 @@ class SourceResult:
     id: int
     name: str
     feed_url: str
+    has_new: bool = False
+    has_priority: bool = False
 
 
 @dataclass
@@ -145,6 +147,8 @@ class CategoryResult:
     name: str
     description: Optional[str]
     sort_order: int
+    last_activity: Optional[str] = None
+    has_priority: bool = False
 
 
 @dataclass
@@ -470,36 +474,115 @@ def get_interest_profile(session: Session) -> str:
     return row.profile_text or ""
 
 
-def list_categories(session: Session) -> List[CategoryResult]:
-    """Return enabled categories ordered by sort_order, name."""
+def source_activity_flags(
+    session: Session, *, important_threshold: int = _DEFAULT_IMPORTANT_THRESHOLD
+) -> Dict[int, Tuple[bool, bool]]:
+    """Return per-source (has_new, has_priority) flags matching the web sidebar computation.
+
+    has_new     — source has >=1 unread ready non-hidden article.
+    has_priority — source has >=1 unread ready non-hidden article with
+                   importance_score >= important_threshold.
+
+    Only sources that have at least one such article appear in the result;
+    sources with no matching articles are absent (callers should use .get()).
+    """
+    base = _ready_base()
+    unread = and_(base, Article.is_read == False)
+    priority_filter = Article.importance_score >= important_threshold
+    rows = session.execute(
+        select(
+            Article.source_id,
+            func.count(Article.id).label("cnt"),
+            func.count(Article.id).filter(priority_filter).label("priority_cnt"),
+        )
+        .where(unread)
+        .group_by(Article.source_id)
+    ).all()
+    return {
+        row.source_id: (row.cnt > 0, row.priority_cnt > 0)
+        for row in rows
+    }
+
+
+def category_activity_stats(
+    session: Session, *, important_threshold: int = _DEFAULT_IMPORTANT_THRESHOLD
+) -> Dict[str, Tuple[bool, Optional[str]]]:
+    """Return per-category (has_priority, last_activity_iso) matching the web sidebar computation.
+
+    has_priority     — category has >=1 unread ready non-hidden article with
+                       importance_score >= important_threshold.
+    last_activity_iso — ISO-8601 string of MAX(retrieved_at) over all ready non-hidden
+                        articles in the category (any read state); None when no articles.
+
+    Uses the same JSONB unnest query as the web sidebar (feeds.py).
+    Only categories that have at least one ready non-hidden article appear in the result.
+    """
+    rows = session.execute(
+        text("""
+            SELECT
+                cat_name,
+                COUNT(*) FILTER (WHERE is_read = false AND importance_score >= :threshold) AS priority_cnt,
+                MAX(retrieved_at) AS last_activity
+            FROM articles, jsonb_array_elements_text(categories) AS cat_name
+            WHERE status = 'ready' AND is_hidden = false
+              AND jsonb_typeof(categories) = 'array'
+            GROUP BY cat_name
+        """),
+        {"threshold": important_threshold},
+    ).all()
+    return {
+        r.cat_name: (
+            r.priority_cnt > 0,
+            r.last_activity.isoformat() if r.last_activity is not None else None,
+        )
+        for r in rows
+    }
+
+
+def list_categories(session: Session, *, important_threshold: int = _DEFAULT_IMPORTANT_THRESHOLD) -> List[CategoryResult]:
+    """Return enabled categories ordered by sort_order, name.
+
+    Populates has_priority and last_activity from category_activity_stats so callers
+    get the same activity signals the web sidebar shows.
+    """
     rows = session.execute(
         select(Category)
         .where(Category.enabled == True)
         .order_by(Category.sort_order, Category.name)
     ).scalars().all()
+    stats = category_activity_stats(session, important_threshold=important_threshold)
     return [
         CategoryResult(
             id=c.id,
             name=c.name,
             description=c.description,
             sort_order=c.sort_order,
+            has_priority=stats.get(c.name, (False, None))[0],
+            last_activity=stats.get(c.name, (False, None))[1],
         )
         for c in rows
     ]
 
 
-def list_sources(session: Session) -> List[SourceResult]:
-    """Return enabled feed sources ordered by name."""
+def list_sources(session: Session, *, important_threshold: int = _DEFAULT_IMPORTANT_THRESHOLD) -> List[SourceResult]:
+    """Return enabled feed sources ordered by name.
+
+    Populates has_new and has_priority from source_activity_flags so callers
+    get the same activity signals the web sidebar shows.
+    """
     rows = session.execute(
         select(Source)
         .where(Source.enabled == True)
         .order_by(Source.name)
     ).scalars().all()
+    flags = source_activity_flags(session, important_threshold=important_threshold)
     return [
         SourceResult(
             id=s.id,
             name=s.name,
             feed_url=s.feed_url,
+            has_new=flags.get(s.id, (False, False))[0],
+            has_priority=flags.get(s.id, (False, False))[1],
         )
         for s in rows
     ]

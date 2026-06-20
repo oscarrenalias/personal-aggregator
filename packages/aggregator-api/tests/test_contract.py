@@ -87,9 +87,9 @@ _THREAD_MEMBER_FIELDS = {
     "published_at",
 }
 
-_SOURCE_FIELDS = {"id", "name", "feed_url"}
+_SOURCE_FIELDS = {"id", "name", "feed_url", "has_new", "has_priority"}
 
-_CATEGORY_FIELDS = {"id", "name", "description", "sort_order"}
+_CATEGORY_FIELDS = {"id", "name", "description", "sort_order", "last_activity", "has_priority"}
 
 _BRIEF_TOPIC_FIELDS = {
     "position",
@@ -213,9 +213,17 @@ class TestSourceResponseContract:
     def test_validates_from_result_dataclass(self):
         from aggregator_common.queries import SourceResult
 
-        result = SourceResult(id=1, name="Feed Name", feed_url="https://example.com/feed.xml")
+        result = SourceResult(id=1, name="Feed Name", feed_url="https://example.com/feed.xml", has_new=True, has_priority=False)
         response = SourceResponse.model_validate(result)
         assert set(response.model_dump().keys()) == _SOURCE_FIELDS
+
+    def test_default_flags_are_false(self):
+        from aggregator_common.queries import SourceResult
+
+        result = SourceResult(id=1, name="Quiet Feed", feed_url="https://example.com/feed.xml")
+        response = SourceResponse.model_validate(result)
+        assert response.has_new is False
+        assert response.has_priority is False
 
 
 class TestCategoryResponseContract:
@@ -225,9 +233,17 @@ class TestCategoryResponseContract:
     def test_validates_from_result_dataclass(self):
         from aggregator_common.queries import CategoryResult
 
-        result = CategoryResult(id=1, name="Tech", description="Technology news", sort_order=0)
+        result = CategoryResult(id=1, name="Tech", description="Technology news", sort_order=0, last_activity="2025-01-01T12:00:00+00:00", has_priority=True)
         response = CategoryResponse.model_validate(result)
         assert set(response.model_dump().keys()) == _CATEGORY_FIELDS
+
+    def test_default_activity_fields_are_none_and_false(self):
+        from aggregator_common.queries import CategoryResult
+
+        result = CategoryResult(id=1, name="Quiet Cat", description=None, sort_order=0)
+        response = CategoryResponse.model_validate(result)
+        assert response.last_activity is None
+        assert response.has_priority is False
 
 
 class TestBriefTopicResponseContract:

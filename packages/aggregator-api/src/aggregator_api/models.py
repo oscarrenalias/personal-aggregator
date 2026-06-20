@@ -39,6 +39,8 @@ class SourceResponse(BaseModel):
     id: int
     name: str
     feed_url: str
+    has_new: bool = False
+    has_priority: bool = False
 
 
 class CategoryResponse(BaseModel):
@@ -48,6 +50,8 @@ class CategoryResponse(BaseModel):
     name: str
     description: Optional[str]
     sort_order: int
+    last_activity: Optional[str] = None
+    has_priority: bool = False
 
 
 class BriefTopicResponse(BaseModel):
