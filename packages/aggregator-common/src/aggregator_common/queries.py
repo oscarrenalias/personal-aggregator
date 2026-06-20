@@ -505,16 +505,7 @@ def list_sources(session: Session) -> List[SourceResult]:
     ]
 
 
-def get_latest_brief(session: Session) -> Optional[BriefResult]:
-    """Return the newest ready brief with topics ordered by position, or None."""
-    brief = session.execute(
-        select(Brief)
-        .where(Brief.status == "ready")
-        .order_by(Brief.created_at.desc())
-        .limit(1)
-    ).scalar_one_or_none()
-    if brief is None:
-        return None
+def _brief_row_to_result(session: Session, brief: Brief) -> BriefResult:
     topics = session.execute(
         select(BriefTopic)
         .where(BriefTopic.brief_id == brief.id)
@@ -540,6 +531,67 @@ def get_latest_brief(session: Session) -> Optional[BriefResult]:
             for t in topics
         ],
     )
+
+
+def get_latest_brief(session: Session) -> Optional[BriefResult]:
+    """Return the newest ready brief with topics ordered by position, or None."""
+    brief = session.execute(
+        select(Brief)
+        .where(Brief.status == "ready")
+        .order_by(Brief.created_at.desc())
+        .limit(1)
+    ).scalar_one_or_none()
+    if brief is None:
+        return None
+    return _brief_row_to_result(session, brief)
+
+
+def _brief_keyset_filter(cursor_created_at: str, cursor_id: int):
+    """WHERE condition restricting to rows after (created_at, id) in DESC order."""
+    cursor_dt = datetime.fromisoformat(cursor_created_at)
+    return or_(
+        Brief.created_at < cursor_dt,
+        and_(Brief.created_at == cursor_dt, Brief.id < cursor_id),
+    )
+
+
+def list_briefs(
+    session: Session,
+    *,
+    limit: int = _DEFAULT_LIMIT,
+    cursor: Optional[str] = None,
+) -> Tuple[List[BriefResult], Optional[str]]:
+    """Return ready briefs newest-first with keyset cursor pagination.
+
+    Returns (results, next_cursor). next_cursor is None when there are no further pages.
+    """
+    filters: list = [Brief.status == "ready"]
+    if cursor is not None:
+        cursor_created_at, cursor_id = _decode_cursor(cursor)
+        filters.append(_brief_keyset_filter(str(cursor_created_at), int(cursor_id)))
+    q = (
+        select(Brief)
+        .where(*filters)
+        .order_by(Brief.created_at.desc(), Brief.id.desc())
+        .limit(limit)
+    )
+    briefs = list(session.execute(q).scalars().all())
+    results = [_brief_row_to_result(session, b) for b in briefs]
+    next_cursor: Optional[str] = None
+    if len(briefs) == limit:
+        last = briefs[-1]
+        next_cursor = _encode_cursor((last.created_at.isoformat(), last.id))
+    return results, next_cursor
+
+
+def get_brief(session: Session, brief_id: int) -> Optional[BriefResult]:
+    """Return the ready brief with the given id (with ordered topics), or None."""
+    brief = session.execute(
+        select(Brief).where(Brief.id == brief_id, Brief.status == "ready")
+    ).scalar_one_or_none()
+    if brief is None:
+        return None
+    return _brief_row_to_result(session, brief)
 
 
 def _to_thread_result(thread: Thread, member_count: int = 0, image_url: Optional[str] = None) -> ThreadResult:

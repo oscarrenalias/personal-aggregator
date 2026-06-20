@@ -85,7 +85,9 @@ middleware so every request carries them.
 | `GET /threads` | List story threads | `sort`, `show_dismissed`, `limit`, `cursor` |
 | `GET /threads/{id}` | Single thread (passive) | — |
 | `GET /threads/{id}/members` | Articles in a thread | — |
-| `GET /brief/today` | Today's generated brief | — |
+| `GET /brief/today` | Today's generated brief (alias for newest ready brief) | — |
+| `GET /briefs` | Paginated list of ready briefs, newest-first | `limit`, `cursor` |
+| `GET /briefs/{id}` | Single brief by id (404 if not ready) | — |
 | `GET /sources` | All feed sources | — |
 | `GET /categories` | All categories | — |
 | `GET /interest-profile` | Current interest-profile text | — |
