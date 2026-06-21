@@ -79,7 +79,7 @@ middleware so every request carries them.
 | Method & path | Purpose | Key query params |
 |---|---|---|
 | `GET /healthz` | Liveness + running version | — |
-| `GET /articles` | List articles | `view`, `sort` (`importance`\|`recent`, default `importance`), `category`, `source_id`, `unread_only`, `limit`, `cursor` |
+| `GET /articles` | List articles | `view` (`all`\|`unread`\|`important`\|`saved`\|`today`\|`uncategorized`, default `all`), `sort` (`importance`\|`recent`, default `importance`), `category`, `source_id`, `unread_only`, `limit`, `cursor` |
 | `GET /articles/search` | Full-text search | `q` (required), `category`, `source_id`, `limit`, `cursor` |
 | `GET /articles/{id}` | Single article | — |
 | `GET /threads` | List story threads | `sort`, `show_dismissed`, `limit`, `cursor` |
@@ -117,8 +117,15 @@ that perimeter.
 - **`unread_only`**, **`show_dismissed`**: boolean (`true`/`false`).
 - **`limit`**: page size (server default ~50).
 
-The exact field-level schemas for every response object live in
-[`openapi.json`](./openapi.json) — treat that as the source of truth.
+> **Note on the OpenAPI spec:** `view` and `sort` are typed as plain `string`
+> in `openapi.json` (no `enum`) — the allowed values above are validated
+> server-side, and an unrecognized value returns **`400`**. Treat the lists in
+> this section as the authoritative set of accepted values; don't infer them
+> from the spec's parameter type alone.
+
+The exact field-level **response** schemas for every object live in
+[`openapi.json`](./openapi.json) — treat that as the source of truth for
+response shapes.
 
 ## Examples
 
@@ -133,6 +140,9 @@ curl -sS "${H[@]}" "$BASE/healthz"
 
 # First page of unread articles
 curl -sS "${H[@]}" "$BASE/articles?view=unread&limit=20"
+
+# Saved / starred articles (toggle with POST /articles/{id}/save | /unsave)
+curl -sS "${H[@]}" "$BASE/articles?view=saved&limit=20"
 
 # Next page (pass next_cursor verbatim)
 curl -sS "${H[@]}" "$BASE/articles?view=unread&limit=20&cursor=<next_cursor>"
