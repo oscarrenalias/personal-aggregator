@@ -131,6 +131,9 @@ class TestVerdictCache:
         settings = ClustererSettings(
             clusterer_merge_verdict_cache=True,
             clusterer_incremental_merge=False,
+            # Use a wide window so the _OLD-timestamped threads are included in the
+            # full-pass candidate set and the cache logic is actually exercised.
+            clusterer_merge_candidate_window_days=730,
         )
         run_merge_pass(db_session, settings, _counting_fn)
         assert llm_calls == 0, "LLM must not be called when a valid cached verdict exists"
@@ -165,6 +168,8 @@ class TestVerdictCache:
         settings = ClustererSettings(
             clusterer_merge_verdict_cache=True,
             clusterer_incremental_merge=False,
+            # Use a wide window so the _OLD-timestamped threads are included.
+            clusterer_merge_candidate_window_days=730,
         )
         run_merge_pass(db_session, settings, _counting_fn)
         assert llm_calls == 1, "LLM must be called after a thread's last_updated advances past the verdict"
@@ -242,6 +247,8 @@ class TestCacheKeyOrderIndependence:
         settings = ClustererSettings(
             clusterer_merge_verdict_cache=True,
             clusterer_incremental_merge=False,
+            # Use a wide window so the _OLD-timestamped threads are included.
+            clusterer_merge_candidate_window_days=730,
         )
         run_merge_pass(db_session, settings, _counting_fn)
         assert llm_calls == 0, "normalised cache key must hit regardless of iteration order"
@@ -265,6 +272,9 @@ class TestFlagsDisabled:
         settings = ClustererSettings(
             clusterer_incremental_merge=False,
             clusterer_merge_verdict_cache=False,
+            # Use a wide window so the _OLD-timestamped threads are included in the
+            # full-pass candidate set (the test is about the incremental flag, not the window).
+            clusterer_merge_candidate_window_days=730,
         )
         # Pass a far-future changed_since; with flag=False it must be ignored
         far_future = _OLD + timedelta(days=365)
@@ -285,6 +295,8 @@ class TestFlagsDisabled:
         settings = ClustererSettings(
             clusterer_incremental_merge=False,
             clusterer_merge_verdict_cache=False,
+            # Use a wide window so the _OLD-timestamped threads are included.
+            clusterer_merge_candidate_window_days=730,
         )
         llm_calls = 0
 

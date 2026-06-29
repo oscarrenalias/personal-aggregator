@@ -289,6 +289,231 @@ class TestRunSurfacingPass:
         assert thread.surfaced == surfaced_after_first
 
 
+class TestFindMergeCandidatesIncrementalBound:
+    """Regression tests for the O(n²) FTS self-join bound fix.
+
+    Before the fix, find_merge_candidates ran ts_rank for ALL C(active,2) pairs
+    unconditionally — the incremental stale×stale skip was only applied in Python
+    AFTER the expensive SQL had already run. These tests verify that stale×stale
+    pairs are excluded in SQL (not just Python) and that the recency window caps
+    full-pass cost.
+    """
+
+    def test_incremental_stale_stale_pair_excluded(self, db_session):
+        """With incremental mode, a stale×stale pair is NOT returned even if similarity floor is 0."""
+        settings = ClustererSettings(
+            clusterer_incremental_merge=True,
+            clusterer_merge_similarity_floor=0.0,
+        )
+        stale_time = datetime.now(tz=timezone.utc) - timedelta(hours=2)
+        changed_since = datetime.now(tz=timezone.utc) - timedelta(hours=1)
+
+        src = make_source(db_session, url="https://incr-stale-stale.test/feed.xml")
+        t1 = make_thread(db_session, title="EU AI Act Stale A", status="active",
+                         last_updated=stale_time)
+        t2 = make_thread(db_session, title="EU AI Act Stale B", status="active",
+                         last_updated=stale_time)
+        art1 = make_article(db_session, source_id=src.id, dedup_key="iss-k1",
+                            entities={"OpenAI": 1, "Policy": 1}, topics=["AI", "tech"])
+        art2 = make_article(db_session, source_id=src.id, dedup_key="iss-k2",
+                            entities={"OpenAI": 1, "Policy": 1}, topics=["AI", "tech"])
+        db_session.add(ThreadMembership(thread_id=t1.id, article_id=art1.id, suppressed=False,
+                                        assigned_at=stale_time))
+        db_session.add(ThreadMembership(thread_id=t2.id, article_id=art2.id, suppressed=False,
+                                        assigned_at=stale_time))
+        db_session.commit()
+
+        candidates = find_merge_candidates(db_session, settings, changed_since=changed_since)
+
+        stale_pair = (min(t1.id, t2.id), max(t1.id, t2.id))
+        assert stale_pair not in candidates, (
+            "Stale×stale pair must be excluded in incremental mode even when floor=0"
+        )
+
+    def test_incremental_changed_stale_pair_included(self, db_session):
+        """With incremental mode, a pair where at least one thread is recent IS returned."""
+        settings = ClustererSettings(
+            clusterer_incremental_merge=True,
+            clusterer_merge_similarity_floor=0.0,
+        )
+        stale_time = datetime.now(tz=timezone.utc) - timedelta(hours=2)
+        recent_time = datetime.now(tz=timezone.utc)
+        changed_since = datetime.now(tz=timezone.utc) - timedelta(hours=1)
+
+        src = make_source(db_session, url="https://incr-changed-stale.test/feed.xml")
+        t_stale = make_thread(db_session, title="AI Policy Thread Stale", status="active",
+                              last_updated=stale_time)
+        t_recent = make_thread(db_session, title="AI Policy Thread Recent", status="active",
+                               last_updated=recent_time)
+        art1 = make_article(db_session, source_id=src.id, dedup_key="ics-k1",
+                            entities={"OpenAI": 1, "AI": 1}, topics=["tech"])
+        art2 = make_article(db_session, source_id=src.id, dedup_key="ics-k2",
+                            entities={"OpenAI": 1, "AI": 1}, topics=["tech"])
+        db_session.add(ThreadMembership(thread_id=t_stale.id, article_id=art1.id,
+                                        suppressed=False, assigned_at=stale_time))
+        db_session.add(ThreadMembership(thread_id=t_recent.id, article_id=art2.id,
+                                        suppressed=False, assigned_at=recent_time))
+        db_session.commit()
+
+        candidates = find_merge_candidates(db_session, settings, changed_since=changed_since)
+
+        expected_pair = (min(t_stale.id, t_recent.id), max(t_stale.id, t_recent.id))
+        assert expected_pair in candidates, (
+            "Changed×stale pair with matching entities/topics must be returned in incremental mode"
+        )
+
+    def test_full_pass_excludes_threads_outside_window(self, db_session):
+        """Full pass (no changed_since) excludes threads older than clusterer_merge_candidate_window_days."""
+        settings = ClustererSettings(
+            clusterer_merge_candidate_window_days=7,
+            clusterer_merge_similarity_floor=0.0,
+        )
+        old_time = datetime.now(tz=timezone.utc) - timedelta(days=14)
+
+        src = make_source(db_session, url="https://full-old.test/feed.xml")
+        t1 = make_thread(db_session, title="Old Thread Window A", status="active",
+                         last_updated=old_time)
+        t2 = make_thread(db_session, title="Old Thread Window B", status="active",
+                         last_updated=old_time)
+        art1 = make_article(db_session, source_id=src.id, dedup_key="fow-k1",
+                            entities={"Topic": 1}, topics=["news"])
+        art2 = make_article(db_session, source_id=src.id, dedup_key="fow-k2",
+                            entities={"Topic": 1}, topics=["news"])
+        db_session.add(ThreadMembership(thread_id=t1.id, article_id=art1.id, suppressed=False,
+                                        assigned_at=old_time))
+        db_session.add(ThreadMembership(thread_id=t2.id, article_id=art2.id, suppressed=False,
+                                        assigned_at=old_time))
+        db_session.commit()
+
+        # Full pass with no changed_since — old threads are outside the 7-day window
+        candidates = find_merge_candidates(db_session, settings, changed_since=None)
+
+        old_pair = (min(t1.id, t2.id), max(t1.id, t2.id))
+        assert old_pair not in candidates, (
+            "Threads older than clusterer_merge_candidate_window_days must be excluded in full pass"
+        )
+
+    def test_full_sweep_bypasses_recency_window(self, db_session):
+        """full_sweep=True (explicit operator recluster) evaluates even old thread pairs."""
+        settings = ClustererSettings(
+            clusterer_merge_candidate_window_days=7,
+            clusterer_merge_similarity_floor=0.0,
+        )
+        old_time = datetime.now(tz=timezone.utc) - timedelta(days=14)
+
+        src = make_source(db_session, url="https://full-sweep.test/feed.xml")
+        t1 = make_thread(db_session, title="Old Full Sweep Thread A", status="active",
+                         last_updated=old_time)
+        t2 = make_thread(db_session, title="Old Full Sweep Thread B", status="active",
+                         last_updated=old_time)
+        art1 = make_article(db_session, source_id=src.id, dedup_key="fsw-k1",
+                            entities={"Topic": 1}, topics=["news"])
+        art2 = make_article(db_session, source_id=src.id, dedup_key="fsw-k2",
+                            entities={"Topic": 1}, topics=["news"])
+        db_session.add(ThreadMembership(thread_id=t1.id, article_id=art1.id, suppressed=False,
+                                        assigned_at=old_time))
+        db_session.add(ThreadMembership(thread_id=t2.id, article_id=art2.id, suppressed=False,
+                                        assigned_at=old_time))
+        db_session.commit()
+
+        # full_sweep=True must bypass the recency window and evaluate old pairs
+        candidates = find_merge_candidates(db_session, settings, full_sweep=True)
+
+        old_pair = (min(t1.id, t2.id), max(t1.id, t2.id))
+        assert old_pair in candidates, (
+            "full_sweep=True must bypass the recency window and include old thread pairs"
+        )
+
+
+class TestRunMergePassIncrementalBound:
+    """Regression tests for the title pre-pass O(n²) bounding fix."""
+
+    def test_title_pre_pass_skips_stale_stale_in_incremental_mode(self, db_session):
+        """In incremental mode, near-identical-title stale×stale pairs are NOT auto-merged."""
+        title = "EU AI Act Passes Final Vote"
+        stale_time = datetime.now(tz=timezone.utc) - timedelta(hours=2)
+        changed_since = datetime.now(tz=timezone.utc) - timedelta(hours=1)
+
+        t1 = make_thread(db_session, title=title, status="active", last_updated=stale_time)
+        t2 = make_thread(db_session, title=title, status="active", last_updated=stale_time)
+
+        # max_merge_checks=0 blocks the LLM pass; any merge comes from the title pre-pass
+        settings = ClustererSettings(clusterer_max_merge_checks=0)
+        count = run_merge_pass(db_session, settings, _NEVER_MERGE, changed_since=changed_since)
+        db_session.flush()
+
+        assert count == 0, "Stale×stale identical-title pair must NOT be merged in incremental mode"
+
+        from sqlalchemy import select as sa_select
+        from aggregator_common.models import Thread as ThreadModel
+        remaining = list(db_session.execute(
+            sa_select(ThreadModel).where(ThreadModel.id.in_([t1.id, t2.id]))
+        ).scalars())
+        assert len(remaining) == 2, "Both stale threads must still exist"
+
+    def test_title_pre_pass_merges_changed_identical_title_in_incremental_mode(self, db_session):
+        """In incremental mode, a near-identical-title pair where at least one is recent IS merged."""
+        title = "Fed Raises Rates by 25 Basis Points"
+        stale_time = datetime.now(tz=timezone.utc) - timedelta(hours=2)
+        recent_time = datetime.now(tz=timezone.utc)
+        changed_since = datetime.now(tz=timezone.utc) - timedelta(hours=1)
+
+        t_stale = make_thread(db_session, title=title, status="active", last_updated=stale_time)
+        t_recent = make_thread(db_session, title=title, status="active", last_updated=recent_time)
+
+        settings = ClustererSettings(clusterer_max_merge_checks=0)
+        count = run_merge_pass(db_session, settings, _NEVER_MERGE, changed_since=changed_since)
+        db_session.flush()
+
+        assert count >= 1, (
+            "Changed×stale identical-title pair must be merged in incremental mode"
+        )
+
+    def test_title_pre_pass_skips_old_threads_in_full_pass(self, db_session):
+        """In a full pass, threads older than clusterer_merge_candidate_window_days are not compared."""
+        title = "Old Identical Title That Should Not Merge"
+        old_time = datetime.now(tz=timezone.utc) - timedelta(days=14)
+
+        t1 = make_thread(db_session, title=title, status="active", last_updated=old_time)
+        t2 = make_thread(db_session, title=title, status="active", last_updated=old_time)
+
+        settings = ClustererSettings(
+            clusterer_merge_candidate_window_days=7,
+            clusterer_max_merge_checks=0,
+        )
+        # No changed_since → full pass; old threads should be outside the window
+        count = run_merge_pass(db_session, settings, _NEVER_MERGE)
+        db_session.flush()
+
+        assert count == 0, "Old threads outside the window must not be merged in a full pass"
+
+        from sqlalchemy import select as sa_select
+        from aggregator_common.models import Thread as ThreadModel
+        remaining = list(db_session.execute(
+            sa_select(ThreadModel).where(ThreadModel.id.in_([t1.id, t2.id]))
+        ).scalars())
+        assert len(remaining) == 2, "Both old threads must still exist"
+
+    def test_run_merge_pass_full_sweep_merges_old_identical_title_threads(self, db_session):
+        """bypass_verdict_cache=True (explicit recluster) bypasses the window and merges old pairs."""
+        title = "Recluster Should Catch This Old Duplicate"
+        old_time = datetime.now(tz=timezone.utc) - timedelta(days=14)
+
+        t1 = make_thread(db_session, title=title, status="active", last_updated=old_time)
+        t2 = make_thread(db_session, title=title, status="active", last_updated=old_time)
+
+        settings = ClustererSettings(
+            clusterer_merge_candidate_window_days=7,
+            clusterer_max_merge_checks=0,
+        )
+        count = run_merge_pass(db_session, settings, _NEVER_MERGE, bypass_verdict_cache=True)
+        db_session.flush()
+
+        assert count >= 1, (
+            "bypass_verdict_cache=True must bypass the recency window and merge old identical-title pairs"
+        )
+
+
 class TestRunConsolidationPass:
     def test_returns_consolidation_result_dataclass(self, db_session):
         result = run_consolidation_pass(db_session, _SETTINGS, _NEVER_MERGE)

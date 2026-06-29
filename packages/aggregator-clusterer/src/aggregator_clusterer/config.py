@@ -56,3 +56,9 @@ class ClustererSettings(BaseSettings):
     # Incremental merge and verdict cache feature flags
     clusterer_incremental_merge: bool = Field(True, description="Only re-evaluate thread pairs that changed since the last consolidation pass")
     clusterer_merge_verdict_cache: bool = Field(True, description="Cache per-pair LLM merge verdicts in the database to avoid redundant LLM calls")
+
+    # Recency window for full (non-incremental) consolidation passes
+    clusterer_merge_candidate_window_days: int = Field(
+        7,
+        description="Maximum age in days for threads considered as merge candidates in a full consolidation pass; threads older than this are excluded from the O(n²) pair scoring (explicit recluster bypasses this window)",
+    )

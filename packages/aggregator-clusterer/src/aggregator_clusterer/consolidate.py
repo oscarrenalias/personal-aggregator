@@ -17,10 +17,10 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Callable
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from aggregator_common.management import merge_threads
@@ -64,6 +64,7 @@ def find_merge_candidates(
     settings: ClustererSettings,
     *,
     changed_since: datetime | None = None,
+    full_sweep: bool = False,
 ) -> list[tuple[int, int]]:
     """Return (keep_id, absorb_id) pairs whose similarity meets the merge floor.
 
@@ -71,14 +72,41 @@ def find_merge_candidates(
     does not modify any state.
 
     When changed_since is provided and settings.clusterer_incremental_merge is
-    True, stale×stale pairs (both threads last_updated < changed_since) are
-    excluded. A changed thread is still scored against all other active threads.
+    True (incremental mode), stale×stale pairs (both threads last_updated <
+    changed_since) are excluded from BOTH the SQL FTS self-join and the Python
+    scoring loop, so the expensive ts_rank computation is bounded to pairs
+    involving at least one recently-changed thread.
+
+    For full passes (changed_since=None or incremental_merge=False), the working
+    set is capped to threads updated within clusterer_merge_candidate_window_days
+    so the self-join stays O(window^2) rather than O(all_active^2) as the thread
+    table grows. full_sweep=True bypasses this window (used for explicit operator
+    recluster where all pairs should be re-evaluated).
     """
-    threads: list[Thread] = list(
-        session.execute(
-            select(Thread).where(Thread.status == "active")
-        ).scalars().all()
-    )
+    incremental = changed_since is not None and settings.clusterer_incremental_merge
+
+    # Determine recency window cutoff for non-incremental full passes.
+    # Incremental mode already scopes work to changed threads via the SQL filter;
+    # full_sweep bypasses the window for explicit operator recluster.
+    window_cutoff: datetime | None = None
+    if not incremental and not full_sweep:
+        window_cutoff = datetime.now(timezone.utc) - timedelta(
+            days=settings.clusterer_merge_candidate_window_days
+        )
+
+    # Load threads for entity/topic scoring.
+    # Incremental: load ALL active threads — a stale thread can still be paired
+    # with a recently-changed one, so we need entity/topic data for all of them.
+    # Full pass: restrict to the recency window so the Python loop is also bounded.
+    if window_cutoff is not None:
+        threads_q = select(Thread).where(
+            Thread.status == "active",
+            Thread.last_updated >= window_cutoff,
+        )
+    else:
+        threads_q = select(Thread).where(Thread.status == "active")
+
+    threads: list[Thread] = list(session.execute(threads_q).scalars().all())
 
     if len(threads) < 2:
         return []
@@ -113,9 +141,29 @@ def find_merge_candidates(
         row.thread_id: _to_set(row.topics) for row in member_rows
     }
 
-    # Batch FTS similarity for all ordered pairs via a Postgres self-join.
+    # Batch FTS similarity via a Postgres self-join, pushing the
+    # incremental/recency bound into the WHERE clause so ts_rank is not
+    # computed for C(all_active, 2) pairs on every cycle.
     ta = Thread.__table__.alias("ta")
     tb = Thread.__table__.alias("tb")
+
+    fts_where = [
+        ta.c.id < tb.c.id,
+        ta.c.status == "active",
+        tb.c.status == "active",
+    ]
+    if incremental:
+        # Only score pairs where at least one side changed since last consolidation.
+        # This collapses work from C(all,2) to ~(changed × active).
+        fts_where.append(
+            or_(ta.c.last_updated >= changed_since, tb.c.last_updated >= changed_since)
+        )
+    elif window_cutoff is not None:
+        # Full pass: both sides must be within the recency window.
+        fts_where.extend([
+            ta.c.last_updated >= window_cutoff,
+            tb.c.last_updated >= window_cutoff,
+        ])
 
     fts_rows = session.execute(
         select(
@@ -132,20 +180,15 @@ def find_merge_candidates(
                 ),
             ).label("fts_score"),
         )
-        .where(
-            ta.c.id < tb.c.id,
-            ta.c.status == "active",
-            tb.c.status == "active",
-        )
+        .where(*fts_where)
     ).all()
 
     fts_scores: dict[tuple[int, int], float] = {
         (row.tid_a, row.tid_b): float(row.fts_score) for row in fts_rows
     }
 
-    # Compute a composite similarity score for each unordered pair.
+    # Compute a composite similarity score for each relevant pair.
     floor = settings.clusterer_merge_similarity_floor
-    incremental = changed_since is not None and settings.clusterer_incremental_merge
     scored: list[tuple[float, int, int]] = []
 
     for i, ta_t in enumerate(threads):
@@ -226,18 +269,50 @@ def run_merge_pass(
     """
     absorbed: set[int] = set()
     threshold = settings.clusterer_title_jaccard_threshold
+    incremental = changed_since is not None and settings.clusterer_incremental_merge
+    full_sweep = bypass_verdict_cache  # explicit recluster bypasses recency window
+
+    # Determine recency window for full passes (mirrors find_merge_candidates).
+    window_cutoff: datetime | None = None
+    if not incremental and not full_sweep:
+        window_cutoff = datetime.now(timezone.utc) - timedelta(
+            days=settings.clusterer_merge_candidate_window_days
+        )
 
     # --- Title pre-pass: merge near-identical-title threads without an LLM call ---
+    # Load the same bounded thread set used by find_merge_candidates.
+    if window_cutoff is not None:
+        title_threads_q = select(Thread).where(
+            Thread.status == "active",
+            Thread.last_updated >= window_cutoff,
+        )
+    else:
+        title_threads_q = select(Thread).where(Thread.status == "active")
+
     active_threads: list[Thread] = list(
-        session.execute(select(Thread).where(Thread.status == "active")).scalars().all()
+        session.execute(title_threads_q).scalars().all()
     )
+
+    # Pre-compute title tokens once per thread outside the inner loop.
+    title_tokens: dict[int, frozenset] = {}
+    for t in active_threads:
+        tok = _normalize_title(t.representative_title or "")
+        if tok:
+            title_tokens[t.id] = tok
+
     title_merges = 0
     for i, t1 in enumerate(active_threads):
         for t2 in active_threads[i + 1:]:
             if t1.id in absorbed or t2.id in absorbed:
                 continue
-            t1_tokens = _normalize_title(t1.representative_title or "")
-            t2_tokens = _normalize_title(t2.representative_title or "")
+            # Skip stale×stale pairs in incremental mode.
+            if incremental and (
+                t1.last_updated < changed_since  # type: ignore[operator]
+                and t2.last_updated < changed_since  # type: ignore[operator]
+            ):
+                continue
+            t1_tokens = title_tokens.get(t1.id)
+            t2_tokens = title_tokens.get(t2.id)
             if not t1_tokens or not t2_tokens:
                 continue
             title_jac = _jaccard(t1_tokens, t2_tokens)
@@ -255,7 +330,11 @@ def run_merge_pass(
         logger.info("title pre-pass complete: %d auto-merge(s)", title_merges)
 
     # --- LLM-verdict pass ---
-    candidates = find_merge_candidates(session, settings, changed_since=changed_since)
+    candidates = find_merge_candidates(
+        session, settings,
+        changed_since=changed_since,
+        full_sweep=full_sweep,
+    )
 
     max_checks = settings.clusterer_max_merge_checks
     use_cache = settings.clusterer_merge_verdict_cache and not bypass_verdict_cache
