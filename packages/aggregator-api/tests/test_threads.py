@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from conftest import make_article, make_source, make_thread, make_thread_membership
 from test_contract import _THREAD_FIELDS, _THREAD_MEMBER_FIELDS
 
@@ -178,3 +180,74 @@ class TestRestoreThread:
         thread = make_thread(db_session, dismissed=True)
         data = client.post(f"/threads/{thread.id}/restore").json()
         assert set(data.keys()) == _THREAD_FIELDS
+
+
+class TestMarkThreadViewed:
+    def test_viewed_returns_200(self, client, db_session):
+        thread = make_thread(db_session, title="View Me")
+        response = client.post(f"/threads/{thread.id}/viewed")
+        assert response.status_code == 200
+
+    def test_viewed_stamps_last_viewed_at(self, client, db_session):
+        thread = make_thread(db_session, title="Stamp Test")
+        assert thread.last_viewed_at is None
+
+        before = datetime.now(tz=timezone.utc)
+        client.post(f"/threads/{thread.id}/viewed")
+
+        db_session.expire(thread)
+        db_session.refresh(thread)
+        assert thread.last_viewed_at is not None
+        assert thread.last_viewed_at >= before
+
+    def test_viewed_returns_last_viewed_at_in_response(self, client, db_session):
+        thread = make_thread(db_session, title="Response LVA")
+        data = client.post(f"/threads/{thread.id}/viewed").json()
+        assert data["last_viewed_at"] is not None
+
+    def test_viewed_returns_thread_shape(self, client, db_session):
+        thread = make_thread(db_session)
+        data = client.post(f"/threads/{thread.id}/viewed").json()
+        assert set(data.keys()) == _THREAD_FIELDS
+
+    def test_viewed_unknown_thread_returns_404(self, client, db_session):
+        response = client.post("/threads/999999/viewed")
+        assert response.status_code == 404
+
+    def test_get_thread_does_not_stamp_after_viewed_already_set(self, client, db_session):
+        """GET must never advance last_viewed_at; only POST /viewed may."""
+        thread = make_thread(db_session, title="GET Passive After Viewed")
+        client.post(f"/threads/{thread.id}/viewed")
+
+        db_session.expire(thread)
+        db_session.refresh(thread)
+        stamped_at = thread.last_viewed_at
+        assert stamped_at is not None
+
+        # A GET must not overwrite the stamp
+        client.get(f"/threads/{thread.id}")
+        db_session.expire(thread)
+        db_session.refresh(thread)
+        assert thread.last_viewed_at == stamped_at
+
+
+class TestThreadLastViewedAtField:
+    def test_get_thread_last_viewed_at_null_when_never_viewed(self, client, db_session):
+        thread = make_thread(db_session, title="Never Viewed")
+        data = client.get(f"/threads/{thread.id}").json()
+        assert data["last_viewed_at"] is None
+
+    def test_get_thread_last_viewed_at_is_iso_after_viewed(self, client, db_session):
+        thread = make_thread(db_session, title="ISO Format LVA")
+        client.post(f"/threads/{thread.id}/viewed")
+        data = client.get(f"/threads/{thread.id}").json()
+        lva = data["last_viewed_at"]
+        assert lva is not None
+        # Must parse as ISO-8601
+        datetime.fromisoformat(lva)
+
+    def test_list_threads_exposes_last_viewed_at(self, client, db_session):
+        make_thread(db_session, title="List LVA")
+        data = client.get("/threads").json()
+        assert len(data["items"]) >= 1
+        assert "last_viewed_at" in data["items"][0]

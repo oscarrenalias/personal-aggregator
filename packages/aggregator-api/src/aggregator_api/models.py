@@ -65,13 +65,25 @@ class BriefTopicResponse(BaseModel):
     refs: List[Any]
 
 
+class ThreadDelta(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    timestamp: str
+    article_id: Optional[int] = None
+    label: Optional[str] = None
+    new_facts: Optional[List[str]] = None
+    reason: Optional[str] = None
+    absorbed_id: Optional[int] = None
+    type: Optional[str] = None
+
+
 class ThreadResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
     representative_title: str
     rolling_summary: Optional[str]
-    known_facts: Optional[List[Any]]
+    known_facts: Optional[List[str]]
     first_seen: str
     last_updated: str
     status: str
@@ -85,8 +97,8 @@ class ThreadResponse(BaseModel):
     source_diversity: Optional[float]
     confidence: Optional[float]
     novelty_label: Optional[str]
-    deltas: Optional[List[Any]]
-    source_list: Optional[List[Any]]
+    deltas: Optional[List[ThreadDelta]]
+    source_list: Optional[List[int]]
     top_grade: Optional[int] = None
     surfaced: bool = False
     dismissed: bool = False
@@ -94,6 +106,7 @@ class ThreadResponse(BaseModel):
     member_count: int = 0
     image_url: Optional[str] = None
     has_updates: bool = True
+    last_viewed_at: Optional[str] = None
 
 
 class ThreadMemberResponse(BaseModel):
@@ -103,7 +116,7 @@ class ThreadMemberResponse(BaseModel):
     thread_id: int
     article_id: int
     classification_label: Optional[str]
-    new_facts: Optional[List[Any]]
+    new_facts: Optional[List[str]]
     reason: Optional[str]
     confidence: Optional[float]
     suppressed: bool

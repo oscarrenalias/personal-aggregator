@@ -196,6 +196,7 @@ class ThreadResult:
     member_count: int = 0
     image_url: Optional[str] = None
     has_updates: bool = True
+    last_viewed_at: Optional[str] = None
 
 
 @dataclass
@@ -706,6 +707,7 @@ def _to_thread_result(thread: Thread, member_count: int = 0, image_url: Optional
         member_count=member_count,
         image_url=image_url,
         has_updates=has_updates,
+        last_viewed_at=thread.last_viewed_at.isoformat() if thread.last_viewed_at else None,
     )
 
 

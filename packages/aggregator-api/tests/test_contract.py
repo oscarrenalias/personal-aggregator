@@ -14,6 +14,7 @@ from aggregator_api.models import (
     InterestProfileResponse,
     PaginatedResponse,
     SourceResponse,
+    ThreadDelta,
     ThreadMemberResponse,
     ThreadResponse,
 )
@@ -69,6 +70,7 @@ _THREAD_FIELDS = {
     "member_count",
     "image_url",
     "has_updates",
+    "last_viewed_at",
 }
 
 _THREAD_MEMBER_FIELDS = {
@@ -178,6 +180,77 @@ class TestArticleResponseContract:
 class TestThreadResponseContract:
     def test_exact_field_names(self):
         assert set(ThreadResponse.model_fields) == _THREAD_FIELDS
+
+    def test_last_viewed_at_in_thread_fields(self):
+        assert "last_viewed_at" in _THREAD_FIELDS
+
+    def test_deltas_typed_as_thread_delta_list(self):
+        import typing
+        hints = typing.get_type_hints(ThreadResponse)
+        # deltas must be Optional[List[ThreadDelta]], not Optional[List[Any]]
+        args = typing.get_args(hints["deltas"])
+        # args[0] is List[ThreadDelta]; args[1] is NoneType
+        list_args = typing.get_args(args[0])
+        assert list_args[0] is ThreadDelta
+
+    def test_known_facts_typed_as_str_list(self):
+        import typing
+        hints = typing.get_type_hints(ThreadResponse)
+        args = typing.get_args(hints["known_facts"])
+        list_args = typing.get_args(args[0])
+        assert list_args[0] is str
+
+    def test_source_list_typed_as_int_list(self):
+        import typing
+        hints = typing.get_type_hints(ThreadResponse)
+        args = typing.get_args(hints["source_list"])
+        list_args = typing.get_args(args[0])
+        assert list_args[0] is int
+
+
+class TestThreadDeltaContract:
+    def test_extra_allow_preserves_unknown_keys(self):
+        delta = ThreadDelta.model_validate({
+            "timestamp": "2025-01-01T12:00:00+00:00",
+            "article_id": 42,
+            "label": "same_thread",
+            "new_facts": ["Fact one"],
+            "reason": "Test reason",
+            "future_field": "not dropped",
+        })
+        dumped = delta.model_dump()
+        assert dumped["future_field"] == "not dropped"
+        assert dumped["article_id"] == 42
+
+    def test_merge_delta_variant_round_trips(self):
+        delta = ThreadDelta.model_validate({
+            "timestamp": "2025-01-01T12:00:00+00:00",
+            "type": "merge",
+            "absorbed_id": 99,
+        })
+        dumped = delta.model_dump()
+        assert dumped["type"] == "merge"
+        assert dumped["absorbed_id"] == 99
+
+    def test_fact_delta_and_merge_delta_no_key_loss(self):
+        fact_delta = {
+            "timestamp": "2025-01-01T12:00:00+00:00",
+            "article_id": 10,
+            "label": "same_thread",
+            "new_facts": ["fact"],
+            "reason": "reason text",
+        }
+        merge_delta = {
+            "timestamp": "2025-01-01T13:00:00+00:00",
+            "type": "merge",
+            "absorbed_id": 5,
+            "extra_future": "value",
+        }
+        f = ThreadDelta.model_validate(fact_delta)
+        m = ThreadDelta.model_validate(merge_delta)
+        assert f.model_dump()["article_id"] == 10
+        assert m.model_dump()["absorbed_id"] == 5
+        assert m.model_dump()["extra_future"] == "value"
 
 
 class TestThreadMemberResponseContract:

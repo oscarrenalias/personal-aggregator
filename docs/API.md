@@ -62,7 +62,16 @@ middleware so every request carries them.
 - **Passive reads.** `GET` endpoints never mutate state. In particular,
   `GET /threads/{id}` does **not** stamp "last viewed" / clear the unread
   indicator — that is intentional, so a client polling the API doesn't reset the
-  web UI's update markers. Use the explicit write endpoints to change state.
+  web UI's update markers. Use `POST /threads/{id}/viewed` to record a human view.
+- **Thread `last_viewed_at` flow.** `GET /threads/{id}` returns `last_viewed_at`
+  (the timestamp of the *previous* view, or `null` if never viewed). Compare
+  `deltas` entries with this timestamp to render "New since your last visit". Then
+  call `POST /threads/{id}/viewed` to advance the marker.
+- **Thread `deltas` shape.** `ThreadResponse.deltas` is `List[ThreadDelta]` — a
+  heterogeneous array with two variants: fact deltas (`article_id`, `label`,
+  `new_facts`, `reason`, `timestamp`) and merge deltas (`type`, `absorbed_id`,
+  `timestamp`). The model uses `extra="allow"` so future keys are never silently
+  dropped. `known_facts` is `List[str]`; `source_list` is `List[int]` (source IDs).
 - **Errors.** Application errors are FastAPI-style JSON: `{ "detail": "..." }`
   with the appropriate 4xx/5xx status (`404` unknown id, `422` bad params).
   A `403` with an **HTML** body is the Cloudflare Access layer, not the API —
@@ -102,6 +111,7 @@ middleware so every request carries them.
 | `POST /articles/{id}/unsave` | Unsave article |
 | `POST /threads/{id}/dismiss` | Dismiss thread |
 | `POST /threads/{id}/restore` | Restore dismissed thread |
+| `POST /threads/{id}/viewed` | Record a human view — stamps `last_viewed_at` (server-owned); returns updated `ThreadResponse` |
 
 Write endpoints take no body; the resource is identified by the path. They are
 **unauthenticated at the app layer** — they are protected only by the perimeter

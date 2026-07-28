@@ -882,6 +882,49 @@
           }
         }
       }
+    },
+    "/threads/{thread_id}/viewed": {
+      "post": {
+        "tags": [
+          "threads"
+        ],
+        "summary": "Mark Thread Viewed",
+        "description": "Unauthenticated state-changing endpoint \u2014 must remain behind the network perimeter until the auth phase lands.",
+        "operationId": "mark_thread_viewed_threads__thread_id__viewed_post",
+        "parameters": [
+          {
+            "name": "thread_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Thread Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ThreadResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -1461,6 +1504,89 @@
         ],
         "title": "SourceResponse"
       },
+      "ThreadDelta": {
+        "properties": {
+          "timestamp": {
+            "type": "string",
+            "title": "Timestamp"
+          },
+          "article_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Article Id"
+          },
+          "label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label"
+          },
+          "new_facts": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "New Facts"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "absorbed_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Absorbed Id"
+          },
+          "type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Type"
+          }
+        },
+        "additionalProperties": true,
+        "type": "object",
+        "required": [
+          "timestamp"
+        ],
+        "title": "ThreadDelta"
+      },
       "ThreadMemberResponse": {
         "properties": {
           "id": {
@@ -1489,7 +1615,9 @@
           "new_facts": {
             "anyOf": [
               {
-                "items": {},
+                "items": {
+                  "type": "string"
+                },
                 "type": "array"
               },
               {
@@ -1613,7 +1741,9 @@
           "known_facts": {
             "anyOf": [
               {
-                "items": {},
+                "items": {
+                  "type": "string"
+                },
                 "type": "array"
               },
               {
@@ -1747,7 +1877,9 @@
           "deltas": {
             "anyOf": [
               {
-                "items": {},
+                "items": {
+                  "$ref": "#/components/schemas/ThreadDelta"
+                },
                 "type": "array"
               },
               {
@@ -1759,7 +1891,9 @@
           "source_list": {
             "anyOf": [
               {
-                "items": {},
+                "items": {
+                  "type": "integer"
+                },
                 "type": "array"
               },
               {
@@ -1814,6 +1948,17 @@
             "type": "boolean",
             "title": "Has Updates",
             "default": true
+          },
+          "last_viewed_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Viewed At"
           }
         },
         "type": "object",

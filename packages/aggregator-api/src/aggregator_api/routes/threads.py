@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from aggregator_common import management, queries
+from aggregator_common.errors import NotFoundError
 
 from aggregator_api.dependencies import get_db
 from aggregator_api.models import PaginatedResponse, ThreadMemberResponse, ThreadResponse
@@ -73,6 +74,16 @@ def dismiss_thread(thread_id: int, db: Session = Depends(get_db)):
 def restore_thread(thread_id: int, db: Session = Depends(get_db)):
     updated = management.set_thread_dismissed(db, thread_id, False)
     if updated is None:
+        raise HTTPException(status_code=404, detail=f"Thread {thread_id} not found")
+    result = queries.get_thread(db, thread_id)
+    return ThreadResponse(**vars(result))
+
+
+@router.post("/{thread_id}/viewed", response_model=ThreadResponse, description=_UNAUTHENTICATED_NOTE)
+def mark_thread_viewed(thread_id: int, db: Session = Depends(get_db)):
+    try:
+        management.mark_thread_viewed(db, thread_id)
+    except NotFoundError:
         raise HTTPException(status_code=404, detail=f"Thread {thread_id} not found")
     result = queries.get_thread(db, thread_id)
     return ThreadResponse(**vars(result))
