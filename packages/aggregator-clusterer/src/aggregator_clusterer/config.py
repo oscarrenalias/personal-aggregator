@@ -62,3 +62,17 @@ class ClustererSettings(BaseSettings):
         7,
         description="Maximum age in days for threads considered as merge candidates in a full consolidation pass; threads older than this are excluded from the O(n²) pair scoring (explicit recluster bypasses this window)",
     )
+
+    # Known-facts consolidation (bounding the append-only bullet list)
+    clusterer_max_known_facts: int = Field(
+        40,
+        description="Cap on total stored known_facts bullets per thread; threads exceeding this are condensed during the periodic consolidation pass",
+    )
+    clusterer_known_facts_keep_recent: int = Field(
+        20,
+        description="Number of most-recent known_facts bullets kept verbatim when condensing; older facts are LLM-summarised",
+    )
+    clusterer_max_facts_consolidations: int = Field(
+        5,
+        description="Maximum number of threads whose known_facts are condensed per consolidation cycle, bounding per-cycle LLM cost",
+    )

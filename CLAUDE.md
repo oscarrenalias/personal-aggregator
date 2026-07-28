@@ -236,6 +236,9 @@ At process startup, every service calls `aggregator_common.load_env()` (python-d
 | `CLUSTERER_INCREMENTAL_MERGE` | `true` | Only re-evaluate thread pairs that changed since the last consolidation pass; set `false` to always sweep all pairs |
 | `CLUSTERER_MERGE_VERDICT_CACHE` | `true` | Cache per-pair LLM merge verdicts in the database to skip redundant LLM calls; set `false` to disable caching |
 | `CLUSTERER_MERGE_CANDIDATE_WINDOW_DAYS` | `7` | Maximum age in days for threads included in the O(n²) merge-candidate self-join during full (non-incremental) consolidation passes; threads older than this are excluded, keeping the pair-scoring cost bounded as the thread table grows. Explicit operator recluster bypasses this window to always evaluate all pairs. |
+| `CLUSTERER_MAX_KNOWN_FACTS` | `40` | Cap on total stored `known_facts` bullets per thread; threads exceeding this are condensed during the periodic consolidation pass (recent facts kept verbatim, older facts LLM-summarised). |
+| `CLUSTERER_KNOWN_FACTS_KEEP_RECENT` | `20` | Number of most-recent `known_facts` bullets kept verbatim when condensing; older facts are LLM-summarised into at most `max_known_facts - keep_recent` bullets. |
+| `CLUSTERER_MAX_FACTS_CONSOLIDATIONS` | `5` | Maximum number of threads whose `known_facts` are condensed per consolidation cycle, bounding per-cycle LLM cost on Pi deployments. |
 | `CLUSTERER_THREAD_VIEW_MAX_AGE_DAYS` | `7` | Maximum age in days for threads shown in the default thread view |
 | `CLUSTERER_SECTION_TITLE_BLOCKLIST` | `["top stories","home",…]` | JSON array of RSS section/category titles too generic to use as thread titles |
 | `CLUSTERER_CONSOLIDATION_MIN_INTERVAL_MINUTES` | `10` | Minimum minutes between consolidation passes; explicit recluster bypasses this floor |

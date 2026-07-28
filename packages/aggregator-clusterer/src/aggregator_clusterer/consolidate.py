@@ -37,6 +37,7 @@ class ConsolidationResult:
     merges: int
     curated: int
     pruned: int
+    facts_consolidated: int = 0
 
 
 _ENTITY_W = 0.40
@@ -458,17 +459,76 @@ def run_surfacing_pass(session: Session, settings: ClustererSettings) -> int:
     return updated
 
 
+def run_facts_consolidation_pass(
+    session: Session,
+    settings: ClustererSettings,
+    llm_summarize_fn: Callable[[list[str]], list[str]],
+) -> int:
+    """Condense known_facts for active threads that exceed the cap.
+
+    Keeps the most-recent clusterer_known_facts_keep_recent facts verbatim and
+    replaces the older head with an LLM-condensed set. Bounded per cycle by
+    clusterer_max_facts_consolidations so per-cycle LLM cost stays controlled.
+    """
+    max_facts = settings.clusterer_max_known_facts
+    keep_recent = settings.clusterer_known_facts_keep_recent
+    max_consolidations = settings.clusterer_max_facts_consolidations
+
+    threads: list[Thread] = list(
+        session.execute(
+            select(Thread).where(Thread.status == "active")
+        ).scalars().all()
+    )
+
+    over_cap = [t for t in threads if len(t.known_facts or []) > max_facts]
+
+    consolidated = 0
+    for thread in over_cap[:max_consolidations]:
+        facts = list(thread.known_facts or [])
+        # oldest-first order: recent = tail, older = everything before the tail
+        recent = facts[-keep_recent:] if len(facts) >= keep_recent else facts
+        older = facts[:-keep_recent] if len(facts) > keep_recent else []
+
+        if not older:
+            continue
+
+        try:
+            condensed = llm_summarize_fn(older)
+        except Exception:
+            logger.exception(
+                "LLM facts condensation failed for thread %d; skipping", thread.id
+            )
+            continue
+
+        thread.known_facts = condensed + recent
+        consolidated += 1
+        logger.debug(
+            "thread %d: known_facts %d→%d (older %d→%d condensed, recent %d kept verbatim)",
+            thread.id,
+            len(facts),
+            len(condensed) + len(recent),
+            len(older),
+            len(condensed),
+            len(recent),
+        )
+
+    logger.info("facts consolidation pass: %d thread(s) condensed", consolidated)
+    return consolidated
+
+
 def run_consolidation_pass(
     session: Session,
     settings: ClustererSettings,
     llm_merge_fn: Callable[[Thread, Thread], bool],
+    llm_summarize_facts_fn: Callable[[list[str]], list[str]] | None = None,
     *,
     changed_since: datetime | None = None,
     bypass_verdict_cache: bool = False,
 ) -> ConsolidationResult:
-    """Run merge and surfacing sub-passes in order and return a summary.
+    """Run merge, surfacing, and (optionally) facts-consolidation sub-passes.
 
-    Calls run_merge_pass and run_surfacing_pass sequentially. Hard deletion of
+    Calls run_merge_pass, run_surfacing_pass, and (when llm_summarize_facts_fn
+    is provided) run_facts_consolidation_pass sequentially. Hard deletion of
     expired threads is handled by the dedicated janitor service, not here.
     The session is not committed here — callers are responsible for commit/rollback.
 
@@ -484,8 +544,11 @@ def run_consolidation_pass(
         bypass_verdict_cache=bypass_verdict_cache,
     )
     curated = run_surfacing_pass(session, settings)
+    facts_consolidated = 0
+    if llm_summarize_facts_fn is not None:
+        facts_consolidated = run_facts_consolidation_pass(session, settings, llm_summarize_facts_fn)
     logger.info(
-        "consolidation pass complete: merges=%d surfaced=%d",
-        merges, curated,
+        "consolidation pass complete: merges=%d surfaced=%d facts_consolidated=%d",
+        merges, curated, facts_consolidated,
     )
-    return ConsolidationResult(merges=merges, curated=curated, pruned=0)
+    return ConsolidationResult(merges=merges, curated=curated, pruned=0, facts_consolidated=facts_consolidated)

@@ -28,6 +28,54 @@ logger = logging.getLogger(__name__)
 _ADVISORY_LOCK_KEY = 1129855059
 
 
+def _make_llm_facts_fn(settings: ClustererSettings) -> Callable[[list[str]], list[str]]:
+    """Return a litellm-backed known_facts summariser for the facts consolidation pass.
+
+    Fail-open: returns the original facts on any LLM or parse error so a bad
+    response never corrupts the thread's fact list.
+    """
+    target = max(1, settings.clusterer_max_known_facts - settings.clusterer_known_facts_keep_recent)
+
+    def llm_facts_fn(old_facts: list[str]) -> list[str]:
+        facts_text = "\n".join(f"- {f}" for f in old_facts)
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "You are a news editor. Given a list of facts from a running news thread, "
+                    "consolidate them into a shorter set of non-redundant, concise bullets. "
+                    "Preserve the most important developments. Drop near-duplicates and minor updates. "
+                    f"Target: at most {target} bullets. "
+                    "Respond with a JSON array of strings only — no markdown, no commentary."
+                ),
+            },
+            {
+                "role": "user",
+                "content": f"Facts to consolidate:\n{facts_text}",
+            },
+        ]
+        try:
+            response = litellm.completion(
+                model=settings.clusterer_llm_model,
+                messages=messages,
+                max_tokens=settings.clusterer_llm_max_output_tokens,
+                temperature=settings.clusterer_llm_temperature,
+                timeout=settings.clusterer_llm_timeout_seconds,
+                metadata={"service": "clusterer", "operation": "consolidate_facts"},
+            )
+            content = response.choices[0].message.content or ""
+            data = json.loads(content)
+            if isinstance(data, list):
+                return [str(f) for f in data]
+            logger.warning("Unexpected format from facts LLM (not a list); keeping original")
+            return old_facts
+        except Exception:
+            logger.exception("LLM facts consolidation call failed; keeping original facts")
+            return old_facts
+
+    return llm_facts_fn
+
+
 def _make_llm_merge_fn(settings: ClustererSettings) -> Callable[[Thread, Thread], bool]:
     """Return a litellm-backed same-story decider.
 
@@ -349,17 +397,19 @@ def _run_one_cycle(
                     consol_session,
                     settings,
                     _make_llm_merge_fn(settings),
+                    _make_llm_facts_fn(settings),
                     changed_since=changed_since_for_consolidation,
                     bypass_verdict_cache=bypass_cache,
                 )
                 _mark_consolidation_done(consol_session)
                 consol_session.commit()
                 logger.info(
-                    "Consolidation pass complete (trigger=%s): merges=%d curated=%d pruned=%d",
+                    "Consolidation pass complete (trigger=%s): merges=%d curated=%d pruned=%d facts_consolidated=%d",
                     consolidate_trigger,
                     result.merges,
                     result.curated,
                     result.pruned,
+                    result.facts_consolidated,
                 )
             except Exception:
                 consol_session.rollback()
