@@ -377,3 +377,81 @@ class TestRedditLinkPostResolution:
         entries = parse_feed(_REDDIT_LINK_POST_FEED, source_id=20)
         e = entries[0]
         assert e.dedup_key == "t3_1uatfze"
+
+
+# ---------------------------------------------------------------------------
+# Techmeme aggregator URL resolution
+# ---------------------------------------------------------------------------
+
+# Realistic Techmeme RSS entry: <link> is the Techmeme permalink; the first <A HREF>
+# in the description is the source article on bloomberg.com.
+_TECHMEME_FEED_WITH_SOURCE = b"""<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>Techmeme</title>
+    <link>https://www.techmeme.com</link>
+    <description>Techmeme</description>
+    <item>
+      <title>AI Startup Raises $500M</title>
+      <link>https://www.techmeme.com/260729/p8#a260729p8</link>
+      <guid>https://www.techmeme.com/260729/p8#a260729p8</guid>
+      <pubDate>Tue, 29 Jul 2026 09:00:00 +0000</pubDate>
+      <description><![CDATA[<p class="storyNewsItems"><a href="https://www.bloomberg.com/news/articles/2026-07-29/ai-startup">Bloomberg</a> (<a href="https://www.reuters.com/technology/ai-startup-2026/">Reuters</a>)</p>]]></description>
+    </item>
+  </channel>
+</rss>
+"""
+
+# Techmeme RSS entry whose description contains only Techmeme-owned hrefs — no external
+# source URL available.  Verifies the fail-safe fallback (keep the Techmeme permalink).
+_TECHMEME_FEED_NO_EXTERNAL = b"""<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>Techmeme</title>
+    <link>https://www.techmeme.com</link>
+    <description>Techmeme</description>
+    <item>
+      <title>Techmeme Discussion</title>
+      <link>https://www.techmeme.com/260729/p9#a260729p9</link>
+      <guid>https://www.techmeme.com/260729/p9#a260729p9</guid>
+      <pubDate>Tue, 29 Jul 2026 10:00:00 +0000</pubDate>
+      <description><![CDATA[<p>See discussion at <a href="https://www.techmeme.com/260729/p9">Techmeme</a></p>]]></description>
+    </item>
+  </channel>
+</rss>
+"""
+
+
+class TestTechmemeResolution:
+    def test_techmeme_item_resolves_to_source_url(self):
+        """Techmeme entry: feed_url becomes the first external source URL, not the Techmeme permalink."""
+        entries = parse_feed(_TECHMEME_FEED_WITH_SOURCE, source_id=30)
+        assert len(entries) == 1
+        assert entries[0].feed_url == "https://www.bloomberg.com/news/articles/2026-07-29/ai-startup"
+
+    def test_techmeme_item_sets_comments_url_to_permalink(self):
+        """Techmeme entry: comments_url is set to the original Techmeme permalink."""
+        entries = parse_feed(_TECHMEME_FEED_WITH_SOURCE, source_id=30)
+        assert entries[0].comments_url == "https://www.techmeme.com/260729/p8#a260729p8"
+
+    def test_techmeme_item_raw_payload_patched_to_source_url(self):
+        """Techmeme entry: raw_payload['link'] is patched so the processor fetches the source article."""
+        entries = parse_feed(_TECHMEME_FEED_WITH_SOURCE, source_id=30)
+        assert entries[0].raw_payload["link"] == "https://www.bloomberg.com/news/articles/2026-07-29/ai-startup"
+
+    def test_techmeme_no_external_href_keeps_permalink_as_feed_url(self):
+        """Techmeme entry with no external href in description: feed_url stays as the Techmeme permalink."""
+        entries = parse_feed(_TECHMEME_FEED_NO_EXTERNAL, source_id=31)
+        assert len(entries) == 1
+        e = entries[0]
+        assert e.feed_url == "https://www.techmeme.com/260729/p9#a260729p9"
+        assert e.comments_url is None
+
+    def test_normal_feed_not_affected_by_techmeme_resolver(self):
+        """Non-aggregator RSS feed: feed_url, comments_url, and raw_payload are completely unchanged."""
+        entries = parse_feed(_RSS2_FEED, source_id=1)
+        assert len(entries) == 2
+        for e in entries:
+            assert "rss.example.com" in (e.feed_url or "")
+            assert e.comments_url is None
+            assert e.raw_payload.get("link", "").startswith("https://rss.example.com")

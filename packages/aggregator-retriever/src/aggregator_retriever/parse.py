@@ -3,7 +3,7 @@ import logging
 import time
 from dataclasses import dataclass
 from html.parser import HTMLParser
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 from urllib.parse import parse_qs, urlparse
 
 import feedparser
@@ -53,6 +53,9 @@ _REDDIT_HOSTS = frozenset({
     "reddit-static.com",
 })
 
+# Hosts that are Techmeme-owned — excluded when scanning for the external article URL.
+_TECHMEME_HOSTS = frozenset({"techmeme.com", "www.techmeme.com"})
+
 
 def _is_reddit_comments_url(url: str) -> bool:
     """Return True if url is a Reddit comments/entry page URL."""
@@ -63,6 +66,14 @@ def _is_reddit_comments_url(url: str) -> bool:
             host in {"reddit.com", "www.reddit.com", "old.reddit.com", "new.reddit.com"}
             and "/comments/" in parsed.path
         )
+    except Exception:
+        return False
+
+
+def _is_techmeme_permalink(url: str) -> bool:
+    """Return True if url is a Techmeme aggregator permalink."""
+    try:
+        return (urlparse(url).hostname or "").lower() in _TECHMEME_HOSTS
     except Exception:
         return False
 
@@ -80,8 +91,14 @@ def _unwrap_reddit_outbound(url: str) -> str:
     return url
 
 
-def _extract_reddit_article_url(html_content: str) -> Optional[str]:
-    """Return the first external (non-Reddit) href from Reddit RSS entry HTML, or None."""
+def _extract_first_external_href(
+    html_content: str,
+    self_hosts: frozenset,
+    *,
+    unwrap_fn: Optional[Callable[[str], str]] = None,
+    path_filter: Optional[Callable[[str], bool]] = None,
+) -> Optional[str]:
+    """Return the first external href from HTML that is not owned by self_hosts."""
 
     class _LinkParser(HTMLParser):
         def __init__(self) -> None:
@@ -94,16 +111,16 @@ def _extract_reddit_article_url(html_content: str) -> Optional[str]:
             href = dict(attrs).get("href", "")
             if not href:
                 return
-            href = _unwrap_reddit_outbound(href)
+            if unwrap_fn is not None:
+                href = unwrap_fn(href)
             try:
                 parsed = urlparse(href)
                 host = (parsed.hostname or "").lower()
-                path = parsed.path
                 if not host:
                     return
-                if host in _REDDIT_HOSTS:
+                if host in self_hosts:
                     return
-                if "/user/" in path or "/comments/" in path:
+                if path_filter is not None and path_filter(parsed.path):
                     return
                 self.found = href
             except Exception:
@@ -115,6 +132,49 @@ def _extract_reddit_article_url(html_content: str) -> Optional[str]:
     except Exception:
         pass
     return parser.found
+
+
+def _extract_reddit_article_url(html_content: str) -> Optional[str]:
+    """Return the first external (non-Reddit) href from Reddit RSS entry HTML, or None."""
+    return _extract_first_external_href(
+        html_content,
+        _REDDIT_HOSTS,
+        unwrap_fn=_unwrap_reddit_outbound,
+        path_filter=lambda path: "/user/" in path or "/comments/" in path,
+    )
+
+
+def _extract_techmeme_article_url(html_content: str) -> Optional[str]:
+    """Return the first external (non-Techmeme) href from a Techmeme RSS description, or None."""
+    return _extract_first_external_href(html_content, _TECHMEME_HOSTS)
+
+
+@dataclass
+class _AggregatorConfig:
+    """Describes how to extract the real source URL from a known aggregator feed."""
+    is_permalink: Callable[[str], bool]
+    extract_url: Callable[[str], Optional[str]]
+
+
+_REDDIT_AGG = _AggregatorConfig(
+    is_permalink=_is_reddit_comments_url,
+    extract_url=_extract_reddit_article_url,
+)
+_TECHMEME_AGG = _AggregatorConfig(
+    is_permalink=_is_techmeme_permalink,
+    extract_url=_extract_techmeme_article_url,
+)
+
+# Maps each aggregator hostname to its resolution config.  Add new entries here to
+# support additional aggregator feeds without touching parse_feed().
+_AGGREGATOR_BY_HOST: dict[str, _AggregatorConfig] = {
+    "reddit.com": _REDDIT_AGG,
+    "www.reddit.com": _REDDIT_AGG,
+    "old.reddit.com": _REDDIT_AGG,
+    "new.reddit.com": _REDDIT_AGG,
+    "techmeme.com": _TECHMEME_AGG,
+    "www.techmeme.com": _TECHMEME_AGG,
+}
 
 
 def parse_feed(body: bytes, source_id: int) -> list[NormalizedEntry]:
@@ -154,10 +214,12 @@ def parse_feed(body: bytes, source_id: int) -> list[NormalizedEntry]:
             entry_link = _get(entry, "link") or ""
             comments_url = _get(entry, "comments") or None
 
-            # For Reddit link posts the entry link is the comments page, not the article.
-            # Resolve the real external article URL from the entry's HTML content so the
-            # processor fetches the source article instead of the comments page.
-            if _is_reddit_comments_url(entry_link):
+            # For aggregator feeds (Reddit, Techmeme, …) the entry link is a permalink on
+            # the aggregator host, not the original source article.  Resolve the real article
+            # URL from the entry's HTML description so the processor fetches source content.
+            entry_host = (urlparse(entry_link).hostname or "").lower() if entry_link else ""
+            agg_cfg = _AGGREGATOR_BY_HOST.get(entry_host)
+            if agg_cfg is not None and agg_cfg.is_permalink(entry_link):
                 html_content = ""
                 for item in (serialized.get("content") or []):
                     if isinstance(item, dict) and item.get("value"):
@@ -166,11 +228,11 @@ def parse_feed(body: bytes, source_id: int) -> list[NormalizedEntry]:
                 if not html_content:
                     html_content = serialized.get("summary") or ""
 
-                external_url = _extract_reddit_article_url(html_content)
+                external_url = agg_cfg.extract_url(html_content)
                 if external_url:
-                    # Patch raw_payload so the processor fetches the external article.
+                    # Patch raw_payload so the processor fetches the source article.
                     serialized["link"] = external_url
-                    comments_url = entry_link  # reddit comments page
+                    comments_url = entry_link  # aggregator permalink
                     entry_link = external_url
 
             entries.append(
