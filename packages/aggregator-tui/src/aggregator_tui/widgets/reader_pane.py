@@ -130,6 +130,9 @@ class ReaderPane(Widget):
             self.app.notify_status(str(exc))  # type: ignore[attr-defined]
             return
         self._render_article(article)
+        # Keep the app's selected-article ref in sync so action keys (v, m, s, n)
+        # work when the article was opened from a thread member list (no ArticleRow).
+        self.app._selected_article = article  # type: ignore[attr-defined]
 
     async def _fetch_thread(self, thread_id: int) -> None:
         api = self.app.api_client  # type: ignore[attr-defined]

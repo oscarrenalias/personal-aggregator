@@ -303,12 +303,13 @@ class AggregatorApp(App[None]):
 
     async def action_toggle_read(self) -> None:
         row = self._selected_article_row
-        if row is None:
+        article = row.article if row is not None else self._selected_article
+        if article is None:
             return
-        article = row.article
         old_read = article.is_read
         article.is_read = not old_read
-        row.refresh_display()
+        if row is not None:
+            row.refresh_display()
         try:
             if article.is_read:
                 await self.api_client.mark_read(article.id)
@@ -316,43 +317,47 @@ class AggregatorApp(App[None]):
                 await self.api_client.mark_unread(article.id)
         except ApiError as exc:
             article.is_read = old_read
-            row.refresh_display()
+            if row is not None:
+                row.refresh_display()
             self.notify_status(f"Error: {exc}")
 
     async def action_mark_read_next(self) -> None:
         row = self._selected_article_row
-        if row is None:
+        article = row.article if row is not None else self._selected_article
+        if article is None:
             return
-        article = row.article
         if not article.is_read:
             old_read = article.is_read
             article.is_read = True
-            row.refresh_display()
+            if row is not None:
+                row.refresh_display()
             try:
                 await self.api_client.mark_read(article.id)
             except ApiError as exc:
                 article.is_read = old_read
-                row.refresh_display()
+                if row is not None:
+                    row.refresh_display()
                 self.notify_status(f"Error: {exc}")
                 return
-        # Advance to the next item and load it into the reader so the content
-        # follows (mark-read-and-read-next flow).
-        listview = self.query_one("#article-listview", ListView)
-        listview.action_cursor_down()
-        next_item = listview.highlighted_child
-        if isinstance(next_item, ArticleRow):
-            self._selected_article = next_item.article
-            self._selected_article_row = next_item
-            self.query_one("#reader-pane", ReaderPane).load_article(next_item.article.id)
+        # Advance to the next list item only when navigating from the article list.
+        if row is not None:
+            listview = self.query_one("#article-listview", ListView)
+            listview.action_cursor_down()
+            next_item = listview.highlighted_child
+            if isinstance(next_item, ArticleRow):
+                self._selected_article = next_item.article
+                self._selected_article_row = next_item
+                self.query_one("#reader-pane", ReaderPane).load_article(next_item.article.id)
 
     async def action_toggle_save(self) -> None:
         row = self._selected_article_row
-        if row is None:
+        article = row.article if row is not None else self._selected_article
+        if article is None:
             return
-        article = row.article
         old_saved = article.is_saved
         article.is_saved = not old_saved
-        row.refresh_display()
+        if row is not None:
+            row.refresh_display()
         try:
             if article.is_saved:
                 await self.api_client.save_article(article.id)
@@ -360,7 +365,8 @@ class AggregatorApp(App[None]):
                 await self.api_client.unsave_article(article.id)
         except ApiError as exc:
             article.is_saved = old_saved
-            row.refresh_display()
+            if row is not None:
+                row.refresh_display()
             self.notify_status(f"Error: {exc}")
 
     async def action_dismiss_thread(self) -> None:
@@ -461,3 +467,9 @@ class AggregatorApp(App[None]):
             article_list.run_worker(article_list.load(category=item.category, title=item.label), exclusive=True)
         elif item.kind == "source":
             article_list.run_worker(article_list.load(source_id=item.source_id, title=item.label), exclusive=True)
+        # Move focus from the nav Tree to the list so Enter/j/k are owned by the list.
+        if self._narrow_mode:
+            self._show_narrow_pane(1)
+        else:
+            self._pane_focus_idx = 1
+            self._apply_pane_focus()
