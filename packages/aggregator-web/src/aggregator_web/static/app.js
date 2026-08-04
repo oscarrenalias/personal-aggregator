@@ -9,7 +9,11 @@ function aggregatorApp() {
     drawerOpen: false,
     showHelp: false,
 
-    /* Handles keydown events on the window (delegated from @keydown.window). */
+    /* Handles keydown events on the window (delegated from @keydown.window).
+       j/k/v/m/n are handled here (not in each list component) so they work on
+       both feed and thread pages without depending on which centre-pane component
+       is mounted. j/k dispatch reader:next/prev which each list component listens
+       for; v/m/n act on the article currently loaded in #article-detail. */
     handleKey(event) {
       if (event.key === 'Escape') {
         if (this.showHelp) { this.showHelp = false; return; }
@@ -22,9 +26,52 @@ function aggregatorApp() {
         this.showHelp = !this.showHelp;
         return;
       }
-      if (event.key !== '/') return;
-      event.preventDefault();
-      this.focusSearch();
+      if (event.key === '/') {
+        event.preventDefault();
+        this.focusSearch();
+        return;
+      }
+      if (this.showHelp) return;
+      if (event.key === 'j') { event.preventDefault(); window.dispatchEvent(new CustomEvent('reader:next')); return; }
+      if (event.key === 'k') { event.preventDefault(); window.dispatchEvent(new CustomEvent('reader:prev')); return; }
+      if (event.key === 'v') { event.preventDefault(); this._openArticleSource(); return; }
+      if (event.key === 'm') { event.preventDefault(); this._toggleOpenArticleRead(); return; }
+      if (event.key === 'n') { event.preventDefault(); this._markReadAndNext(); return; }
+    },
+
+    /* v — open the source URL of the article currently open in the reader pane. */
+    _openArticleSource() {
+      const detail = document.getElementById('article-detail');
+      const url = detail?.dataset.sourceUrl;
+      if (url) window.open(url, '_blank', 'noopener');
+    },
+
+    /* m — toggle read/unread for the article currently open in the reader pane.
+       Targets #article-detail so the route returns the detail as primary and the
+       matching article card as OOB, keeping both representations in sync. */
+    _toggleOpenArticleRead() {
+      const detail = document.getElementById('article-detail');
+      const id = detail?.dataset.articleId;
+      if (!id) return;
+      const isRead = detail.classList.contains('is-read');
+      const action = isRead ? 'unread' : 'read';
+      htmx.ajax('POST', `/article/${id}/${action}`, {
+        target: '#article-detail',
+        swap: 'outerHTML',
+      });
+    },
+
+    /* n — mark the open article read then advance the list by one item. */
+    _markReadAndNext() {
+      const detail = document.getElementById('article-detail');
+      const id = detail?.dataset.articleId;
+      if (id && !detail.classList.contains('is-read')) {
+        htmx.ajax('POST', `/article/${id}/read`, {
+          target: '#article-detail',
+          swap: 'outerHTML',
+        });
+      }
+      window.dispatchEvent(new CustomEvent('reader:next'));
     },
 
     /* Remove reader-open from body and notify articleList to clear selection. */
@@ -298,6 +345,15 @@ function threadList() {
           htmx.ajax('GET', url, { target: '#article-list', swap: 'innerHTML' });
         }
       }
+      this._onNavNext = () => this.selectNext();
+      this._onNavPrev = () => this.selectPrev();
+      window.addEventListener('reader:next', this._onNavNext);
+      window.addEventListener('reader:prev', this._onNavPrev);
+    },
+
+    destroy() {
+      window.removeEventListener('reader:next', this._onNavNext);
+      window.removeEventListener('reader:prev', this._onNavPrev);
     },
 
     /* Write sort preference to localStorage; called by sort toggle buttons. */
@@ -314,6 +370,52 @@ function threadList() {
       document.body.classList.add('reader-open');
       const card = document.querySelector(`[data-thread-id="${id}"]`);
       card?.querySelector('.thread-update-dot')?.remove();
+    },
+
+    /* Return all thread card elements within this component's root element. */
+    _cards() {
+      return Array.from(this.$el.querySelectorAll('.thread-card'));
+    },
+
+    /* Find the index of the selected thread card. Returns -1 when none selected. */
+    _currentIndex() {
+      if (this.selectedId === null) return -1;
+      return this._cards().findIndex(
+        (c) => parseInt(c.dataset.threadId, 10) === this.selectedId,
+      );
+    },
+
+    /* j — select next thread and load it into the reader pane. */
+    selectNext() {
+      const cards = this._cards();
+      if (!cards.length) return;
+      const next = Math.min(this._currentIndex() + 1, cards.length - 1);
+      this._navigateToThread(parseInt(cards[next].dataset.threadId, 10));
+    },
+
+    /* k — select previous thread and load it into the reader pane. */
+    selectPrev() {
+      const cards = this._cards();
+      if (!cards.length) return;
+      const cur = this._currentIndex();
+      const prev = cur <= 0 ? 0 : cur - 1;
+      this._navigateToThread(parseInt(cards[prev].dataset.threadId, 10));
+    },
+
+    /* Select a thread, scroll its card into view, and load the detail into the reader. */
+    _navigateToThread(id) {
+      this.selectedId = id;
+      document.body.classList.add('reader-open');
+      const card = document.querySelector(`[data-thread-id="${id}"]`);
+      if (card) {
+        card.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        card.querySelector('.thread-update-dot')?.remove();
+      }
+      const content = document.getElementById('reader-content');
+      htmx.ajax('GET', `/threads/${id}`, { target: '#reader-content', swap: 'innerHTML' });
+      if (content) {
+        content.addEventListener('htmx:afterSwap', () => { content.scrollTop = 0; }, { once: true });
+      }
     },
   };
 }

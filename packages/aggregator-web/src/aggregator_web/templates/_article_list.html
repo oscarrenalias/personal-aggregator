@@ -25,11 +25,6 @@
 {% endif %}
 <div id="article-list"
      x-data="{ ...articleList(), baseUrl: '{{ base_url }}', sortMode: '{{ sort }}', unreadOnly: {{ 'true' if unread_only else 'false' }} }"
-     @keydown.j.window="selectNext()"
-     @keydown.k.window="selectPrev()"
-     @keydown.v.window="openSelected()"
-     @keydown.m.window="toggleReadSelected()"
-     @keydown.n.window="markReadAndNext()"
      role="feed"
      aria-label="Article list">
 

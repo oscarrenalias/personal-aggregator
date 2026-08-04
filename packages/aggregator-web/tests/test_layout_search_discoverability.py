@@ -344,13 +344,21 @@ def test_search_with_query_has_no_old_search_form(client):
     assert 'class="search-form"' not in response.text
 
 
-def test_article_list_template_has_keydown_n_shortcut(db_session, client):
-    """Feed page must include @keydown.n.window wired to markReadAndNext()."""
+def test_feed_page_body_has_global_keydown_handler(db_session, client):
+    """Shell body must bind handleKey — n/j/k/v/m are now handled centrally
+    in aggregatorApp.handleKey() rather than via per-list @keydown.*.window bindings.
+    The partial (_article_list.html) must not declare the old per-key bindings."""
     src = make_source(db_session)
     make_article(db_session, source_id=src.id)
-    response = client.get("/feed/smart/all")
-    assert response.status_code == 200
-    assert "@keydown.n.window" in response.text
+    # Shell (root route) has the global handler
+    shell_response = client.get("/")
+    assert shell_response.status_code == 200
+    assert "handleKey($event)" in shell_response.text
+    # Partial no longer has per-key bindings
+    partial_response = client.get("/feed/smart/all")
+    assert partial_response.status_code == 200
+    assert "@keydown.n.window" not in partial_response.text
+    assert "@keydown.j.window" not in partial_response.text
 
 
 def test_app_js_defines_mark_read_and_next(client):

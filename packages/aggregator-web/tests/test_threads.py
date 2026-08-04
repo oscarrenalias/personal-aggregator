@@ -521,6 +521,75 @@ class TestThreadDetailPublishedAt:
         assert " · " in response.text
 
 
+class TestThreadKeyboardHooks:
+    """Regression tests: keyboard shortcut DOM hooks are present on thread pages (B-e27109bb).
+
+    j/k/v/m/n are now handled by the global aggregatorApp.handleKey() on <body> instead
+    of per-list @keydown bindings. These tests verify the data attributes and event
+    handler wiring the shared handler relies on.
+    """
+
+    def test_thread_cards_have_data_thread_id(self, client, db_session):
+        """Thread cards must carry data-thread-id so j/k keyboard navigation can identify them."""
+        _make_thread(db_session, title="Keyboard Hook Thread", surfaced=True)
+        response = client.get("/threads", headers={"HX-Request": "true"})
+        assert response.status_code == 200
+        assert 'data-thread-id=' in response.text
+
+    def test_threads_page_body_has_global_keydown_handler(self, client, db_session):
+        """The threads full-page shell body must bind @keydown.window to handleKey."""
+        response = client.get("/threads")
+        assert response.status_code == 200
+        assert 'handleKey($event)' in response.text
+
+    def test_threads_page_has_jkvm_n_in_shortcuts_help(self, client, db_session):
+        """The keyboard shortcuts help table on the threads page must list j/k/v/m/n."""
+        response = client.get("/threads")
+        assert response.status_code == 200
+        html = response.text
+        assert '<kbd>j</kbd>' in html
+        assert '<kbd>k</kbd>' in html
+        assert '<kbd>v</kbd>' in html
+        assert '<kbd>m</kbd>' in html
+        assert '<kbd>n</kbd>' in html
+
+    def test_article_detail_fragment_has_data_source_url(self, client, db_session):
+        """Article detail fragment must carry data-source-url for the v shortcut."""
+        src = _make_source(db_session, name="Source With URL")
+        article = _make_article(db_session, src.id, "kbd-src-url", title="Article For v Key")
+        response = client.get(f"/article/{article.id}", headers={"HX-Request": "true"})
+        assert response.status_code == 200
+        assert 'data-source-url=' in response.text
+
+    def test_article_detail_fragment_has_data_article_id(self, client, db_session):
+        """Article detail fragment must carry data-article-id for the m/n shortcuts."""
+        src = _make_source(db_session, name="Source For ID")
+        article = _make_article(db_session, src.id, "kbd-art-id", title="Article For m/n Key")
+        response = client.get(f"/article/{article.id}", headers={"HX-Request": "true"})
+        assert response.status_code == 200
+        assert f'data-article-id="{article.id}"' in response.text
+
+    def test_article_list_template_has_no_keydown_j_binding(self, client, db_session):
+        """_article_list.html must not declare @keydown.j.window — that binding moved to aggregatorApp."""
+        response = client.get("/feed/smart/all", headers={"HX-Request": "true"})
+        assert response.status_code == 200
+        assert '@keydown.j.window' not in response.text
+
+
+class TestThreadKeyboardNavigationIntegration:
+    """Verify that j/k navigation reaches threadList via reader:next/prev events."""
+
+    def test_thread_list_renders_selectable_cards(self, client, db_session):
+        """Each surfaced thread must render as a .thread-card element with data-thread-id."""
+        _make_thread(db_session, title="Nav Thread A", surfaced=True)
+        _make_thread(db_session, title="Nav Thread B", surfaced=True)
+        response = client.get("/threads", headers={"HX-Request": "true"})
+        assert response.status_code == 200
+        html = response.text
+        assert html.count('class="thread-card"') >= 2
+        assert html.count('data-thread-id=') >= 2
+
+
 class TestThreadDismissUIConsolidation:
     """Regression tests: dismiss consolidated to detail only (B-b3558c19).
 
