@@ -458,6 +458,50 @@ def test_get_article_detail_hides_comments_icon_when_comments_url_absent(db_sess
     assert "btn-open-comments" not in response.text
 
 
+def test_article_detail_emits_data_comments_url_when_set(db_session, client):
+    """Regression: #article-detail must carry data-comments-url for the 'c' key handler."""
+    src = make_source(db_session)
+    article = make_article(
+        db_session,
+        source_id=src.id,
+        dedup_key="data-comments-present",
+        comments_url="https://www.reddit.com/r/example/comments/abc123/",
+    )
+    response = client.get(f"/article/{article.id}", headers={"HX-Request": "true"})
+    assert response.status_code == 200
+    assert 'data-comments-url="https://www.reddit.com/r/example/comments/abc123/"' in response.text
+
+
+def test_article_detail_emits_empty_data_comments_url_when_absent(db_session, client):
+    """Regression: #article-detail must emit data-comments-url=\"\" when comments_url is None."""
+    src = make_source(db_session)
+    article = make_article(
+        db_session,
+        source_id=src.id,
+        dedup_key="data-comments-absent",
+        comments_url=None,
+    )
+    response = client.get(f"/article/{article.id}", headers={"HX-Request": "true"})
+    assert response.status_code == 200
+    assert 'data-comments-url=""' in response.text
+
+
+def test_shell_help_overlay_includes_c_shortcut(client):
+    """Regression: shell.html help overlay must list the 'c' shortcut for opening comments."""
+    response = client.get("/")
+    assert response.status_code == 200
+    assert "<kbd>c</kbd>" in response.text
+    assert "Open comments in new tab" in response.text
+
+
+def test_threads_help_overlay_includes_c_shortcut(client):
+    """Regression: threads/index.html help overlay must list the 'c' shortcut."""
+    response = client.get("/threads")
+    assert response.status_code == 200
+    assert "<kbd>c</kbd>" in response.text
+    assert "Open comments in new tab" in response.text
+
+
 def test_article_with_topics_list_renders(db_session, client):
     """Regression: topics is a JSONB list; templates must iterate it directly,
     not call .keys(). Detail + card 500'd on real data before the fix."""

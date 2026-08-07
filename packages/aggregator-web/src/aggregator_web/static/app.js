@@ -35,6 +35,7 @@ function aggregatorApp() {
       if (event.key === 'j') { event.preventDefault(); window.dispatchEvent(new CustomEvent('reader:next')); return; }
       if (event.key === 'k') { event.preventDefault(); window.dispatchEvent(new CustomEvent('reader:prev')); return; }
       if (event.key === 'v') { event.preventDefault(); this._openArticleSource(); return; }
+      if (event.key === 'c') { event.preventDefault(); this._openArticleComments(); return; }
       if (event.key === 'm') { event.preventDefault(); this._toggleOpenArticleRead(); return; }
       if (event.key === 'n') { event.preventDefault(); this._markReadAndNext(); return; }
     },
@@ -43,6 +44,13 @@ function aggregatorApp() {
     _openArticleSource() {
       const detail = document.getElementById('article-detail');
       const url = detail?.dataset.sourceUrl;
+      if (url) window.open(url, '_blank', 'noopener');
+    },
+
+    /* c — open the comments URL of the article currently open in the reader pane. */
+    _openArticleComments() {
+      const detail = document.getElementById('article-detail');
+      const url = detail?.dataset.commentsUrl;
       if (url) window.open(url, '_blank', 'noopener');
     },
 

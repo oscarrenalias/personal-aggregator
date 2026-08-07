@@ -15,6 +15,7 @@
      id="article-detail"
      data-article-id="{{ article.id }}"
      data-source-url="{{ article.feed_url or '' }}"
+     data-comments-url="{{ article.comments_url or '' }}"
      {% if oob %}hx-swap-oob="true"{% endif %}>
 
   {% if article.header_image_url %}
