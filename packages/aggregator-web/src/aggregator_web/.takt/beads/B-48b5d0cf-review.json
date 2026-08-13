@@ -3,7 +3,7 @@
   "title": "Review Web UI: auto-mark article read after dwelling in the reader for WEB_AUTO_READ_SECONDS (default 5s)",
   "agent_type": "review",
   "description": "Review defect fix for B-48b5d0cf",
-  "status": "in_progress",
+  "status": "done",
   "bead_type": "task",
   "parent_id": "B-48b5d0cf",
   "dependencies": [
@@ -34,43 +34,70 @@
     "packages/aggregator-web/tests/test_routes.py"
   ],
   "changed_files": [
-    ".env.example",
-    "CLAUDE.md",
     "packages/aggregator-web/src/aggregator_web/app.py",
     "packages/aggregator-web/src/aggregator_web/config.py",
     "packages/aggregator-web/src/aggregator_web/static/app.js",
     "packages/aggregator-web/src/aggregator_web/templates/shell.html",
-    "packages/aggregator-web/tests/test_routes.py"
+    "packages/aggregator-web/tests/test_routes.py",
+    ".env.example",
+    "CLAUDE.md"
   ],
-  "updated_docs": [],
+  "updated_docs": [
+    "CLAUDE.md",
+    ".env.example"
+  ],
   "handoff_summary": {
-    "completed": "",
+    "completed": "Web UI auto-mark-read feature: config (default 5s, disableable), shell/template integration, dwell timer module with Page Visibility API, proper cancellation on user interactions, tests for config and shell rendering.",
     "remaining": "",
-    "risks": "",
-    "verdict": "",
+    "risks": "Low: Feature is self-contained. No shared aggregator-common or API changes. Only risk is if another bead concurrently modifies app.js or shell.html, but file-scope claiming should prevent that.",
+    "verdict": "approved",
     "findings_count": 0,
     "requires_followup": false,
-    "changed_files": [],
-    "updated_docs": [],
-    "next_action": "",
+    "changed_files": [
+      "packages/aggregator-web/src/aggregator_web/app.py",
+      "packages/aggregator-web/src/aggregator_web/config.py",
+      "packages/aggregator-web/src/aggregator_web/static/app.js",
+      "packages/aggregator-web/src/aggregator_web/templates/shell.html",
+      "packages/aggregator-web/tests/test_routes.py",
+      ".env.example",
+      "CLAUDE.md"
+    ],
+    "updated_docs": [
+      "CLAUDE.md",
+      ".env.example"
+    ],
+    "next_action": "Proceed to merge. No followup work required.",
     "next_agent": "",
     "block_reason": "",
-    "expected_files": [],
+    "expected_files": [
+      ".env.example",
+      "CLAUDE.md",
+      "packages/aggregator-web/src/aggregator_web/app.py",
+      "packages/aggregator-web/src/aggregator_web/config.py",
+      "packages/aggregator-web/src/aggregator_web/static/app.js",
+      "packages/aggregator-web/src/aggregator_web/templates/shell.html",
+      "packages/aggregator-web/tests/test_routes.py"
+    ],
     "expected_globs": [],
-    "touched_files": [],
-    "conflict_risks": "",
-    "design_decisions": "",
-    "test_coverage_notes": "",
-    "known_limitations": ""
+    "touched_files": [
+      ".env.example",
+      "CLAUDE.md",
+      "packages/aggregator-web/src/aggregator_web/app.py",
+      "packages/aggregator-web/src/aggregator_web/config.py",
+      "packages/aggregator-web/src/aggregator_web/static/app.js",
+      "packages/aggregator-web/src/aggregator_web/templates/shell.html",
+      "packages/aggregator-web/tests/test_routes.py"
+    ],
+    "conflict_risks": "Low: Changes are confined to web package files. No shared aggregator-common or API layer changes. Only potential conflict is if another bead concurrently modifies app.js or shell.html, but file-scope claiming should prevent concurrent writes.",
+    "design_decisions": "1. data-auto-read-seconds on body tag (readable from JS without script ordering constraints; checkable in tests via attribute selectors). 2. _dwell IIFE module at module-level (proper scope; handles articleList and threadList reader interactions). 3. htmx:afterSwap listener delegated on document (avoids element-not-yet-in-DOM timing issues). 4. visibilitychange handler inside _dwell IIFE (self-contained; no external wiring). 5. templates.env.globals to surface config value (avoids modifying every route handler).",
+    "test_coverage_notes": "Config tests: default (5s) and env var override (0 to disable). Shell attribute tests: default and disabled states. No JavaScript timer unit tests, but feature is straightforward and integration-level coverage is appropriate. Page Visibility API is well-supported in all modern browsers.",
+    "known_limitations": "Runtime config changes require page reload (acceptable since WEB_AUTO_READ_SECONDS is an environment variable that only changes on deployment). No explicit browser compatibility matrix (Page Visibility API supported in all modern browsers, acceptable for PWA). Thread member articles work correctly (load full article-detail which triggers dwell timer)."
   },
   "block_reason": "",
-  "conflict_risks": "Low: changes are confined to web package files. No shared aggregator-common or API layer changes. The only potential conflict is if another bead modifies app.js or shell.html concurrently.",
+  "conflict_risks": "Low: Changes are confined to web package files. No shared aggregator-common or API layer changes. Only potential conflict is if another bead concurrently modifies app.js or shell.html, but file-scope claiming should prevent concurrent writes.",
   "branch_name": "feature/b-48b5d0cf",
   "worktree_path": "",
-  "lease": {
-    "owner": "review:B-48b5d0cf-review",
-    "expires_at": "2026-08-13T16:26:48.947047+00:00"
-  },
+  "lease": null,
   "retries": 0,
   "execution_history": [
     {
@@ -111,6 +138,13 @@
       "details": {
         "template_path": ".takt/agent-runs/B-48b5d0cf-review/repo/templates/agents/review.md"
       }
+    },
+    {
+      "timestamp": "2026-08-13T15:59:50.769431+00:00",
+      "event": "completed",
+      "agent_type": "review",
+      "summary": "Review complete: auto-read feature is fully implemented with proper config, integration, and test coverage. No blockers.",
+      "details": {}
     }
   ],
   "metadata": {
@@ -187,7 +221,68 @@
         "test_coverage_notes": "",
         "known_limitations": ""
       }
-    }
+    },
+    "last_agent_result": {
+      "outcome": "completed",
+      "summary": "Review complete: auto-read feature is fully implemented with proper config, integration, and test coverage. No blockers.",
+      "verdict": "approved",
+      "findings_count": 0,
+      "requires_followup": false,
+      "next_agent": "",
+      "block_reason": ""
+    },
+    "telemetry": {
+      "cost_usd": 0.5492597999999999,
+      "duration_ms": 179912,
+      "duration_api_ms": 144452,
+      "num_turns": 52,
+      "input_tokens": 2488,
+      "output_tokens": 11471,
+      "cache_creation_tokens": 83305,
+      "cache_read_tokens": 3197418,
+      "stop_reason": "tool_use",
+      "session_id": "30eebd50-638f-40ee-8e04-61e96436e2e7",
+      "permission_denials": [
+        {
+          "tool_name": "Read",
+          "tool_use_id": "toolu_01CEywLKRjAXrLFf62DU1tsD",
+          "tool_input": {
+            "file_path": "/Users/oscar.renalias/Projects/personal-aggregator/packages/aggregator-web/src/aggregator_web/.takt/worktrees/B-48b5d0cf/.env.example"
+          }
+        }
+      ],
+      "prompt_chars": 8588,
+      "prompt_lines": 161,
+      "source": "provider",
+      "attempt": 1
+    },
+    "telemetry_history": [
+      {
+        "cost_usd": 0.5492597999999999,
+        "duration_ms": 179912,
+        "duration_api_ms": 144452,
+        "num_turns": 52,
+        "input_tokens": 2488,
+        "output_tokens": 11471,
+        "cache_creation_tokens": 83305,
+        "cache_read_tokens": 3197418,
+        "stop_reason": "tool_use",
+        "session_id": "30eebd50-638f-40ee-8e04-61e96436e2e7",
+        "permission_denials": [
+          {
+            "tool_name": "Read",
+            "tool_use_id": "toolu_01CEywLKRjAXrLFf62DU1tsD",
+            "tool_input": {
+              "file_path": "/Users/oscar.renalias/Projects/personal-aggregator/packages/aggregator-web/src/aggregator_web/.takt/worktrees/B-48b5d0cf/.env.example"
+            }
+          }
+        ],
+        "prompt_chars": 8588,
+        "prompt_lines": 161,
+        "source": "provider",
+        "attempt": 1
+      }
+    ]
   },
   "labels": [],
   "recovery_for": null,
