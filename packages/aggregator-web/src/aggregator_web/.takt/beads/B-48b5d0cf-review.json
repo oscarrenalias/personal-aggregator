@@ -3,7 +3,7 @@
   "title": "Review Web UI: auto-mark article read after dwelling in the reader for WEB_AUTO_READ_SECONDS (default 5s)",
   "agent_type": "review",
   "description": "Review defect fix for B-48b5d0cf",
-  "status": "ready",
+  "status": "in_progress",
   "bead_type": "task",
   "parent_id": "B-48b5d0cf",
   "dependencies": [
@@ -65,9 +65,12 @@
   },
   "block_reason": "",
   "conflict_risks": "Low: changes are confined to web package files. No shared aggregator-common or API layer changes. The only potential conflict is if another bead modifies app.js or shell.html concurrently.",
-  "branch_name": "",
+  "branch_name": "feature/b-48b5d0cf",
   "worktree_path": "",
-  "lease": null,
+  "lease": {
+    "owner": "review:B-48b5d0cf-review",
+    "expires_at": "2026-08-13T16:26:48.947047+00:00"
+  },
   "retries": 0,
   "execution_history": [
     {
@@ -76,9 +79,46 @@
       "agent_type": "scheduler",
       "summary": "Bead created",
       "details": {}
+    },
+    {
+      "timestamp": "2026-08-13T15:56:49.488588+00:00",
+      "event": "skills_loaded",
+      "agent_type": "review",
+      "summary": "Loaded 6 skill(s) for isolated execution",
+      "details": {
+        "loaded_skills": [
+          "core/base-orchestrator",
+          "role/reviewer-signoff",
+          "capability/code-review",
+          "task/corrective-bead-creation",
+          "task/risk-assessment",
+          "memory"
+        ]
+      }
+    },
+    {
+      "timestamp": "2026-08-13T15:56:49.488610+00:00",
+      "event": "started",
+      "agent_type": "review",
+      "summary": "Worker started",
+      "details": {}
     }
   ],
-  "metadata": {},
+  "metadata": {
+    "execution_root": "/Users/oscar.renalias/Projects/personal-aggregator/packages/aggregator-web/src/aggregator_web/.takt/agent-runs/B-48b5d0cf-review",
+    "workspace_repo_path": "repo",
+    "loaded_skills": [
+      "core/base-orchestrator",
+      "role/reviewer-signoff",
+      "capability/code-review",
+      "task/corrective-bead-creation",
+      "task/risk-assessment",
+      "memory"
+    ],
+    "skill_bundle_hash": "68ad0ecb7bfe263ceb1ada56efead5a81dac8f9f2173181d0bf030dc0a3f880d",
+    "isolated_home": "/Users/oscar.renalias/Projects/personal-aggregator/packages/aggregator-web/src/aggregator_web/.takt/agent-runs/B-48b5d0cf-review/home",
+    "runner_backend": "claude"
+  },
   "labels": [],
   "recovery_for": null,
   "priority": null
