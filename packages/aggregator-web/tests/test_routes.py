@@ -2166,3 +2166,57 @@ def test_sidebar_category_freshness_phrase_quiet(db_session, client, monkeypatch
     response = client.get("/sidebar")
     assert response.status_code == 200
     assert "Quiet" in response.text
+
+
+# ---------------------------------------------------------------------------
+# WEB_AUTO_READ_SECONDS — config default and client surface
+# ---------------------------------------------------------------------------
+
+
+def test_web_auto_read_seconds_defaults_to_5():
+    """WEB_AUTO_READ_SECONDS must default to 5 seconds."""
+    from aggregator_web.config import WebSettings
+
+    s = WebSettings()
+    assert s.web_auto_read_seconds == 5
+
+
+def test_web_auto_read_seconds_zero_when_env_set(monkeypatch):
+    """WEB_AUTO_READ_SECONDS=0 must set web_auto_read_seconds=0 on WebSettings."""
+    monkeypatch.setenv("WEB_AUTO_READ_SECONDS", "0")
+    from aggregator_web.config import WebSettings
+
+    s = WebSettings()
+    assert s.web_auto_read_seconds == 0
+
+
+def test_shell_surfaces_auto_read_seconds_default(client):
+    """The shell page must expose data-auto-read-seconds with the default value (5)."""
+    import aggregator_web.app as app_mod
+
+    original = app_mod.settings.web_auto_read_seconds
+    try:
+        app_mod.settings.web_auto_read_seconds = 5
+        app_mod.templates.env.globals["web_auto_read_seconds"] = 5
+        response = client.get("/")
+        assert response.status_code == 200
+        assert 'data-auto-read-seconds="5"' in response.text
+    finally:
+        app_mod.settings.web_auto_read_seconds = original
+        app_mod.templates.env.globals["web_auto_read_seconds"] = original
+
+
+def test_shell_surfaces_auto_read_seconds_zero_when_disabled(client):
+    """When WEB_AUTO_READ_SECONDS=0, the shell must expose data-auto-read-seconds="0"."""
+    import aggregator_web.app as app_mod
+
+    original = app_mod.settings.web_auto_read_seconds
+    try:
+        app_mod.settings.web_auto_read_seconds = 0
+        app_mod.templates.env.globals["web_auto_read_seconds"] = 0
+        response = client.get("/")
+        assert response.status_code == 200
+        assert 'data-auto-read-seconds="0"' in response.text
+    finally:
+        app_mod.settings.web_auto_read_seconds = original
+        app_mod.templates.env.globals["web_auto_read_seconds"] = original

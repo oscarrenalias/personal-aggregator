@@ -39,7 +39,7 @@
   <!-- HTMX -->
   <script src="https://unpkg.com/htmx.org@1.9.12" defer></script>
 </head>
-<body x-data="aggregatorApp" @keydown.window="handleKey($event)" @reader:close.window="closeReader()"{% if initial_reader_open %} class="reader-open"{% endif %}>
+<body x-data="aggregatorApp" @keydown.window="handleKey($event)" @reader:close.window="closeReader()"{% if initial_reader_open %} class="reader-open"{% endif %} data-auto-read-seconds="{{ web_auto_read_seconds }}">
 
   <!-- Mobile header (hidden on desktop via CSS) -->
   <header class="mobile-header" role="banner">

@@ -112,6 +112,7 @@ def _format_brief_date(dt: datetime, fmt: str = "%-d %b %Y") -> str:
 templates.env.filters["paragraphs"] = _paragraphs_filter
 templates.env.filters["timeago"] = _timeago_filter
 templates.env.globals["format_brief_date"] = _format_brief_date
+templates.env.globals["web_auto_read_seconds"] = settings.web_auto_read_seconds
 
 
 def get_db() -> Generator[Session, None, None]:

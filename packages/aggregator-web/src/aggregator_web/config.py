@@ -13,3 +13,4 @@ class WebSettings(BaseSettings):
     clusterer_thread_view_max_age_days: int = Field(7, description="Maximum age in days for threads shown in the Threads view (CLUSTERER_THREAD_VIEW_MAX_AGE_DAYS)")
     brief_timezone: str = Field("UTC", description="Timezone for brief period calculation — must match BRIEF_TIMEZONE (BRIEF_TIMEZONE)")
     web_show_unread_counts: bool = Field(False, description="Show numeric unread counts instead of qualitative markers (WEB_SHOW_UNREAD_COUNTS)")
+    web_auto_read_seconds: int = Field(5, description="Seconds of visible dwell before auto-marking article read (WEB_AUTO_READ_SECONDS); 0 disables the feature")
