@@ -197,6 +197,7 @@ At process startup, every service calls `aggregator_common.load_env()` (python-d
 | `WEB_PAGE_SIZE` | `50` | Number of articles per page in feed lists |
 | `WEB_IMPORTANT_THRESHOLD` | `70` | Minimum `importance_score` for the Important smart view |
 | `WEB_SHOW_UNREAD_COUNTS` | `false` | Show numeric unread counts in sidebar (`true`) or qualitative dot markers only (`false`) |
+| `WEB_AUTO_READ_SECONDS` | `5` | Seconds of visible dwell before auto-marking an open article read; `0` disables the feature entirely |
 | `API_CORS_ALLOW_ORIGINS` | `*` | Comma-separated allowed CORS origins for `/api/v1`; default `*` is acceptable only behind the network perimeter — restrict before any public exposure |
 | `AGGREGATOR_API_URL` | `http://localhost:8000/api/v1` | Base URL for the aggregator JSON API used by `aggregator-tui`; overridden by `--api-url` CLI flag |
 | `BRIEF_LLM_MODEL` | `gpt-4.1` | LLM model used for brief generation |
