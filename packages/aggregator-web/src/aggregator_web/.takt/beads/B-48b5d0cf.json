@@ -3,7 +3,7 @@
   "title": "Web UI: auto-mark article read after dwelling in the reader for WEB_AUTO_READ_SECONDS (default 5s)",
   "agent_type": "defect",
   "description": "FEATURE (web UI \u2014 packages/aggregator-web/, HTMX + Alpine.js; NOT the TUI)\nAutomatically mark an article as read once it has been OPEN in the reader pane for a configurable dwell time (default 5 seconds). Motivation: the user skims an opened article for a few seconds and moves on, but without pressing 'm'/'n' it stays unread and clutters the Unread filter. This adds a client-side dwell timer that reuses the EXISTING read endpoint so all read indicators update dynamically. Purely additive; must not change any existing behavior.\n\nCONFIG (one backend touch only)\nAdd a new web setting WEB_AUTO_READ_SECONDS (on the web service Settings subclass; WEB_ prefix), integer seconds, DEFAULT 5. Value 0 DISABLES the feature entirely (no timer wiring emitted / timer never armed). Inject this value into the page so the client JS can read it (e.g. render it into a data-* attribute on a stable element such as <body>/app root, or a small inline JS global in shell.html \u2014 follow however other WEB_* values are already surfaced to the client if any). Document the new var in CLAUDE.md's web settings table and in .env.example if that is where such vars live.\n\nBEHAVIOR (client-side, in static/app.js within the aggregatorApp component)\nReader open flow today: _loadReader(id) does htmx.ajax GET on the URL \"/article/<id>\" into #reader-content and adds body.reader-open (app.js:278-288). The swapped-in #article-detail carries data-article-id and an is-read class. Manual read is _toggleOpenArticleRead()/_markReadAndNext() (app.js:60-83), which call htmx.ajax POST on \"/article/<id>/read\" (or \"/unread\") with { target:'#article-detail', swap:'outerHTML' }. The read route (app.py:212-233) returns the refreshed #article-detail PLUS the matching _article_card.html rendered oob=True (hx-swap-oob) AND sets HX-Trigger: refreshSidebar \u2014 so the read/unread round indicator on both the card and the detail, and the sidebar counts, all update live.\n\nImplement auto-read as:\n1. Read WEB_AUTO_READ_SECONDS on load. If 0, do nothing (feature off).\n2. When an #article-detail is present/swapped into the reader AND it does NOT have the is-read class, ARM a dwell timer for that article id. Good hook points: the existing reader-content htmx:afterSwap (see app.js:286 where scrollTop is reset), or an equivalent afterSwap/observer on #reader-content \u2014 arm the timer there after confirming #article-detail exists and lacks is-read.\n3. Only accumulate DWELL TIME WHILE THE TAB IS VISIBLE. Use the Page Visibility API (document.hidden / visibilitychange): pause accumulation when hidden, resume when visible. Do NOT reset progress on a brief tab switch \u2014 accumulate visible elapsed time so a quick switch away and back does not lose progress and does not falsely fire while hidden. (A timestamp-accumulator or a paused/resumed timer are both acceptable as long as only visible time counts.)\n4. When accumulated visible time reaches WEB_AUTO_READ_SECONDS, fire the SAME request the manual path uses:\n     htmx.ajax POST on the URL \"/article/<id>/read\" with { target: '#article-detail', swap: 'outerHTML' }\n   where <id> is the open article's data-article-id. This MUST be the htmx.ajax call with target #article-detail (NOT a bare fetch), so the OOB card swap + the refreshSidebar HX-Trigger run and every read indicator (list card round indicator, reader detail, sidebar counts) updates dynamically. One-shot per open.\n5. CANCEL / disarm the pending timer when any of these happen before it fires: the reader closes (reader:closed event / body loses reader-open \u2014 see closeReader app.js:86-89), a DIFFERENT article loads into the reader (next afterSwap \u2014 re-arm for the new article), or the user manually marks the article read via m/n (avoid a double POST). If the open article is already is-read on load, do not arm.\n6. Applies uniformly wherever the reader shows an article \u2014 normal feed views AND thread-member articles (both load #article-detail into #reader-content). Do NOT arm for the BRIEF reader (briefs are not read/unread articles); ensure the timer only arms when an #article-detail with data-article-id is present, which naturally excludes briefs.\n\nCONSTRAINTS\n- Do NOT change existing keyboard shortcuts, manual read/unread, or any other behavior. Additive only.\n- No new backend read endpoint \u2014 reuse the existing POST \"/article/<id>/read\" exactly as the m key does.\n- Never fire while the tab is hidden; never fire more than once per open; never fire for an already-read article or a brief.\n- If WEB_AUTO_READ_SECONDS=0 the feature is fully off (no timers armed).\n\nREGRESSION / VERIFICATION\n- Automated (pytest, testable): assert the web app exposes WEB_AUTO_READ_SECONDS with default 5; assert the rendered page surfaces the configured value to the client (the chosen data attribute / inline global is present with the value), and that when set to 0 the page reflects the disabled state (value 0 present) so the JS gate has something to test against. Add/adjust a settings test for the new field and its default.\n- The dwell-timer + visibility behavior itself is client-side JS and is NOT unit-testable in this package (Alpine/JS has no test harness here). State clearly in the handoff that BROWSER VERIFICATION is required: open an unread article and wait 5s without interacting -> it becomes read (card round indicator flips, sidebar unread count drops) while the reader stays open; open and close within <5s -> stays unread; open, switch browser tabs before 5s of visible time, come back -> only visible time counts; set WEB_AUTO_READ_SECONDS=0 -> nothing auto-marks; confirm manual m/n and 'v'/'c' still work.\n\nFILES: packages/aggregator-web/src/aggregator_web/static/app.js (timer logic), the web service Settings subclass (new WEB_AUTO_READ_SECONDS field), packages/aggregator-web/src/aggregator_web/templates/shell.html (surface value to client), CLAUDE.md (web settings table), .env.example if present. Reference: app.py:212-233 (read route OOB swap), app.js:60-83 (manual read), app.js:278-288 (reader load), app.js:86-89 (closeReader).",
-  "status": "in_progress",
+  "status": "done",
   "bead_type": "defect",
   "parent_id": null,
   "dependencies": [],
@@ -12,39 +12,90 @@
   "feature_root_id": "B-48b5d0cf",
   "execution_branch_name": "feature/b-48b5d0cf",
   "execution_worktree_path": "/Users/oscar.renalias/Projects/personal-aggregator/packages/aggregator-web/src/aggregator_web/.takt/worktrees/B-48b5d0cf",
-  "expected_files": [],
+  "expected_files": [
+    "packages/aggregator-web/src/aggregator_web/config.py",
+    "packages/aggregator-web/src/aggregator_web/app.py",
+    "packages/aggregator-web/src/aggregator_web/static/app.js",
+    "packages/aggregator-web/src/aggregator_web/templates/shell.html",
+    "packages/aggregator-web/tests/test_routes.py",
+    "CLAUDE.md",
+    ".env.example"
+  ],
   "expected_globs": [],
-  "touched_files": [],
-  "changed_files": [],
-  "updated_docs": [],
+  "touched_files": [
+    ".env.example",
+    "CLAUDE.md",
+    "packages/aggregator-web/src/aggregator_web/app.py",
+    "packages/aggregator-web/src/aggregator_web/config.py",
+    "packages/aggregator-web/src/aggregator_web/static/app.js",
+    "packages/aggregator-web/src/aggregator_web/templates/shell.html",
+    "packages/aggregator-web/tests/test_routes.py"
+  ],
+  "changed_files": [
+    ".env.example",
+    "CLAUDE.md",
+    "packages/aggregator-web/src/aggregator_web/app.py",
+    "packages/aggregator-web/src/aggregator_web/config.py",
+    "packages/aggregator-web/src/aggregator_web/static/app.js",
+    "packages/aggregator-web/src/aggregator_web/templates/shell.html",
+    "packages/aggregator-web/tests/test_routes.py"
+  ],
+  "updated_docs": [
+    "CLAUDE.md",
+    ".env.example"
+  ],
   "handoff_summary": {
-    "completed": "",
-    "remaining": "",
-    "risks": "",
-    "verdict": "",
+    "completed": "1. Added `web_auto_read_seconds: int = Field(5, ...)` to `WebSettings` in config.py. 2. Exposed the value to all templates via `templates.env.globals[\"web_auto_read_seconds\"]` in app.py. 3. Added `data-auto-read-seconds=\"{{ web_auto_read_seconds }}\"` to `<body>` in shell.html. 4. Added `_dwell` IIFE module and `htmx:afterSwap` listener to app.js; added `_dwell.cancel()` calls in `closeReader()`, `_toggleOpenArticleRead()`, and `_markReadAndNext()`. 5. Documented `WEB_AUTO_READ_SECONDS` in CLAUDE.md settings table and .env.example. 6. Added 4 regression tests to test_routes.py.",
+    "remaining": "Browser-level verification required (cannot be automated in this package): open an unread article and wait 5s \u2014 should auto-mark read with card indicator + sidebar count updating; open and close within 5s \u2014 should stay unread; tab switch mid-timer \u2014 only visible time should count; WEB_AUTO_READ_SECONDS=0 \u2014 no auto-mark; confirm 'm'/'n'/'v'/'c' still work normally.",
+    "risks": "Low. Changes are purely additive \u2014 no existing endpoint, model, or behavior modified. The dwell timer arms only when the reader swaps in an unread #article-detail, naturally excluding briefs, threads, and already-read articles. The HTMX afterSwap listener delegates on document so it needs no per-component wiring.",
+    "verdict": "approved",
     "findings_count": 0,
-    "requires_followup": false,
-    "changed_files": [],
-    "updated_docs": [],
-    "next_action": "",
-    "next_agent": "",
+    "requires_followup": true,
+    "changed_files": [
+      ".env.example",
+      "CLAUDE.md",
+      "packages/aggregator-web/src/aggregator_web/app.py",
+      "packages/aggregator-web/src/aggregator_web/config.py",
+      "packages/aggregator-web/src/aggregator_web/static/app.js",
+      "packages/aggregator-web/src/aggregator_web/templates/shell.html",
+      "packages/aggregator-web/tests/test_routes.py"
+    ],
+    "updated_docs": [
+      "CLAUDE.md",
+      ".env.example"
+    ],
+    "next_action": "Scheduler will auto-create a -review bead. Reviewer should confirm: (a) _dwell.cancel() is called in all required cancel paths, (b) the htmx:afterSwap listener correctly checks target.id === 'reader-content', and (c) browser verification steps listed in 'remaining' are performed.",
+    "next_agent": "review",
     "block_reason": "",
-    "expected_files": [],
+    "expected_files": [
+      "packages/aggregator-web/src/aggregator_web/config.py",
+      "packages/aggregator-web/src/aggregator_web/app.py",
+      "packages/aggregator-web/src/aggregator_web/static/app.js",
+      "packages/aggregator-web/src/aggregator_web/templates/shell.html",
+      "packages/aggregator-web/tests/test_routes.py",
+      "CLAUDE.md",
+      ".env.example"
+    ],
     "expected_globs": [],
-    "touched_files": [],
-    "conflict_risks": "",
-    "design_decisions": "",
-    "test_coverage_notes": "",
-    "known_limitations": ""
+    "touched_files": [
+      ".env.example",
+      "CLAUDE.md",
+      "packages/aggregator-web/src/aggregator_web/app.py",
+      "packages/aggregator-web/src/aggregator_web/config.py",
+      "packages/aggregator-web/src/aggregator_web/static/app.js",
+      "packages/aggregator-web/src/aggregator_web/templates/shell.html",
+      "packages/aggregator-web/tests/test_routes.py"
+    ],
+    "conflict_risks": "Low: changes are confined to web package files. No shared aggregator-common or API layer changes. The only potential conflict is if another bead modifies app.js or shell.html concurrently.",
+    "design_decisions": "Root cause: feature request (new additive behavior). Implementation choices: (1) data-auto-read-seconds on &lt;body&gt; chosen over inline JS global \u2014 readable from JS without script ordering constraints and checkable in tests via attribute selectors; (2) _dwell IIFE module at top of app.js (module-level) rather than inside aggregatorApp \u2014 the dwell timer spans multiple components (articleList._loadReader, threadList._navigateToThread) and closeReader is in aggregatorApp, so a shared module-level object is the right scope; (3) htmx:afterSwap on document (delegated) rather than #reader-content directly \u2014 avoids element-not-yet-in-DOM timing issues at app.js load time; (4) visibilitychange handler inside _dwell IIFE \u2014 self-contained, no external wiring needed; (5) templates.env.globals used to surface value to all shell.html routes without modifying every route handler. Build verification: python -m py_compile on config.py and app.py \u2014 OK.",
+    "test_coverage_notes": "4 automated tests added to test_routes.py: (1) WebSettings.web_auto_read_seconds defaults to 5 \u2014 would fail before config.py change; (2) WEB_AUTO_READ_SECONDS=0 env var sets the field to 0; (3) shell GET / exposes data-auto-read-seconds=\"5\" when setting is 5 \u2014 would fail before shell.html change; (4) shell GET / exposes data-auto-read-seconds=\"0\" when setting is 0 \u2014 verifies disabled-state surface. The dwell timer + Page Visibility behavior itself is client-side JavaScript with no test harness in this package and cannot be verified by pytest. BROWSER VERIFICATION REQUIRED: see 'remaining' field.",
+    "known_limitations": "Browser verification cannot be automated in this package (no Playwright/Selenium test harness). The reviewer or operator must manually verify the dwell timer behavior in a browser."
   },
   "block_reason": "",
-  "conflict_risks": "",
+  "conflict_risks": "Low: changes are confined to web package files. No shared aggregator-common or API layer changes. The only potential conflict is if another bead modifies app.js or shell.html concurrently.",
   "branch_name": "feature/b-48b5d0cf",
   "worktree_path": "/Users/oscar.renalias/Projects/personal-aggregator/packages/aggregator-web/src/aggregator_web/.takt/worktrees/B-48b5d0cf",
-  "lease": {
-    "owner": "defect:B-48b5d0cf",
-    "expires_at": "2026-08-13T16:17:59.731644+00:00"
-  },
+  "lease": null,
   "retries": 0,
   "execution_history": [
     {
@@ -85,6 +136,13 @@
       "details": {
         "template_path": ".takt/agent-runs/B-48b5d0cf/repo/templates/agents/defect.md"
       }
+    },
+    {
+      "timestamp": "2026-08-13T15:56:47.643106+00:00",
+      "event": "completed",
+      "agent_type": "defect",
+      "summary": "Implemented auto-read dwell timer for the web UI. When an unread article has been visibly open in the reader pane for WEB_AUTO_READ_SECONDS (default 5s), a client-side timer fires the same POST /article/{id}/read request that the 'm' key uses, updating all read indicators (card, detail, sidebar) via HTMX OOB swap. The Page Visibility API pauses accumulation while the tab is hidden. Setting WEB_AUTO_READ_SECONDS=0 disables the feature entirely. All 153 test_routes.py tests pass including 4 new regression tests.",
+      "details": {}
     }
   ],
   "metadata": {
@@ -143,7 +201,87 @@
         "test_coverage_notes": "",
         "known_limitations": ""
       }
-    }
+    },
+    "last_agent_result": {
+      "outcome": "completed",
+      "summary": "Implemented auto-read dwell timer for the web UI. When an unread article has been visibly open in the reader pane for WEB_AUTO_READ_SECONDS (default 5s), a client-side timer fires the same POST /article/{id}/read request that the 'm' key uses, updating all read indicators (card, detail, sidebar) via HTMX OOB swap. The Page Visibility API pauses accumulation while the tab is hidden. Setting WEB_AUTO_READ_SECONDS=0 disables the feature entirely. All 153 test_routes.py tests pass including 4 new regression tests.",
+      "verdict": "approved",
+      "findings_count": 0,
+      "requires_followup": true,
+      "next_agent": "review",
+      "block_reason": ""
+    },
+    "telemetry": {
+      "cost_usd": 1.6060460999999995,
+      "duration_ms": 523706,
+      "duration_api_ms": 307876,
+      "num_turns": 43,
+      "input_tokens": 130,
+      "output_tokens": 18112,
+      "cache_creation_tokens": 88470,
+      "cache_read_tokens": 2660237,
+      "stop_reason": "tool_use",
+      "session_id": "bb04c807-7765-48c3-b147-724141bb6223",
+      "permission_denials": [
+        {
+          "tool_name": "Read",
+          "tool_use_id": "toolu_018nUTNDZd4uQvmwkX6SUkhZ",
+          "tool_input": {
+            "file_path": "/Users/oscar.renalias/Projects/personal-aggregator/packages/aggregator-web/src/aggregator_web/.takt/worktrees/B-48b5d0cf/.env.example"
+          }
+        },
+        {
+          "tool_name": "Read",
+          "tool_use_id": "toolu_017dYCPjBWztew7Zpt3cmwDG",
+          "tool_input": {
+            "file_path": "/Users/oscar.renalias/Projects/personal-aggregator/packages/aggregator-web/src/aggregator_web/.takt/worktrees/B-48b5d0cf/.env.example",
+            "offset": 60,
+            "limit": 15
+          }
+        }
+      ],
+      "prompt_chars": 16071,
+      "prompt_lines": 200,
+      "source": "provider",
+      "attempt": 1
+    },
+    "telemetry_history": [
+      {
+        "cost_usd": 1.6060460999999995,
+        "duration_ms": 523706,
+        "duration_api_ms": 307876,
+        "num_turns": 43,
+        "input_tokens": 130,
+        "output_tokens": 18112,
+        "cache_creation_tokens": 88470,
+        "cache_read_tokens": 2660237,
+        "stop_reason": "tool_use",
+        "session_id": "bb04c807-7765-48c3-b147-724141bb6223",
+        "permission_denials": [
+          {
+            "tool_name": "Read",
+            "tool_use_id": "toolu_018nUTNDZd4uQvmwkX6SUkhZ",
+            "tool_input": {
+              "file_path": "/Users/oscar.renalias/Projects/personal-aggregator/packages/aggregator-web/src/aggregator_web/.takt/worktrees/B-48b5d0cf/.env.example"
+            }
+          },
+          {
+            "tool_name": "Read",
+            "tool_use_id": "toolu_017dYCPjBWztew7Zpt3cmwDG",
+            "tool_input": {
+              "file_path": "/Users/oscar.renalias/Projects/personal-aggregator/packages/aggregator-web/src/aggregator_web/.takt/worktrees/B-48b5d0cf/.env.example",
+              "offset": 60,
+              "limit": 15
+            }
+          }
+        ],
+        "prompt_chars": 16071,
+        "prompt_lines": 200,
+        "source": "provider",
+        "attempt": 1
+      }
+    ],
+    "last_commit": "aa0b6d76b8f2b220afda2eec102b17eebe5e3977"
   },
   "labels": [],
   "recovery_for": null,
