@@ -3,7 +3,7 @@
   "title": "Web UI: auto-mark article read after dwelling in the reader for WEB_AUTO_READ_SECONDS (default 5s)",
   "agent_type": "defect",
   "description": "FEATURE (web UI \u2014 packages/aggregator-web/, HTMX + Alpine.js; NOT the TUI)\nAutomatically mark an article as read once it has been OPEN in the reader pane for a configurable dwell time (default 5 seconds). Motivation: the user skims an opened article for a few seconds and moves on, but without pressing 'm'/'n' it stays unread and clutters the Unread filter. This adds a client-side dwell timer that reuses the EXISTING read endpoint so all read indicators update dynamically. Purely additive; must not change any existing behavior.\n\nCONFIG (one backend touch only)\nAdd a new web setting WEB_AUTO_READ_SECONDS (on the web service Settings subclass; WEB_ prefix), integer seconds, DEFAULT 5. Value 0 DISABLES the feature entirely (no timer wiring emitted / timer never armed). Inject this value into the page so the client JS can read it (e.g. render it into a data-* attribute on a stable element such as <body>/app root, or a small inline JS global in shell.html \u2014 follow however other WEB_* values are already surfaced to the client if any). Document the new var in CLAUDE.md's web settings table and in .env.example if that is where such vars live.\n\nBEHAVIOR (client-side, in static/app.js within the aggregatorApp component)\nReader open flow today: _loadReader(id) does htmx.ajax GET on the URL \"/article/<id>\" into #reader-content and adds body.reader-open (app.js:278-288). The swapped-in #article-detail carries data-article-id and an is-read class. Manual read is _toggleOpenArticleRead()/_markReadAndNext() (app.js:60-83), which call htmx.ajax POST on \"/article/<id>/read\" (or \"/unread\") with { target:'#article-detail', swap:'outerHTML' }. The read route (app.py:212-233) returns the refreshed #article-detail PLUS the matching _article_card.html rendered oob=True (hx-swap-oob) AND sets HX-Trigger: refreshSidebar \u2014 so the read/unread round indicator on both the card and the detail, and the sidebar counts, all update live.\n\nImplement auto-read as:\n1. Read WEB_AUTO_READ_SECONDS on load. If 0, do nothing (feature off).\n2. When an #article-detail is present/swapped into the reader AND it does NOT have the is-read class, ARM a dwell timer for that article id. Good hook points: the existing reader-content htmx:afterSwap (see app.js:286 where scrollTop is reset), or an equivalent afterSwap/observer on #reader-content \u2014 arm the timer there after confirming #article-detail exists and lacks is-read.\n3. Only accumulate DWELL TIME WHILE THE TAB IS VISIBLE. Use the Page Visibility API (document.hidden / visibilitychange): pause accumulation when hidden, resume when visible. Do NOT reset progress on a brief tab switch \u2014 accumulate visible elapsed time so a quick switch away and back does not lose progress and does not falsely fire while hidden. (A timestamp-accumulator or a paused/resumed timer are both acceptable as long as only visible time counts.)\n4. When accumulated visible time reaches WEB_AUTO_READ_SECONDS, fire the SAME request the manual path uses:\n     htmx.ajax POST on the URL \"/article/<id>/read\" with { target: '#article-detail', swap: 'outerHTML' }\n   where <id> is the open article's data-article-id. This MUST be the htmx.ajax call with target #article-detail (NOT a bare fetch), so the OOB card swap + the refreshSidebar HX-Trigger run and every read indicator (list card round indicator, reader detail, sidebar counts) updates dynamically. One-shot per open.\n5. CANCEL / disarm the pending timer when any of these happen before it fires: the reader closes (reader:closed event / body loses reader-open \u2014 see closeReader app.js:86-89), a DIFFERENT article loads into the reader (next afterSwap \u2014 re-arm for the new article), or the user manually marks the article read via m/n (avoid a double POST). If the open article is already is-read on load, do not arm.\n6. Applies uniformly wherever the reader shows an article \u2014 normal feed views AND thread-member articles (both load #article-detail into #reader-content). Do NOT arm for the BRIEF reader (briefs are not read/unread articles); ensure the timer only arms when an #article-detail with data-article-id is present, which naturally excludes briefs.\n\nCONSTRAINTS\n- Do NOT change existing keyboard shortcuts, manual read/unread, or any other behavior. Additive only.\n- No new backend read endpoint \u2014 reuse the existing POST \"/article/<id>/read\" exactly as the m key does.\n- Never fire while the tab is hidden; never fire more than once per open; never fire for an already-read article or a brief.\n- If WEB_AUTO_READ_SECONDS=0 the feature is fully off (no timers armed).\n\nREGRESSION / VERIFICATION\n- Automated (pytest, testable): assert the web app exposes WEB_AUTO_READ_SECONDS with default 5; assert the rendered page surfaces the configured value to the client (the chosen data attribute / inline global is present with the value), and that when set to 0 the page reflects the disabled state (value 0 present) so the JS gate has something to test against. Add/adjust a settings test for the new field and its default.\n- The dwell-timer + visibility behavior itself is client-side JS and is NOT unit-testable in this package (Alpine/JS has no test harness here). State clearly in the handoff that BROWSER VERIFICATION is required: open an unread article and wait 5s without interacting -> it becomes read (card round indicator flips, sidebar unread count drops) while the reader stays open; open and close within <5s -> stays unread; open, switch browser tabs before 5s of visible time, come back -> only visible time counts; set WEB_AUTO_READ_SECONDS=0 -> nothing auto-marks; confirm manual m/n and 'v'/'c' still work.\n\nFILES: packages/aggregator-web/src/aggregator_web/static/app.js (timer logic), the web service Settings subclass (new WEB_AUTO_READ_SECONDS field), packages/aggregator-web/src/aggregator_web/templates/shell.html (surface value to client), CLAUDE.md (web settings table), .env.example if present. Reference: app.py:212-233 (read route OOB swap), app.js:60-83 (manual read), app.js:278-288 (reader load), app.js:86-89 (closeReader).",
-  "status": "ready",
+  "status": "in_progress",
   "bead_type": "defect",
   "parent_id": null,
   "dependencies": [],
@@ -39,9 +39,12 @@
   },
   "block_reason": "",
   "conflict_risks": "",
-  "branch_name": "",
-  "worktree_path": "",
-  "lease": null,
+  "branch_name": "feature/b-48b5d0cf",
+  "worktree_path": "/Users/oscar.renalias/Projects/personal-aggregator/packages/aggregator-web/src/aggregator_web/.takt/worktrees/B-48b5d0cf",
+  "lease": {
+    "owner": "defect:B-48b5d0cf",
+    "expires_at": "2026-08-13T16:17:59.731644+00:00"
+  },
   "retries": 0,
   "execution_history": [
     {
@@ -50,9 +53,46 @@
       "agent_type": "scheduler",
       "summary": "Bead created",
       "details": {}
+    },
+    {
+      "timestamp": "2026-08-13T15:48:01.260012+00:00",
+      "event": "skills_loaded",
+      "agent_type": "defect",
+      "summary": "Loaded 6 skill(s) for isolated execution",
+      "details": {
+        "loaded_skills": [
+          "core/base-orchestrator",
+          "role/defect-fix",
+          "capability/code-edit",
+          "capability/test-execution",
+          "task/corrective-implementation",
+          "memory"
+        ]
+      }
+    },
+    {
+      "timestamp": "2026-08-13T15:48:01.260033+00:00",
+      "event": "started",
+      "agent_type": "defect",
+      "summary": "Worker started",
+      "details": {}
     }
   ],
-  "metadata": {},
+  "metadata": {
+    "execution_root": "/Users/oscar.renalias/Projects/personal-aggregator/packages/aggregator-web/src/aggregator_web/.takt/agent-runs/B-48b5d0cf",
+    "workspace_repo_path": "repo",
+    "loaded_skills": [
+      "core/base-orchestrator",
+      "role/defect-fix",
+      "capability/code-edit",
+      "capability/test-execution",
+      "task/corrective-implementation",
+      "memory"
+    ],
+    "skill_bundle_hash": "1ce020489b102314f2c9c90bb5e29ff81b9b1b791eb626c3d9884ff48af8a294",
+    "isolated_home": "/Users/oscar.renalias/Projects/personal-aggregator/packages/aggregator-web/src/aggregator_web/.takt/agent-runs/B-48b5d0cf/home",
+    "runner_backend": "claude"
+  },
   "labels": [],
   "recovery_for": null,
   "priority": null
