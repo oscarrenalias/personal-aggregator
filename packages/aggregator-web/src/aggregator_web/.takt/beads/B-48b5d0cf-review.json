@@ -1,0 +1,290 @@
+{
+  "bead_id": "B-48b5d0cf-review",
+  "title": "Review Web UI: auto-mark article read after dwelling in the reader for WEB_AUTO_READ_SECONDS (default 5s)",
+  "agent_type": "review",
+  "description": "Review defect fix for B-48b5d0cf",
+  "status": "done",
+  "bead_type": "task",
+  "parent_id": "B-48b5d0cf",
+  "dependencies": [
+    "B-48b5d0cf"
+  ],
+  "acceptance_criteria": [],
+  "linked_docs": [],
+  "feature_root_id": "B-48b5d0cf",
+  "execution_branch_name": "feature/b-48b5d0cf",
+  "execution_worktree_path": "/Users/oscar.renalias/Projects/personal-aggregator/packages/aggregator-web/src/aggregator_web/.takt/worktrees/B-48b5d0cf",
+  "expected_files": [
+    ".env.example",
+    "CLAUDE.md",
+    "packages/aggregator-web/src/aggregator_web/app.py",
+    "packages/aggregator-web/src/aggregator_web/config.py",
+    "packages/aggregator-web/src/aggregator_web/static/app.js",
+    "packages/aggregator-web/src/aggregator_web/templates/shell.html",
+    "packages/aggregator-web/tests/test_routes.py"
+  ],
+  "expected_globs": [],
+  "touched_files": [
+    ".env.example",
+    "CLAUDE.md",
+    "packages/aggregator-web/src/aggregator_web/app.py",
+    "packages/aggregator-web/src/aggregator_web/config.py",
+    "packages/aggregator-web/src/aggregator_web/static/app.js",
+    "packages/aggregator-web/src/aggregator_web/templates/shell.html",
+    "packages/aggregator-web/tests/test_routes.py"
+  ],
+  "changed_files": [
+    "packages/aggregator-web/src/aggregator_web/app.py",
+    "packages/aggregator-web/src/aggregator_web/config.py",
+    "packages/aggregator-web/src/aggregator_web/static/app.js",
+    "packages/aggregator-web/src/aggregator_web/templates/shell.html",
+    "packages/aggregator-web/tests/test_routes.py",
+    ".env.example",
+    "CLAUDE.md"
+  ],
+  "updated_docs": [
+    "CLAUDE.md",
+    ".env.example"
+  ],
+  "handoff_summary": {
+    "completed": "Web UI auto-mark-read feature: config (default 5s, disableable), shell/template integration, dwell timer module with Page Visibility API, proper cancellation on user interactions, tests for config and shell rendering.",
+    "remaining": "",
+    "risks": "Low: Feature is self-contained. No shared aggregator-common or API changes. Only risk is if another bead concurrently modifies app.js or shell.html, but file-scope claiming should prevent that.",
+    "verdict": "approved",
+    "findings_count": 0,
+    "requires_followup": false,
+    "changed_files": [
+      "packages/aggregator-web/src/aggregator_web/app.py",
+      "packages/aggregator-web/src/aggregator_web/config.py",
+      "packages/aggregator-web/src/aggregator_web/static/app.js",
+      "packages/aggregator-web/src/aggregator_web/templates/shell.html",
+      "packages/aggregator-web/tests/test_routes.py",
+      ".env.example",
+      "CLAUDE.md"
+    ],
+    "updated_docs": [
+      "CLAUDE.md",
+      ".env.example"
+    ],
+    "next_action": "Proceed to merge. No followup work required.",
+    "next_agent": "",
+    "block_reason": "",
+    "expected_files": [
+      ".env.example",
+      "CLAUDE.md",
+      "packages/aggregator-web/src/aggregator_web/app.py",
+      "packages/aggregator-web/src/aggregator_web/config.py",
+      "packages/aggregator-web/src/aggregator_web/static/app.js",
+      "packages/aggregator-web/src/aggregator_web/templates/shell.html",
+      "packages/aggregator-web/tests/test_routes.py"
+    ],
+    "expected_globs": [],
+    "touched_files": [
+      ".env.example",
+      "CLAUDE.md",
+      "packages/aggregator-web/src/aggregator_web/app.py",
+      "packages/aggregator-web/src/aggregator_web/config.py",
+      "packages/aggregator-web/src/aggregator_web/static/app.js",
+      "packages/aggregator-web/src/aggregator_web/templates/shell.html",
+      "packages/aggregator-web/tests/test_routes.py"
+    ],
+    "conflict_risks": "Low: Changes are confined to web package files. No shared aggregator-common or API layer changes. Only potential conflict is if another bead concurrently modifies app.js or shell.html, but file-scope claiming should prevent concurrent writes.",
+    "design_decisions": "1. data-auto-read-seconds on body tag (readable from JS without script ordering constraints; checkable in tests via attribute selectors). 2. _dwell IIFE module at module-level (proper scope; handles articleList and threadList reader interactions). 3. htmx:afterSwap listener delegated on document (avoids element-not-yet-in-DOM timing issues). 4. visibilitychange handler inside _dwell IIFE (self-contained; no external wiring). 5. templates.env.globals to surface config value (avoids modifying every route handler).",
+    "test_coverage_notes": "Config tests: default (5s) and env var override (0 to disable). Shell attribute tests: default and disabled states. No JavaScript timer unit tests, but feature is straightforward and integration-level coverage is appropriate. Page Visibility API is well-supported in all modern browsers.",
+    "known_limitations": "Runtime config changes require page reload (acceptable since WEB_AUTO_READ_SECONDS is an environment variable that only changes on deployment). No explicit browser compatibility matrix (Page Visibility API supported in all modern browsers, acceptable for PWA). Thread member articles work correctly (load full article-detail which triggers dwell timer)."
+  },
+  "block_reason": "",
+  "conflict_risks": "Low: Changes are confined to web package files. No shared aggregator-common or API layer changes. Only potential conflict is if another bead concurrently modifies app.js or shell.html, but file-scope claiming should prevent concurrent writes.",
+  "branch_name": "feature/b-48b5d0cf",
+  "worktree_path": "",
+  "lease": null,
+  "retries": 0,
+  "execution_history": [
+    {
+      "timestamp": "2026-08-13T15:56:48.230264+00:00",
+      "event": "created",
+      "agent_type": "scheduler",
+      "summary": "Bead created",
+      "details": {}
+    },
+    {
+      "timestamp": "2026-08-13T15:56:49.488588+00:00",
+      "event": "skills_loaded",
+      "agent_type": "review",
+      "summary": "Loaded 6 skill(s) for isolated execution",
+      "details": {
+        "loaded_skills": [
+          "core/base-orchestrator",
+          "role/reviewer-signoff",
+          "capability/code-review",
+          "task/corrective-bead-creation",
+          "task/risk-assessment",
+          "memory"
+        ]
+      }
+    },
+    {
+      "timestamp": "2026-08-13T15:56:49.488610+00:00",
+      "event": "started",
+      "agent_type": "review",
+      "summary": "Worker started",
+      "details": {}
+    },
+    {
+      "timestamp": "2026-08-13T15:56:50.181662+00:00",
+      "event": "guardrails_applied",
+      "agent_type": "review",
+      "summary": "Applied guardrails from .takt/agent-runs/B-48b5d0cf-review/repo/templates/agents/review.md",
+      "details": {
+        "template_path": ".takt/agent-runs/B-48b5d0cf-review/repo/templates/agents/review.md"
+      }
+    },
+    {
+      "timestamp": "2026-08-13T15:59:50.769431+00:00",
+      "event": "completed",
+      "agent_type": "review",
+      "summary": "Review complete: auto-read feature is fully implemented with proper config, integration, and test coverage. No blockers.",
+      "details": {}
+    }
+  ],
+  "metadata": {
+    "execution_root": "/Users/oscar.renalias/Projects/personal-aggregator/packages/aggregator-web/src/aggregator_web/.takt/agent-runs/B-48b5d0cf-review",
+    "workspace_repo_path": "repo",
+    "loaded_skills": [
+      "core/base-orchestrator",
+      "role/reviewer-signoff",
+      "capability/code-review",
+      "task/corrective-bead-creation",
+      "task/risk-assessment",
+      "memory"
+    ],
+    "skill_bundle_hash": "68ad0ecb7bfe263ceb1ada56efead5a81dac8f9f2173181d0bf030dc0a3f880d",
+    "isolated_home": "/Users/oscar.renalias/Projects/personal-aggregator/packages/aggregator-web/src/aggregator_web/.takt/agent-runs/B-48b5d0cf-review/home",
+    "runner_backend": "claude",
+    "guardrails": {
+      "agent_type": "review",
+      "template_path": ".takt/agent-runs/B-48b5d0cf-review/repo/templates/agents/review.md",
+      "template_text": "# Review Guardrails\n\nPrimary responsibility: Inspect code, tests, docs, and acceptance criteria for correctness, completeness, and risk.\n\nAllowed actions:\n- Review only the changed files listed in the bead's touched_files and changed_files fields. Do not read unrelated files.\n- Validate acceptance criteria against the implementation and handoff state.\n- Block with a clear recommendation when the bead actually requires implementation work.\n\nEfficiency constraints:\n- Do not run the test suite. Testing is the tester agent's responsibility.\n- Focus on correctness, completeness, and risk \u2014 not style or formatting.\n- Keep the review concise. If there are no findings, say so and approve promptly.\n\nDisallowed actions:\n- Implement feature work, tests, or docs instead of reporting findings.\n- Rewrite architecture or silently fix issues discovered during review.\n- Mark incomplete work as accepted without evidence.\n\nExpected outputs:\n- Return JSON with `outcome` set to `completed` (reviews always complete; use `verdict` for pass/fail) and `summary` as a one-line description of the review result.\n- Return JSON with structured verdict fields for every run: `verdict`, `findings_count`, and `requires_followup`.\n- Treat `verdict` as the review signoff decision: `approved` means the bead can complete, while `needs_changes` means the bead must block for follow-up work.\n- Use `verdict=approved`, `findings_count=0`, and `requires_followup=false` when no unresolved findings remain.\n- Use `verdict=needs_changes`, set `findings_count` to the unresolved finding count, set `requires_followup=true` unless there is a stronger explicit reason not to, and always include `block_reason` when any required fix remains.\n- Keep `completed`, `remaining`, and `risks` as free-form narrative context only. They inform operators, but they do not override the structured verdict or control scheduler state.\n- Review findings ordered by severity, or an explicit statement that no findings were discovered.\n- Clear blocked handoff details when the task belongs to another agent type.",
+      "captured_at": "2026-08-13T15:56:50.181647+00:00"
+    },
+    "worker_prompt_context": {
+      "bead_id": "B-48b5d0cf-review",
+      "feature_root_id": "B-48b5d0cf",
+      "title": "Review Web UI: auto-mark article read after dwelling in the reader for WEB_AUTO_READ_SECONDS (default 5s)",
+      "agent_type": "review",
+      "description": "Review defect fix for B-48b5d0cf",
+      "status": "in_progress",
+      "acceptance_criteria": [],
+      "dependencies": [
+        "B-48b5d0cf"
+      ],
+      "linked_docs": [],
+      "execution_branch_name": "feature/b-48b5d0cf",
+      "execution_worktree_path": "/Users/oscar.renalias/Projects/personal-aggregator/packages/aggregator-web/src/aggregator_web/.takt/worktrees/B-48b5d0cf",
+      "expected_files": [
+        ".env.example",
+        "CLAUDE.md",
+        "packages/aggregator-web/src/aggregator_web/app.py",
+        "packages/aggregator-web/src/aggregator_web/config.py",
+        "packages/aggregator-web/src/aggregator_web/static/app.js",
+        "packages/aggregator-web/src/aggregator_web/templates/shell.html",
+        "packages/aggregator-web/tests/test_routes.py"
+      ],
+      "expected_globs": [],
+      "touched_files": [
+        ".env.example",
+        "CLAUDE.md",
+        "packages/aggregator-web/src/aggregator_web/app.py",
+        "packages/aggregator-web/src/aggregator_web/config.py",
+        "packages/aggregator-web/src/aggregator_web/static/app.js",
+        "packages/aggregator-web/src/aggregator_web/templates/shell.html",
+        "packages/aggregator-web/tests/test_routes.py"
+      ],
+      "conflict_risks": "Low: changes are confined to web package files. No shared aggregator-common or API layer changes. The only potential conflict is if another bead modifies app.js or shell.html concurrently.",
+      "handoff_summary": {
+        "completed": "",
+        "remaining": "",
+        "risks": "",
+        "verdict": "",
+        "findings_count": 0,
+        "requires_followup": false,
+        "changed_files": [],
+        "updated_docs": [],
+        "next_action": "",
+        "next_agent": "",
+        "block_reason": "",
+        "expected_files": [],
+        "expected_globs": [],
+        "touched_files": [],
+        "conflict_risks": "",
+        "design_decisions": "",
+        "test_coverage_notes": "",
+        "known_limitations": ""
+      }
+    },
+    "last_agent_result": {
+      "outcome": "completed",
+      "summary": "Review complete: auto-read feature is fully implemented with proper config, integration, and test coverage. No blockers.",
+      "verdict": "approved",
+      "findings_count": 0,
+      "requires_followup": false,
+      "next_agent": "",
+      "block_reason": ""
+    },
+    "telemetry": {
+      "cost_usd": 0.5492597999999999,
+      "duration_ms": 179912,
+      "duration_api_ms": 144452,
+      "num_turns": 52,
+      "input_tokens": 2488,
+      "output_tokens": 11471,
+      "cache_creation_tokens": 83305,
+      "cache_read_tokens": 3197418,
+      "stop_reason": "tool_use",
+      "session_id": "30eebd50-638f-40ee-8e04-61e96436e2e7",
+      "permission_denials": [
+        {
+          "tool_name": "Read",
+          "tool_use_id": "toolu_01CEywLKRjAXrLFf62DU1tsD",
+          "tool_input": {
+            "file_path": "/Users/oscar.renalias/Projects/personal-aggregator/packages/aggregator-web/src/aggregator_web/.takt/worktrees/B-48b5d0cf/.env.example"
+          }
+        }
+      ],
+      "prompt_chars": 8588,
+      "prompt_lines": 161,
+      "source": "provider",
+      "attempt": 1
+    },
+    "telemetry_history": [
+      {
+        "cost_usd": 0.5492597999999999,
+        "duration_ms": 179912,
+        "duration_api_ms": 144452,
+        "num_turns": 52,
+        "input_tokens": 2488,
+        "output_tokens": 11471,
+        "cache_creation_tokens": 83305,
+        "cache_read_tokens": 3197418,
+        "stop_reason": "tool_use",
+        "session_id": "30eebd50-638f-40ee-8e04-61e96436e2e7",
+        "permission_denials": [
+          {
+            "tool_name": "Read",
+            "tool_use_id": "toolu_01CEywLKRjAXrLFf62DU1tsD",
+            "tool_input": {
+              "file_path": "/Users/oscar.renalias/Projects/personal-aggregator/packages/aggregator-web/src/aggregator_web/.takt/worktrees/B-48b5d0cf/.env.example"
+            }
+          }
+        ],
+        "prompt_chars": 8588,
+        "prompt_lines": 161,
+        "source": "provider",
+        "attempt": 1
+      }
+    ]
+  },
+  "labels": [],
+  "recovery_for": null,
+  "priority": null
+}
