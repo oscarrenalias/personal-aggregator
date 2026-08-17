@@ -1,108 +1,65 @@
 /* app.js — Alpine.js component definitions for Personal Aggregator */
 
-/* ── Dwell-read timer ───────────────────────────────────────────────────────
-   Accumulates visible-tab time while an unread article is open in the reader
-   pane and fires an auto-read POST when the threshold is reached.
-   Page Visibility API pauses accumulation while the tab is hidden so hidden
-   time never counts toward the threshold.
+/* ── Auto-read DOM-polling observer ─────────────────────────────────────────
+   Polls once per second. Accumulates visible dwell time while an unread
+   article is open and fires auto-read POST when the threshold is reached.
+   No swap-timing dependency — replaces the fragile htmx:afterSwap arm/cancel
+   that caused every-other-article misses on consecutive navigation.
 
-   Public API: _dwell.arm(articleId, seconds) / _dwell.cancel()
+   State:
+     _dwellTrackedId  — article id string currently being timed (null = none)
+     _dwellVisibleMs  — accumulated visible milliseconds for trackedId
+     _dwellLastTick   — Date.now() at the previous tick (for delta calculation)
+     _dwellFired      — Set of article ids already auto-marked; fire exactly once
+
+   Each tick (~1 s):
+     1. If autoReadSeconds <= 0 → feature disabled; reset and return.
+     2. If reader is not open OR tab is hidden → advance lastTick, return (no accumulation).
+     3. Locate #reader-content #article-detail; if missing, already-read, or no id → same.
+     4. If article id changed → reset counters for new article; return (start fresh next tick).
+     5. Accumulate min(delta, 2000) ms (cap prevents over-count after a throttled gap).
+     6. If threshold reached and not yet fired → add to fired set and POST read.
    ─────────────────────────────────────────────────────────────────────────── */
-const _dwell = (() => {
-  let _timerId = null;
-  let _articleId = null;
-  let _targetMs = 0;
-  let _accumulated = 0;    // ms of confirmed visible dwell
-  let _visibleSince = null; // Date.now() timestamp when visible counting started
+let _dwellTrackedId = null;
+let _dwellVisibleMs = 0;
+let _dwellLastTick = Date.now();
+const _dwellFired = new Set();
 
-  function _schedule() {
-    const remaining = Math.max(_targetMs - _accumulated, 0);
-    _timerId = setTimeout(_onTimer, remaining + 50);
+setInterval(() => {
+  const seconds = parseInt(document.body.dataset.autoReadSeconds || '0', 10);
+  if (seconds <= 0) {
+    _dwellTrackedId = null;
+    _dwellVisibleMs = 0;
+    _dwellLastTick = Date.now();
+    return;
   }
-
-  function _onTimer() {
-    _timerId = null;
-    if (!_articleId) return;
-    // Tally any time elapsed since we last noted a visible-start
-    if (!document.hidden && _visibleSince !== null) {
-      const now = Date.now();
-      _accumulated += now - _visibleSince;
-      _visibleSince = now;
-    }
-    if (_accumulated >= _targetMs) {
-      _fire();
-    } else {
-      _schedule();
-    }
+  const now = Date.now();
+  if (!document.body.classList.contains('reader-open') || document.hidden) {
+    _dwellLastTick = now;
+    return;
   }
-
-  function _fire() {
-    const id = _articleId;
-    cancel();
-    htmx.ajax('POST', `/article/${id}/read`, {
+  const detail = document.querySelector('#reader-content #article-detail');
+  if (!detail || detail.classList.contains('is-read') || !detail.dataset.articleId) {
+    _dwellLastTick = now;
+    return;
+  }
+  const id = detail.dataset.articleId;
+  if (id !== _dwellTrackedId) {
+    _dwellTrackedId = id;
+    _dwellVisibleMs = 0;
+    _dwellLastTick = now;
+    return;
+  }
+  _dwellVisibleMs += Math.min(now - _dwellLastTick, 2000);
+  _dwellLastTick = now;
+  if (_dwellVisibleMs >= seconds * 1000 && !_dwellFired.has(id)) {
+    _dwellFired.add(id);
+    htmx.ajax('POST', '/article/' + id + '/read', {
       target: '#article-detail',
       swap: 'outerHTML',
     });
   }
-
-  function arm(articleId, seconds) {
-    cancel();
-    if (!articleId || seconds <= 0) return;
-    _articleId = articleId;
-    _targetMs = seconds * 1000;
-    _accumulated = 0;
-    _visibleSince = document.hidden ? null : Date.now();
-    _schedule();
-  }
-
-  function cancel() {
-    if (_timerId !== null) {
-      clearTimeout(_timerId);
-      _timerId = null;
-    }
-    _articleId = null;
-    _accumulated = 0;
-    _visibleSince = null;
-  }
-
-  // Pause accumulation when the tab is hidden; resume when it becomes visible.
-  document.addEventListener('visibilitychange', () => {
-    if (!_articleId) return;
-    if (document.hidden) {
-      if (_visibleSince !== null) {
-        _accumulated += Date.now() - _visibleSince;
-        _visibleSince = null;
-      }
-      if (_timerId !== null) {
-        clearTimeout(_timerId);
-        _timerId = null;
-      }
-    } else {
-      _visibleSince = Date.now();
-      _schedule();
-    }
-  });
-
-  return { arm, cancel };
-})();
-
-/* When reader content is swapped, arm the dwell timer if an unread article
-   detail is present (auto-read is off when WEB_AUTO_READ_SECONDS = 0).
-   Fires for any content swap into #reader-content, including thread-member
-   articles; naturally skips briefs because they carry no #article-detail. */
-document.addEventListener('htmx:afterSwap', (event) => {
-  if (event.detail.target.id !== 'reader-content') return;
-  // Only (re)arm or cancel on GET loads; POST swaps (e.g. late-arriving auto-read
-  // response) must not kill the timer already armed for the next article.
-  if (event.detail.requestConfig && event.detail.requestConfig.verb !== 'get') return;
-  const seconds = parseInt(document.body.dataset.autoReadSeconds || '0', 10);
-  if (seconds <= 0) { _dwell.cancel(); return; }
-  const detail = event.detail.target.querySelector('#article-detail');
-  if (!detail) { _dwell.cancel(); return; }
-  const id = detail.dataset.articleId;
-  if (!id || detail.classList.contains('is-read')) { _dwell.cancel(); return; }
-  _dwell.arm(parseInt(id, 10), seconds);
-});
+}, 1000);
 
 /* ── Root app component (bound to <body> in shell.html) ────────────────────
    Manages: sidebar drawer state, keyboard shortcuts help overlay (? key),
@@ -165,7 +122,6 @@ function aggregatorApp() {
       const detail = document.getElementById('article-detail');
       const id = detail?.dataset.articleId;
       if (!id) return;
-      _dwell.cancel();
       const isRead = detail.classList.contains('is-read');
       const action = isRead ? 'unread' : 'read';
       htmx.ajax('POST', `/article/${id}/${action}`, {
@@ -179,7 +135,6 @@ function aggregatorApp() {
       const detail = document.getElementById('article-detail');
       const id = detail?.dataset.articleId;
       if (id && !detail.classList.contains('is-read')) {
-        _dwell.cancel();
         htmx.ajax('POST', `/article/${id}/read`, {
           target: '#article-detail',
           swap: 'outerHTML',
@@ -190,7 +145,6 @@ function aggregatorApp() {
 
     /* Remove reader-open from body and notify articleList to clear selection. */
     closeReader() {
-      _dwell.cancel();
       document.body.classList.remove('reader-open');
       window.dispatchEvent(new CustomEvent('reader:closed'));
     },
