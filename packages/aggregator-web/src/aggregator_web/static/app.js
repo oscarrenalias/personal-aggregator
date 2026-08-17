@@ -92,6 +92,9 @@ const _dwell = (() => {
    articles; naturally skips briefs because they carry no #article-detail. */
 document.addEventListener('htmx:afterSwap', (event) => {
   if (event.detail.target.id !== 'reader-content') return;
+  // Only (re)arm or cancel on GET loads; POST swaps (e.g. late-arriving auto-read
+  // response) must not kill the timer already armed for the next article.
+  if (event.detail.requestConfig && event.detail.requestConfig.verb !== 'get') return;
   const seconds = parseInt(document.body.dataset.autoReadSeconds || '0', 10);
   if (seconds <= 0) { _dwell.cancel(); return; }
   const detail = event.detail.target.querySelector('#article-detail');
