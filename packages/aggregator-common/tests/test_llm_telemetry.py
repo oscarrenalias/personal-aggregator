@@ -161,6 +161,23 @@ class TestSuccessEvent:
         assert row is not None
         assert float(row.cost_usd) == 0.0
 
+    def test_success_uses_requested_alias_not_resolved_snapshot(self, db_session_factory, session):
+        """Success rows record kwargs['model'] (the requested alias) so success and failure
+        rows are consistent — regression for the split where success used response_obj.model
+        (the dated snapshot like 'gpt-4.1-mini-2025-04-14') while failure used the alias."""
+        logger = LlmTelemetryLogger(db_session_factory)
+        kwargs = _make_kwargs(model="gpt-4.1-mini")
+        # Simulate provider resolving the alias to a dated snapshot in the response
+        response = _make_response(model="gpt-4.1-mini-2025-04-14")
+        with patch("aggregator_common.llm_telemetry.litellm.completion_cost", return_value=0.0):
+            asyncio.run(logger.async_log_success_event(kwargs, response, _START, _NOW))
+
+        row = session.execute(select(LlmCall)).scalars().first()
+        assert row is not None
+        assert row.model == "gpt-4.1-mini", (
+            "Success rows must record the requested alias, not the provider-resolved snapshot name"
+        )
+
 
 # ---------------------------------------------------------------------------
 # Failure event

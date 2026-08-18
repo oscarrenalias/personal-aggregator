@@ -28,15 +28,17 @@ logger = logging.getLogger(__name__)
 _ADVISORY_LOCK_KEY = 1129855059
 
 
-def _make_llm_facts_fn(settings: ClustererSettings) -> Callable[[list[str]], list[str]]:
+def _make_llm_facts_fn(settings: ClustererSettings) -> Callable[[list[str]], list[str] | None]:
     """Return a litellm-backed known_facts summariser for the facts consolidation pass.
 
-    Fail-open: returns the original facts on any LLM or parse error so a bad
-    response never corrupts the thread's fact list.
+    Returns None on any LLM or parse error (fail-open signal) so consolidate.py
+    can keep facts unchanged and record the attempt in known_facts_condensed_len
+    to prevent perpetual retry on the same unchanged list.
     """
-    target = max(1, settings.clusterer_max_known_facts - settings.clusterer_known_facts_keep_recent)
+    target_total = max(1, int(settings.clusterer_max_known_facts * settings.clusterer_facts_condensed_target_ratio))
+    target = max(1, target_total - settings.clusterer_known_facts_keep_recent)
 
-    def llm_facts_fn(old_facts: list[str]) -> list[str]:
+    def llm_facts_fn(old_facts: list[str]) -> list[str] | None:
         facts_text = "\n".join(f"- {f}" for f in old_facts)
         messages = [
             {
@@ -67,11 +69,11 @@ def _make_llm_facts_fn(settings: ClustererSettings) -> Callable[[list[str]], lis
             data = json.loads(content)
             if isinstance(data, list):
                 return [str(f) for f in data]
-            logger.warning("Unexpected format from facts LLM (not a list); keeping original")
-            return old_facts
+            logger.warning("Unexpected format from facts LLM (not a list); signalling failure")
+            return None
         except Exception:
-            logger.exception("LLM facts consolidation call failed; keeping original facts")
-            return old_facts
+            logger.exception("LLM facts consolidation call failed; signalling failure")
+            return None
 
     return llm_facts_fn
 

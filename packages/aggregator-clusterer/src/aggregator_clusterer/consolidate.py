@@ -462,17 +462,28 @@ def run_surfacing_pass(session: Session, settings: ClustererSettings) -> int:
 def run_facts_consolidation_pass(
     session: Session,
     settings: ClustererSettings,
-    llm_summarize_fn: Callable[[list[str]], list[str]],
+    llm_summarize_fn: Callable[[list[str]], list[str] | None],
 ) -> int:
     """Condense known_facts for active threads that exceed the cap.
 
     Keeps the most-recent clusterer_known_facts_keep_recent facts verbatim and
     replaces the older head with an LLM-condensed set. Bounded per cycle by
     clusterer_max_facts_consolidations so per-cycle LLM cost stays controlled.
+
+    Hysteresis: the LLM targets clusterer_facts_condensed_target_ratio * max_facts
+    total bullets, landing the thread well below the cap so a few new facts do not
+    immediately re-trigger condensation. A hard truncate after the LLM call
+    guarantees the result is strictly below the cap regardless of LLM output.
+
+    Change-guard: threads whose len(known_facts) has not grown beyond
+    known_facts_condensed_len since the last condense (or condense attempt) are
+    skipped, preventing perpetual re-condensation of the same unchanged list.
     """
     max_facts = settings.clusterer_max_known_facts
     keep_recent = settings.clusterer_known_facts_keep_recent
     max_consolidations = settings.clusterer_max_facts_consolidations
+    # Hard limit: final list must be strictly below the cap
+    hard_limit = max(keep_recent + 1, max_facts - 1)
 
     threads: list[Thread] = list(
         session.execute(
@@ -480,7 +491,14 @@ def run_facts_consolidation_pass(
         ).scalars().all()
     )
 
-    over_cap = [t for t in threads if len(t.known_facts or []) > max_facts]
+    over_cap = [
+        t for t in threads
+        if len(t.known_facts or []) > max_facts
+        and (
+            t.known_facts_condensed_len is None
+            or len(t.known_facts or []) > t.known_facts_condensed_len
+        )
+    ]
 
     consolidated = 0
     for thread in over_cap[:max_consolidations]:
@@ -500,13 +518,30 @@ def run_facts_consolidation_pass(
             )
             continue
 
-        thread.known_facts = condensed + recent
+        if condensed is None:
+            # LLM failed (fail-open): facts unchanged; record attempt so the
+            # change-guard prevents perpetual retry on the same unchanged list.
+            thread.known_facts_condensed_len = len(facts)
+            logger.debug(
+                "thread %d: LLM condensation failed; recorded condensed_len=%d to prevent retry loop",
+                thread.id,
+                len(facts),
+            )
+            continue
+
+        combined = condensed + recent
+        # Hard-truncate: ensure result is strictly below cap regardless of LLM output
+        if len(combined) > hard_limit:
+            combined = combined[-hard_limit:]
+
+        thread.known_facts = combined
+        thread.known_facts_condensed_len = len(combined)
         consolidated += 1
         logger.debug(
             "thread %d: known_facts %d→%d (older %d→%d condensed, recent %d kept verbatim)",
             thread.id,
             len(facts),
-            len(condensed) + len(recent),
+            len(combined),
             len(older),
             len(condensed),
             len(recent),
@@ -520,7 +555,7 @@ def run_consolidation_pass(
     session: Session,
     settings: ClustererSettings,
     llm_merge_fn: Callable[[Thread, Thread], bool],
-    llm_summarize_facts_fn: Callable[[list[str]], list[str]] | None = None,
+    llm_summarize_facts_fn: Callable[[list[str]], list[str] | None] | None = None,
     *,
     changed_since: datetime | None = None,
     bypass_verdict_cache: bool = False,

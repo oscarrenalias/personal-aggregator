@@ -76,3 +76,12 @@ class ClustererSettings(BaseSettings):
         5,
         description="Maximum number of threads whose known_facts are condensed per consolidation cycle, bounding per-cycle LLM cost",
     )
+    clusterer_facts_condensed_target_ratio: float = Field(
+        0.6,
+        description=(
+            "Hysteresis ratio: after condensation the total fact list targets "
+            "this fraction of CLUSTERER_MAX_KNOWN_FACTS (e.g. 0.6 × 40 = 24), "
+            "creating a gap before re-triggering. Must be < 1.0. "
+            "Combined with a hard truncate after condensation."
+        ),
+    )

@@ -98,7 +98,10 @@ class LlmTelemetryLogger(CustomLogger):
                             if hasattr(tc, "function") and hasattr(tc.function, "name")
                         ]
 
-            model = getattr(response_obj, "model", None) or kwargs.get("model", "unknown")
+            # Use the requested alias from kwargs (same as failure rows) rather than
+            # the resolved snapshot name from response_obj.model (e.g. "gpt-4.1-mini"
+            # not "gpt-4.1-mini-2025-04-14"), so success and failure rows are consistent.
+            model = kwargs.get("model") or getattr(response_obj, "model", None) or "unknown"
 
             # Service/operation/ref_id come from metadata passed at the call site
             litellm_params = kwargs.get("litellm_params") or {}
