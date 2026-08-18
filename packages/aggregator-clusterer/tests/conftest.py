@@ -159,6 +159,7 @@ def make_thread(
     confidence: float | None = None,
     source_list: list | None = None,
     known_facts: list | None = None,
+    known_facts_condensed_len: int | None = None,
 ) -> Thread:
     now = last_updated or datetime.now(tz=timezone.utc)
     thread = Thread(
@@ -171,6 +172,7 @@ def make_thread(
         confidence=confidence,
         source_list=source_list or [],
         known_facts=known_facts or [],
+        known_facts_condensed_len=known_facts_condensed_len,
         deltas=[],
     )
     session.add(thread)

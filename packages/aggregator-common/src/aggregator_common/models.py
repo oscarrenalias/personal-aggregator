@@ -260,6 +260,7 @@ class Thread(Base):
     top_grade: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     dismissed: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
     last_viewed_at: Mapped[Optional[datetime]] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
+    known_facts_condensed_len: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
 
     members: Mapped[List["ThreadMembership"]] = relationship(
         "ThreadMembership", back_populates="thread", cascade="all, delete-orphan"
