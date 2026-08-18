@@ -17,7 +17,7 @@ from aggregator_common.queries import list_unassigned_ready_articles
 from aggregator_clusterer.candidates import get_candidates
 from aggregator_clusterer.classification import classify_article, is_section_title_blocked
 from aggregator_clusterer.config import ClustererSettings
-from aggregator_clusterer.consolidate import run_consolidation_pass
+from aggregator_clusterer.consolidate import run_aging_pass, run_consolidation_pass
 from aggregator_clusterer.dedup import check_duplicate
 from aggregator_clusterer.scoring import compute_surfaced
 from aggregator_clusterer.upsert import process_classification
@@ -352,6 +352,19 @@ def _run_one_cycle(
                 logger.exception("Error setting dirty flag on cluster_state")
             finally:
                 dirty_session.close()
+
+        # Run aging pass every cycle: cheap bulk UPDATEs, no LLM calls.
+        # Runs regardless of consolidation trigger to keep lifecycle state current.
+        if not stop_event.is_set():
+            age_session = session_factory()
+            try:
+                run_aging_pass(age_session, settings)
+                age_session.commit()
+            except Exception:
+                age_session.rollback()
+                logger.exception("Thread aging pass failed; skipping")
+            finally:
+                age_session.close()
 
         # Atomically check and clear the recluster flag
         recluster_triggered = False

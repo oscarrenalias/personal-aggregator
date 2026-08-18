@@ -528,6 +528,9 @@ def merge_threads(session: Session, keep_id: int, absorb_id: int) -> Thread:
         keep.representative_title = absorb.representative_title
         keep.rolling_summary = absorb.rolling_summary
 
+    # A merge always means new content; ensure the kept thread is active.
+    keep.status = "active"
+
     # Union source_list (order-preserving dedup)
     merged_sources: list = list(keep.source_list or [])
     seen_sources: set = set(merged_sources)
