@@ -97,6 +97,10 @@ def _update_thread(
 ) -> None:
     now = datetime.now(tz=timezone.utc)
 
+    # Reactivate dormant/archived threads when they gain a new article.
+    if thread.status != "active":
+        thread.status = "active"
+
     if label in _DELTA_LABELS and new_facts:
         existing_facts: list = list(thread.known_facts or [])
         for fact in new_facts:

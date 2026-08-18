@@ -20,7 +20,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Callable
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, or_, select, text
 from sqlalchemy.orm import Session
 
 from aggregator_common.management import merge_threads
@@ -38,6 +38,7 @@ class ConsolidationResult:
     curated: int
     pruned: int
     facts_consolidated: int = 0
+    aged: int = 0
 
 
 _ENTITY_W = 0.40
@@ -549,6 +550,44 @@ def run_facts_consolidation_pass(
 
     logger.info("facts consolidation pass: %d thread(s) condensed", consolidated)
     return consolidated
+
+
+def run_aging_pass(session: Session, settings: ClustererSettings) -> int:
+    """Transition idle threads: active→dormant then dormant→archived.
+
+    Two bulk SQL UPDATEs — no per-row Python loops. Safe to run every cycle;
+    a no-op when nothing qualifies. Archive cutoff is (dormant_age_days +
+    archive_age_days) since last_updated: a thread must have been idle for the
+    full combined window before it is archived.
+
+    active→dormant runs first so threads that cross both thresholds in the same
+    cycle flow directly to archived without needing an extra cycle.
+    """
+    now = datetime.now(timezone.utc)
+    dormant_cutoff = now - timedelta(days=settings.clusterer_dormant_age_days)
+    archive_cutoff = now - timedelta(
+        days=settings.clusterer_dormant_age_days + settings.clusterer_archive_age_days
+    )
+
+    dormant_count: int = session.execute(
+        text("UPDATE threads SET status='dormant' WHERE status='active' AND last_updated < :cutoff"),
+        {"cutoff": dormant_cutoff},
+    ).rowcount  # type: ignore[union-attr]
+
+    archived_count: int = session.execute(
+        text("UPDATE threads SET status='archived' WHERE status='dormant' AND last_updated < :cutoff"),
+        {"cutoff": archive_cutoff},
+    ).rowcount  # type: ignore[union-attr]
+
+    total = dormant_count + archived_count
+    if total > 0:
+        logger.info(
+            "aging pass: %d thread(s) transitioned (active→dormant=%d, dormant→archived=%d)",
+            total, dormant_count, archived_count,
+        )
+    else:
+        logger.debug("aging pass: no threads transitioned (all within age windows)")
+    return total
 
 
 def run_consolidation_pass(
