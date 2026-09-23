@@ -988,3 +988,73 @@ def enqueue_brief(session: Session) -> dict:
     session.add(new_brief)
     session.commit()
     return {"status": "queued"}
+
+
+def _podcast_keyset_filter(cursor_date: str, cursor_id: int):
+    """WHERE condition restricting rows to those after (date, id) in (date DESC, id DESC) order."""
+    cursor_d = DateType.fromisoformat(cursor_date)
+    return or_(
+        PodcastEpisode.date < cursor_d,
+        and_(PodcastEpisode.date == cursor_d, PodcastEpisode.id < cursor_id),
+    )
+
+
+def get_latest_podcast_episode(session: Session) -> Optional[PodcastEpisode]:
+    """Return the most recent ready podcast episode (by date DESC, id DESC), or None."""
+    return session.execute(
+        select(PodcastEpisode)
+        .where(PodcastEpisode.status == "ready")
+        .order_by(PodcastEpisode.date.desc(), PodcastEpisode.id.desc())
+        .limit(1)
+    ).scalar_one_or_none()
+
+
+def get_podcast_episode_by_date(session: Session, episode_date: DateType) -> Optional[PodcastEpisode]:
+    """Return the podcast episode for the given date, or None if no episode exists for that date."""
+    return session.execute(
+        select(PodcastEpisode).where(PodcastEpisode.date == episode_date)
+    ).scalar_one_or_none()
+
+
+def list_podcast_episodes(
+    session: Session,
+    *,
+    limit: int = _DEFAULT_LIMIT,
+    cursor: Optional[str] = None,
+) -> Tuple[List[PodcastEpisode], Optional[str]]:
+    """List ready podcast episodes newest-first with keyset cursor pagination on (date DESC, id DESC).
+
+    Returns (results, next_cursor). next_cursor is None when there are no further pages.
+    Pass cursor to fetch the next page; omit for the first page.
+    """
+    filters: list = [PodcastEpisode.status == "ready"]
+    if cursor is not None:
+        cursor_date, cursor_id = _decode_cursor(cursor)
+        filters.append(_podcast_keyset_filter(str(cursor_date), int(cursor_id)))
+    q = (
+        select(PodcastEpisode)
+        .where(*filters)
+        .order_by(PodcastEpisode.date.desc(), PodcastEpisode.id.desc())
+        .limit(limit)
+    )
+    episodes = list(session.execute(q).scalars().all())
+    next_cursor: Optional[str] = None
+    if len(episodes) == limit:
+        last = episodes[-1]
+        next_cursor = _encode_cursor((last.date.isoformat(), last.id))
+    return episodes, next_cursor
+
+
+def get_recent_podcast_episodes(session: Session, count: int) -> List[PodcastEpisode]:
+    """Return the last `count` ready episodes ordered by date DESC, for continuity context.
+
+    Each returned episode has its script_json populated (loaded as part of the ORM row).
+    """
+    return list(
+        session.execute(
+            select(PodcastEpisode)
+            .where(PodcastEpisode.status == "ready")
+            .order_by(PodcastEpisode.date.desc(), PodcastEpisode.id.desc())
+            .limit(count)
+        ).scalars().all()
+    )

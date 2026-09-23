@@ -5,12 +5,13 @@ None of them commit — callers are responsible for commit/rollback.
 """
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+import os
+from datetime import date, datetime, timedelta, timezone
 
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
-from aggregator_common.models import Article, Brief, LlmCall, Thread, ThreadMembership
+from aggregator_common.models import Article, Brief, LlmCall, PodcastEpisode, Thread, ThreadMembership
 
 
 def purge_expired_articles(session: Session, retention_days: int) -> int:
@@ -96,6 +97,32 @@ def purge_expired_briefs(session: Session, retention_days: int) -> int:
         return 0
 
     session.execute(delete(Brief).where(Brief.id.in_(expired_ids)))
+    return len(expired_ids)
+
+
+def purge_expired_podcast_episodes(session: Session, retention_days: int) -> int:
+    """Delete podcast_episodes rows older than the retention window.
+
+    If the row's audio_path is set and the file exists on disk, the file is
+    removed before the DB row is deleted.  Returns the number of rows deleted.
+    """
+    cutoff = date.today() - timedelta(days=retention_days)
+
+    rows = session.execute(
+        select(PodcastEpisode.id, PodcastEpisode.audio_path).where(
+            PodcastEpisode.date < cutoff
+        )
+    ).all()
+
+    if not rows:
+        return 0
+
+    for row_id, audio_path in rows:
+        if audio_path and os.path.exists(audio_path):
+            os.remove(audio_path)
+
+    expired_ids = [row_id for row_id, _ in rows]
+    session.execute(delete(PodcastEpisode).where(PodcastEpisode.id.in_(expired_ids)))
     return len(expired_ids)
 
 

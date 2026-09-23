@@ -112,6 +112,26 @@ services:
         condition: service_completed_successfully
     restart: unless-stopped
 
+  podcast:
+    build:
+      context: .
+      dockerfile: packages/aggregator-podcast/Dockerfile
+    image: personal-aggregator/aggregator-podcast:dev
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://aggregator:aggregator@postgres:5432/aggregator
+      # Dev-only: use the cheaper model to minimize token cost (overrides .env;
+      # set here rather than repo-root .env, which the test suite reads).
+      PODCAST_LLM_MODEL: gpt-4.1-mini
+    volumes:
+      - podcasts_data:/data/podcasts
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
   web:
     build:
       context: .
@@ -123,6 +143,8 @@ services:
       WEB_HOST: 0.0.0.0
     ports:
       - "127.0.0.1:${WEB_PORT:-8000}:8000"
+    volumes:
+      - podcasts_data:/data/podcasts:ro
     depends_on:
       postgres:
         condition: service_healthy
@@ -171,3 +193,4 @@ services:
 
 volumes:
   postgres_data:
+  podcasts_data:
