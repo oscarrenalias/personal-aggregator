@@ -3,13 +3,14 @@ from __future__ import annotations
 import base64
 import json
 from dataclasses import asdict, dataclass
+from datetime import date as DateType
 from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Literal, Optional, Tuple
 
 from sqlalchemy import and_, exists, func, or_, select, text
 from sqlalchemy.orm import Session
 
-from aggregator_common.models import Article, Brief, BriefTopic, Category, InterestProfile, Source, Thread, ThreadMembership
+from aggregator_common.models import Article, Brief, BriefTopic, Category, InterestProfile, PodcastEpisode, Source, Thread, ThreadMembership
 from aggregator_common.state import ArticleStatus
 
 ViewName = Literal["all", "unread", "important", "saved", "uncategorized", "today"]
