@@ -237,8 +237,12 @@ def run_selection_phase(
         )
         return episode_theme, selected, candidates
     except json.JSONDecodeError as exc:
-        log.warning("Selection JSON parse failed (%s); falling back to top-7.", exc)
-        fallback = [{"thread_id": c["thread_id"], "rationale": ""} for c in candidates[:7]]
+        log.warning(
+            "Selection JSON parse failed (%s); falling back to top-%d.",
+            exc,
+            settings.podcast_max_stories,
+        )
+        fallback = [{"thread_id": c["thread_id"], "rationale": ""} for c in candidates[:settings.podcast_max_stories]]
         return "", fallback, candidates
 
 
