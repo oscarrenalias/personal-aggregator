@@ -126,15 +126,30 @@ do_update() {
 
     if [[ "${DRY_RUN}" == "true" ]]; then
         log "DRY RUN — no changes will be made."
-        plan "cd ${INSTALL_DIR}"
+        local compose_src
+        if compose_src="$(find_asset docker-compose.prod.yml 2>/dev/null)"; then
+            plan "Copy ${compose_src} -> ${INSTALL_DIR}/docker-compose.prod.yml"
+        else
+            plan "docker-compose.prod.yml not found alongside install.sh — using existing ${INSTALL_DIR}/docker-compose.prod.yml"
+        fi
         plan "docker compose -f docker-compose.prod.yml pull"
         plan "docker compose -f docker-compose.prod.yml up -d"
         exit 0
     fi
 
+    # Refresh the compose file if a newer copy is present alongside install.sh.
+    # This picks up new services (e.g. podcast) without requiring a full reinstall.
+    local compose_src
+    if compose_src="$(find_asset docker-compose.prod.yml 2>/dev/null)"; then
+        log "Refreshing docker-compose.prod.yml from release assets..."
+        cp "${compose_src}" "${INSTALL_DIR}/docker-compose.prod.yml"
+    else
+        log "docker-compose.prod.yml not found alongside install.sh — using existing file in ${INSTALL_DIR}"
+    fi
+
     log "Pulling latest images..."
     (cd "${INSTALL_DIR}" && docker compose -f docker-compose.prod.yml pull)
-    log "Restarting stack..."
+    log "Starting/refreshing the stack (docker compose up -d)..."
     (cd "${INSTALL_DIR}" && docker compose -f docker-compose.prod.yml up -d)
     log "Update complete."
 }
