@@ -43,13 +43,13 @@ Priorities:
   topics, avoid jarring topic jumps.
 
 Return a JSON object in exactly this format (no other text):
-{
+{{
   "episode_theme": "<one sentence summarising today's dominant theme, or empty string if none>",
   "selected": [
-    {"thread_id": <int>, "rationale": "<one sentence explaining why this story and its position>"},
+    {{"thread_id": <int>, "rationale": "<one sentence explaining why this story and its position>"}},
     ...
   ]
-}\
+}}\
 """
 
 _CONTINUITY_INSTRUCTION = """\
