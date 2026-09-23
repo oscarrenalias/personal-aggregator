@@ -17,6 +17,9 @@ EXPECTED_TOOLS = {
     "unsave_article",
     "get_daily_brief",
     "refresh_brief",
+    # Podcast tools
+    "get_latest_podcast",
+    "refresh_podcast",
     # Profile management
     "set_interest_profile",
     # Thread tools
