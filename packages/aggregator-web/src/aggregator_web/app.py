@@ -23,6 +23,7 @@ from aggregator_common.management import enqueue_recluster, mark_thread_viewed, 
 from aggregator_common.models import Article, Brief, BriefTopic, Category, Source
 from aggregator_common.queries import (
     get_latest_podcast_episode,
+    get_podcast_episode as get_podcast_episode_by_id,
     get_thread,
     get_thread_members,
     list_podcast_episodes,
@@ -846,8 +847,37 @@ def podcasts(
         request,
         "podcasts.html",
         {
-            "latest_episode": latest,
             "episodes": episodes,
+            "selected_id": latest.id if latest else None,
+            "nav_key": "podcasts",
+        },
+    )
+
+
+@app.get("/podcasts/{episode_id}")
+def podcast_detail(
+    episode_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+) -> Response:
+    episode = get_podcast_episode_by_id(db, episode_id)
+    if episode is None:
+        raise HTTPException(status_code=404, detail="Episode not found")
+    # HTMX partial — return only the reader fragment
+    if "HX-Request" in request.headers:
+        return templates.TemplateResponse(
+            request,
+            "_podcast_detail.html",
+            {"episode": episode},
+        )
+    # Full page load — render shell with list pane pre-populated
+    episodes, _ = list_podcast_episodes(db)
+    return templates.TemplateResponse(
+        request,
+        "podcasts.html",
+        {
+            "episodes": episodes,
+            "selected_id": episode_id,
             "nav_key": "podcasts",
         },
     )

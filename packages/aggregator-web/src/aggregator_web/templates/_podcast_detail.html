@@ -1,0 +1,58 @@
+{#
+  _podcast_detail.html — Podcast episode reader pane (injected into #reader-content).
+  Context:
+    episode : PodcastEpisode
+#}
+{% set script = episode.script_json or {} %}
+{% set segments = script.segments or [] %}
+{% set stories = segments | selectattr('type', 'equalto', 'story') | list %}
+{% set mins = episode.duration_seconds // 60 if episode.duration_seconds else 0 %}
+{% set secs = episode.duration_seconds % 60 if episode.duration_seconds else 0 %}
+
+<div class="podcast-detail">
+
+  {# ── Header ─────────────────────────────────────────────────── #}
+  <div class="podcast-detail-header">
+    <div class="podcast-detail-meta">
+      <time datetime="{{ episode.date }}">{{ episode.date }}</time>
+      {% if episode.duration_seconds %}
+      <span class="podcast-detail-duration">{{ mins }}:{% if secs < 10 %}0{% endif %}{{ secs }}</span>
+      {% endif %}
+      <span class="podcast-detail-voice">{{ episode.tts_voice or 'marin' }}</span>
+    </div>
+    {% if episode.episode_theme %}
+    <h1 class="podcast-detail-theme">{{ episode.episode_theme }}</h1>
+    {% endif %}
+  </div>
+
+  {# ── Player ──────────────────────────────────────────────────── #}
+  <div class="podcast-player-wrap">
+    <audio controls preload="metadata"
+           src="/api/v1/podcasts/{{ episode.id }}/audio"
+           class="podcast-audio-player">
+      Your browser does not support the audio element.
+    </audio>
+  </div>
+
+  {# ── Story list ──────────────────────────────────────────────── #}
+  {% if stories %}
+  <div class="podcast-stories">
+    <h2 class="podcast-stories-heading">In this episode</h2>
+    {% for story in stories %}
+    <div class="podcast-story">
+      {% if story.topic_category %}
+      <span class="podcast-category-badge">{{ story.topic_category }}</span>
+      {% endif %}
+      <p class="podcast-story-headline">{{ story.headline }}</p>
+      {% if story.sources %}
+      <p class="podcast-story-sources">
+        {{ story.sources | join(' · ') }}
+        {% if story.is_developing %}<span class="podcast-developing-tag">Developing</span>{% endif %}
+      </p>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+</div>
