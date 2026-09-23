@@ -12,6 +12,7 @@ from .categories import categories_app
 from .clusters import clusters_app
 from .llm_stats import llm_stats_cmd
 from .ops import ops_app
+from .podcast import podcast_app
 from .profile import profile_app
 from .sources import sources_app
 
@@ -24,6 +25,7 @@ app.add_typer(profile_app, name="profile")
 app.add_typer(categories_app, name="categories")
 app.add_typer(brief_app, name="brief")
 app.add_typer(clusters_app, name="clusters")
+app.add_typer(podcast_app, name="podcast")
 app.command("llm-stats")(llm_stats_cmd)
 
 

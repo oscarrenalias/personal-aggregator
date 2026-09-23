@@ -990,6 +990,24 @@ def enqueue_brief(session: Session) -> dict:
     return {"status": "queued"}
 
 
+def enqueue_podcast(session: Session) -> dict:
+    """Enqueue a manual podcast episode for today. Returns {"status": "queued"} or {"status": "already_pending"}."""
+    existing = session.execute(
+        select(PodcastEpisode).where(PodcastEpisode.status.in_(["pending", "generating"])).limit(1)
+    ).scalar_one_or_none()
+    if existing is not None:
+        return {"status": "already_pending", "id": existing.id}
+    today = datetime.now(tz=timezone.utc).date()
+    episode = PodcastEpisode(
+        date=today,
+        status="pending",
+        origin="manual",
+    )
+    session.add(episode)
+    session.commit()
+    return {"status": "queued", "id": episode.id, "date": str(today)}
+
+
 def _podcast_keyset_filter(cursor_date: str, cursor_id: int):
     """WHERE condition restricting rows to those after (date, id) in (date DESC, id DESC) order."""
     cursor_d = DateType.fromisoformat(cursor_date)
