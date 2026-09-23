@@ -268,6 +268,7 @@ At process startup, every service calls `aggregator_common.load_env()` (python-d
 | `PODCAST_TTS_VOICE` | `marin` | Voice name for TTS synthesis |
 | `PODCAST_TTS_MAX_CHARS_PER_CHUNK` | `1000` | Maximum characters per TTS API chunk |
 | `PODCAST_CONTINUITY_COUNT` | `2` | Number of previous podcast episodes included for continuity context |
+| `PODCAST_MAX_STORIES` | `6` | Maximum number of stories selected per episode; enforced as a hard cap after Phase 1 selection regardless of LLM output |
 
 **Per-service config convention:** Each service subclasses `aggregator_common.config.Settings` and adds its own fields using a `<SERVICE>_` prefix (e.g., `PROCESSOR_BATCH_SIZE`, `RETRIEVER_POLL_INTERVAL_SECONDS`). Shared fields live in the base class; service-specific fields never bleed into other services' namespaces.
 

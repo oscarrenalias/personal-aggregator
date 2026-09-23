@@ -32,7 +32,7 @@ about technology, AI, software, global politics, motorsport, and gaming — but 
 show. It is a balanced, well-rounded daily briefing that reflects the actual shape of the news day.
 
 Your task: given the candidate story threads below, select and order the stories for today's episode. \
-Target 7 to 12 minutes of spoken content (roughly 5-9 stories at about 180 words each).
+Target {max_stories} stories at about 180 words each.
 
 Priorities:
 - Genuine newsworthiness comes first — pick stories that matter, regardless of the interest profile.
@@ -188,7 +188,7 @@ def run_selection_phase(
         return "", [], []
 
     continuity_block = _build_continuity_block(session, settings.podcast_continuity_count)
-    system_prompt = _SELECTION_SYSTEM_BASE + continuity_block
+    system_prompt = _SELECTION_SYSTEM_BASE.format(max_stories=settings.podcast_max_stories) + continuity_block
 
     parts: list[str] = []
     if interest_profile:
@@ -223,6 +223,13 @@ def run_selection_phase(
         parsed = json.loads(_extract_json(content))
         episode_theme: str = parsed.get("episode_theme", "")
         selected: list[dict] = parsed.get("selected", [])
+        if len(selected) > settings.podcast_max_stories:
+            log.info(
+                "Phase 1 returned %d stories; truncating to podcast_max_stories=%d.",
+                len(selected),
+                settings.podcast_max_stories,
+            )
+            selected = selected[: settings.podcast_max_stories]
         log.info(
             "Phase 1 complete: %d threads selected, theme=%r",
             len(selected),
