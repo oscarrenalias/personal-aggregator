@@ -18,7 +18,6 @@
       {% if episode.duration_seconds %}
       <span class="podcast-detail-duration">{{ mins }}:{% if secs < 10 %}0{% endif %}{{ secs }}</span>
       {% endif %}
-      <span class="podcast-detail-voice">{{ episode.tts_voice or 'marin' }}</span>
     </div>
     {% if episode.episode_theme %}
     <h1 class="podcast-detail-theme">{{ episode.episode_theme }}</h1>

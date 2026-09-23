@@ -8,7 +8,7 @@ fi
 
 IMAGE_PREFIX=${IMAGE_PREFIX:-personal-aggregator}
 VERSION="v$(uv version --short)"
-SERVICES=(retriever processor summarize-rank clusterer admin web brief mcp janitor)
+SERVICES=(retriever processor summarize-rank clusterer admin web brief mcp janitor podcast)
 
 echo "Building images version=${VERSION} prefix=${IMAGE_PREFIX}"
 

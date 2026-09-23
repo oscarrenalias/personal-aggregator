@@ -33,3 +33,8 @@ personal_key.pub
 
 # macOS metadata
 .DS_Store
+
+# Podcast prototyping artifacts
+podcast_*.mp3
+podcast_output/
+podcast_script.json

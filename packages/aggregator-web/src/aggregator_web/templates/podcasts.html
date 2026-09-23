@@ -44,7 +44,7 @@
       </h2>
       {% if episode.script_json and episode.script_json.segments %}
       {% set story_count = episode.script_json.segments | selectattr('type', 'equalto', 'story') | list | length %}
-      <p class="card-excerpt">{{ story_count }} stor{{ 'ies' if story_count != 1 else 'y' }} &middot; {{ episode.tts_voice or 'marin' }} voice</p>
+      <p class="card-excerpt">{{ story_count }} stor{{ 'ies' if story_count != 1 else 'y' }}</p>
       {% endif %}
     </div>
   </article>
