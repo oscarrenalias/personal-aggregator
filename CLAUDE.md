@@ -12,6 +12,7 @@ sources → retriever → processor → summarize-rank → clusterer → web UI
                                                               → aggregator-mcp (agent interface)
                                                               → aggregator-tui (terminal reader)
                                                               → janitor (data retention)
+                                                              → podcast (audio episode generation)
 ```
 
 - **retriever** — polls feeds, persists raw articles, marks them pending processing.
@@ -45,7 +46,8 @@ sources → retriever → processor → summarize-rank → clusterer → web UI
 
 - **brief** — scheduled LLM service that reads ranked articles, generates a structured daily brief (headline + topics + summaries), and persists it to Postgres. Runs once per day at a configurable hour; the web service serves the brief on the Today view.
 - **aggregator-mcp** — FastMCP server exposing the aggregator over the MCP/Streamable HTTP interface for agent integration. Provides tools for searching, listing, and mutating articles; thread tools (`list_threads`, `get_thread`, `dismiss_thread`) — `list_threads` and `get_thread` both expose the `dismissed` and `has_updates` fields on each thread result, and `dismiss_thread(thread_id, dismissed=True/False)` dismisses or restores a thread; **`get_thread` intentionally does not stamp `last_viewed_at`** — agent reads are passive and must not reset the unread indicator that the web UI relies on; source and category management tools (add/enable/disable/remove — `remove_source` and `remove_category` are destructive); ops/diagnostic tools (`pipeline_status`, `list_stuck`, `list_failures`, `reap_stale_claims`, `retry_failed`, `rerank`, `recluster`); brief tools (`get_daily_brief`, `refresh_brief`); resources including `article://{id}`, `feed://{view}`, `thread://{id}`, `brief://today`, `status://pipeline` for a quick health snapshot, and `status://llm` for per-service LLM usage stats; and prompts including `troubleshoot` for step-by-step pipeline diagnosis and `whats_developing` for surfacing in-progress story threads.
-- **janitor** — scheduled data-retention daemon that runs once per day at `JANITOR_RUN_HOUR` (default 04:00 in `JANITOR_TIMEZONE`). Deletes expired articles (`JANITOR_ARTICLE_RETENTION_DAYS`; unsaved, not in a live thread), archived threads (`JANITOR_THREAD_RETENTION_DAYS`), completed briefs (`JANITOR_BRIEF_RETENTION_DAYS`), and LLM telemetry rows (`JANITOR_LLM_TELEMETRY_RETENTION_DAYS`). Uses a distinct Postgres advisory lock so it never races the clusterer. Replaces the per-service retention logic previously in clusterer and brief.
+- **janitor** — scheduled data-retention daemon that runs once per day at `JANITOR_RUN_HOUR` (default 04:00 in `JANITOR_TIMEZONE`). Deletes expired articles (`JANITOR_ARTICLE_RETENTION_DAYS`; unsaved, not in a live thread), archived threads (`JANITOR_THREAD_RETENTION_DAYS`), completed briefs (`JANITOR_BRIEF_RETENTION_DAYS`), LLM telemetry rows (`JANITOR_LLM_TELEMETRY_RETENTION_DAYS`), and podcast episodes (`JANITOR_PODCAST_RETENTION_DAYS`; also removes associated MP3 files from disk). Uses a distinct Postgres advisory lock so it never races the clusterer. Replaces the per-service retention logic previously in clusterer and brief.
+- **aggregator-podcast** — scheduled daemon that generates a daily spoken-word audio episode. Three-phase LLM pipeline: (1) story selection from ready threads based on newsworthiness and continuity context from recent episodes; (2) per-segment script writing for each selected thread; (3) intro, transitions, and outro generation. Audio synthesis via a configurable TTS model (`PODCAST_TTS_MODEL`/`PODCAST_TTS_VOICE`); MP3 files written to a shared `podcasts_data` volume (`PODCAST_AUDIO_DIR`). Episodes are tracked in the `podcast_episodes` table and served by the web UI and `aggregator-api` (`GET /api/v1/podcasts/episodes`, `GET /api/v1/podcasts/episodes/{id}/audio`). Runs once per day at `PODCAST_GENERATION_HOUR`; old episodes are pruned by the janitor after `JANITOR_PODCAST_RETENTION_DAYS`.
 - **aggregator-tui** — Textual-based terminal UI reader. A pure HTTP client that consumes the `aggregator-api` JSON endpoints; it has **no direct database access**. Run with `uv run aggregator-tui [--api-url <url>]`; the API base URL defaults to `AGGREGATOR_API_URL` env var or `http://localhost:8000/api/v1`. Three-pane layout (nav sidebar / article list / reader pane) with responsive single-pane mode below 100 columns. Keyboard shortcuts: `j`/`k` move up/down the list; `g`/`G` jump to top/bottom; `Enter`/`o` open article or thread in the reader pane; `v` open article URL in the system browser; `Tab` cycle focus across panes; `Escape` return to the list (or exit search); `m` toggle read/unread; `n` mark read and advance to next; `s` toggle saved; `d` dismiss/restore the current thread (threads view only); `/` activate search; `?` show keybinding help overlay; `q` quit.
 - **admin** — Rich CLI for feed management and operational tasks. `llm-stats [--days N]` shows per-service LLM cost, token, and error breakdown. To review **production** health/metrics (pipeline, clustering, archival, LLM cost) from a workstation that can't reach the Pi over LAN, use the **`metrics-review` skill** (`.claude/skills/metrics-review/`) — it documents the Docker-container tunnel, the read-only queries, and the analysis heuristics/baselines.
 
@@ -81,6 +83,7 @@ packages/
   aggregator-mcp/               # FastMCP server — MCP/Streamable HTTP agent interface
   aggregator-tui/               # Textual terminal UI reader — pure HTTP client, no DB access
   aggregator-janitor/           # scheduled data-retention daemon
+  aggregator-podcast/           # scheduled daily audio episode generator
   aggregator-admin/
 docker-compose.yml              # postgres only (app service definitions added per service spec)
 ```
@@ -249,9 +252,22 @@ At process startup, every service calls `aggregator_common.load_env()` (python-d
 | `JANITOR_THREAD_RETENTION_DAYS` | `30` | Days to retain archived threads before permanent deletion (replaces `CLUSTERER_THREAD_RETENTION_DAYS`) |
 | `JANITOR_BRIEF_RETENTION_DAYS` | `30` | Days to retain completed briefs before pruning (replaces `BRIEF_RETENTION_DAYS`) |
 | `JANITOR_LLM_TELEMETRY_RETENTION_DAYS` | `30` | Days to retain LLM call telemetry rows before purging |
+| `JANITOR_PODCAST_RETENTION_DAYS` | `7` | Days to retain podcast episodes before purging (also removes MP3 files from disk) |
 | `JANITOR_RUN_HOUR` | `4` | Hour of day (in `JANITOR_TIMEZONE`) to run the retention sweep |
 | `JANITOR_TIMEZONE` | `UTC` | Timezone for scheduling the daily retention sweep |
 | `JANITOR_POLL_INTERVAL_SECONDS` | `3600` | Seconds between scheduler poll cycles |
+| `PODCAST_GENERATION_HOUR` | `7` | Hour of day (in `PODCAST_TIMEZONE`) to generate the daily podcast episode |
+| `PODCAST_TIMEZONE` | `UTC` | Timezone for scheduling podcast generation |
+| `PODCAST_POLL_INTERVAL_SECONDS` | `60` | Seconds between scheduler poll cycles |
+| `PODCAST_CLAIM_LEASE_SECONDS` | `900` | Work-claim lease duration for podcast jobs in seconds |
+| `PODCAST_AUDIO_DIR` | `/data/podcasts` | Directory to write generated MP3 audio files (should match the `podcasts_data` volume mount) |
+| `PODCAST_CANDIDATE_WINDOW_HOURS` | `36` | Hours of article history to include as story candidates |
+| `PODCAST_LLM_MODEL` | `gpt-5.6-terra` | LLM model for podcast script generation |
+| `PODCAST_LLM_MAX_TOKENS` | `4096` | Maximum output tokens for LLM script generation calls |
+| `PODCAST_TTS_MODEL` | `gpt-4o-mini-tts` | TTS model for audio synthesis |
+| `PODCAST_TTS_VOICE` | `marin` | Voice name for TTS synthesis |
+| `PODCAST_TTS_MAX_CHARS_PER_CHUNK` | `1000` | Maximum characters per TTS API chunk |
+| `PODCAST_CONTINUITY_COUNT` | `2` | Number of previous podcast episodes included for continuity context |
 
 **Per-service config convention:** Each service subclasses `aggregator_common.config.Settings` and adds its own fields using a `<SERVICE>_` prefix (e.g., `PROCESSOR_BATCH_SIZE`, `RETRIEVER_POLL_INTERVAL_SECONDS`). Shared fields live in the base class; service-specific fields never bleed into other services' namespaces.
 
