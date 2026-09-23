@@ -1,0 +1,30 @@
+{#
+  podcasts.html — Podcast episodes list pane.
+  Context:
+    latest_episode : PodcastEpisode | None  — most recent ready episode
+    episodes       : list[PodcastEpisode]   — all ready episodes newest-first
+    nav_key        : str                    — Alpine nav store key ('podcasts')
+#}
+<div id="article-list" role="feed" aria-label="Podcast episodes">
+  <div class="brief-list-header">
+    <span class="brief-list-title">Podcasts</span>
+  </div>
+
+  {% if not episodes %}
+  <div class="today-empty">
+    <p>No podcast episodes yet.</p>
+  </div>
+  {% else %}
+  {% for episode in episodes %}
+  <div class="thread-card{% if latest_episode and episode.id == latest_episode.id %} thread-card--latest{% endif %}">
+    <div class="thread-card-meta">
+      <span class="thread-date">{{ episode.date }}</span>
+    </div>
+    <div class="thread-card-title">{{ episode.title or "Untitled episode" }}</div>
+    {% if episode.summary %}
+    <div class="thread-card-summary">{{ episode.summary }}</div>
+    {% endif %}
+  </div>
+  {% endfor %}
+  {% endif %}
+</div>

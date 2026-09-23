@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from aggregator_api.routes.articles import router as articles_router
 from aggregator_api.routes.misc import router as misc_router
+from aggregator_api.routes.podcasts import router as podcasts_router
 from aggregator_api.routes.threads import router as threads_router
 from aggregator_api.settings import ApiSettings
 
@@ -26,3 +27,4 @@ app.add_middleware(
 app.include_router(misc_router)
 app.include_router(articles_router)
 app.include_router(threads_router)
+app.include_router(podcasts_router)
