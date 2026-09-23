@@ -2,14 +2,14 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Generator
 
 import pytest
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from aggregator_common.models import Article, Brief, BriefTopic, ClusterState, Source, Thread, ThreadMembership
+from aggregator_common.models import Article, Brief, BriefTopic, ClusterState, PodcastEpisode, Source, Thread, ThreadMembership
 from aggregator_common.state import ArticleStatus
 
 _NOW = datetime.now(tz=timezone.utc)
@@ -1092,3 +1092,101 @@ class TestGetThreadDismissedField:
         result = srv.get_thread(thread_id=thread.id)
 
         assert result["thread"]["dismissed"] is True
+
+
+# ---------------------------------------------------------------------------
+# Podcast tools
+# ---------------------------------------------------------------------------
+
+
+def _make_podcast_episode(
+    session: Session,
+    *,
+    status: str = "ready",
+    duration_seconds: int = 300,
+    llm_model: str = "gpt-4.1",
+    tts_model: str = "gpt-4o-mini-tts",
+    script_json: dict | None = None,
+    episode_date: date | None = None,
+) -> PodcastEpisode:
+    ep = PodcastEpisode(
+        date=episode_date or date.today(),
+        status=status,
+        origin="auto",
+        duration_seconds=duration_seconds,
+        llm_model=llm_model,
+        tts_model=tts_model,
+        script_json=script_json,
+    )
+    session.add(ep)
+    session.flush()
+    return ep
+
+
+class TestGetLatestPodcastTool:
+    def test_returns_no_episode_when_none_ready(self, session: Session):
+        import aggregator_mcp.server as srv
+
+        result = srv.get_latest_podcast()
+
+        assert isinstance(result, dict)
+        assert result == {"status": "no_episode"}
+
+    def test_returns_episode_dict_for_ready_episode(self, session: Session):
+        import aggregator_mcp.server as srv
+
+        ep = _make_podcast_episode(
+            session,
+            status="ready",
+            duration_seconds=420,
+            script_json={"segments": [{"speaker": "host", "text": "Hello"}]},
+        )
+
+        result = srv.get_latest_podcast()
+
+        assert isinstance(result, dict)
+        assert result["id"] == ep.id
+        assert result["status"] == "ready"
+        assert result["duration_seconds"] == 420
+        assert isinstance(result["segments"], list)
+        assert len(result["segments"]) == 1
+        assert result["segments"][0]["speaker"] == "host"
+        assert "date" in result
+
+    def test_pending_episode_not_returned(self, session: Session):
+        import aggregator_mcp.server as srv
+
+        _make_podcast_episode(session, status="pending")
+
+        result = srv.get_latest_podcast()
+
+        assert result == {"status": "no_episode"}
+
+    def test_segments_defaults_to_empty_list_when_script_json_absent(self, session: Session):
+        import aggregator_mcp.server as srv
+
+        _make_podcast_episode(session, status="ready", script_json=None)
+
+        result = srv.get_latest_podcast()
+
+        assert result["segments"] == []
+
+
+class TestRefreshPodcastTool:
+    def test_returns_queued_when_no_pending_episode(self, session: Session):
+        import aggregator_mcp.server as srv
+
+        result = srv.refresh_podcast()
+
+        assert isinstance(result, dict)
+        assert result["status"] == "queued"
+        assert "id" in result
+
+    def test_returns_already_pending_when_episode_in_flight(self, session: Session):
+        import aggregator_mcp.server as srv
+
+        _make_podcast_episode(session, status="pending")
+
+        result = srv.refresh_podcast()
+
+        assert result["status"] == "already_pending"

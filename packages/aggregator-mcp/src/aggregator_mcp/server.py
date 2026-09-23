@@ -230,19 +230,19 @@ def get_latest_podcast() -> dict:
     """Return the most recent ready podcast episode (metadata + segment list, no audio bytes)."""
     with get_session() as session:
         ep = queries.get_latest_podcast_episode(session)
-    if ep is None:
-        return {"status": "no_episode"}
-    return {
-        "id": ep.id,
-        "date": str(ep.date),
-        "status": ep.status,
-        "episode_theme": ep.episode_theme,
-        "duration_seconds": ep.duration_seconds,
-        "llm_model": ep.llm_model,
-        "tts_model": ep.tts_model,
-        "generated_at": ep.generated_at.isoformat() if ep.generated_at else None,
-        "segments": (ep.script_json or {}).get("segments", []),
-    }
+        if ep is None:
+            return {"status": "no_episode"}
+        return {
+            "id": ep.id,
+            "date": str(ep.date),
+            "status": ep.status,
+            "episode_theme": ep.episode_theme,
+            "duration_seconds": ep.duration_seconds,
+            "llm_model": ep.llm_model,
+            "tts_model": ep.tts_model,
+            "generated_at": ep.generated_at.isoformat() if ep.generated_at else None,
+            "segments": (ep.script_json or {}).get("segments", []),
+        }
 
 
 @mcp.tool()
