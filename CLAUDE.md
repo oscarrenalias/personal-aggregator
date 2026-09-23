@@ -256,8 +256,8 @@ At process startup, every service calls `aggregator_common.load_env()` (python-d
 | `JANITOR_RUN_HOUR` | `4` | Hour of day (in `JANITOR_TIMEZONE`) to run the retention sweep |
 | `JANITOR_TIMEZONE` | `UTC` | Timezone for scheduling the daily retention sweep |
 | `JANITOR_POLL_INTERVAL_SECONDS` | `3600` | Seconds between scheduler poll cycles |
-| `PODCAST_GENERATION_HOUR` | `7` | Hour of day (in `PODCAST_TIMEZONE`) to generate the daily podcast episode |
-| `PODCAST_TIMEZONE` | `UTC` | Timezone for scheduling podcast generation |
+| `PODCAST_GENERATION_HOUR` | `5` | Hour of day (in `PODCAST_TIMEZONE`) to generate the daily podcast episode |
+| `PODCAST_TIMEZONE` | `Europe/Helsinki` | Timezone for scheduling podcast generation (default = EET/EEST, so hour 5 = 07:00 EET / 05:00 UTC) |
 | `PODCAST_POLL_INTERVAL_SECONDS` | `60` | Seconds between scheduler poll cycles |
 | `PODCAST_CLAIM_LEASE_SECONDS` | `900` | Work-claim lease duration for podcast jobs in seconds |
 | `PODCAST_AUDIO_DIR` | `/data/podcasts` | Directory to write generated MP3 audio files (should match the `podcasts_data` volume mount) |

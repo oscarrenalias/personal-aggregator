@@ -7,8 +7,8 @@ from aggregator_common.config import Settings
 class PodcastSettings(Settings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
-    podcast_generation_hour: int = Field(7, description="Hour of day (in podcast_timezone) to generate the podcast")
-    podcast_timezone: str = Field("UTC", description="Timezone for scheduling podcast generation")
+    podcast_generation_hour: int = Field(5, description="Hour of day (in podcast_timezone) to generate the podcast")
+    podcast_timezone: str = Field("Europe/Helsinki", description="Timezone for scheduling podcast generation")
     podcast_poll_interval_seconds: int = Field(60, description="Seconds between scheduler poll cycles")
     podcast_claim_lease_seconds: int = Field(900, description="Work-claim lease duration for podcast jobs in seconds")
     podcast_audio_dir: str = Field("/data/podcasts", description="Directory to write generated audio files")
