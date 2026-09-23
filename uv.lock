@@ -11,6 +11,7 @@ members = [
     "aggregator-common",
     "aggregator-janitor",
     "aggregator-mcp",
+    "aggregator-podcast",
     "aggregator-processor",
     "aggregator-retriever",
     "aggregator-summarize-rank",
@@ -140,6 +141,23 @@ dependencies = [
 requires-dist = [
     { name = "aggregator-common", editable = "packages/aggregator-common" },
     { name = "mcp", specifier = ">=1.0" },
+]
+
+[[package]]
+name = "aggregator-podcast"
+version = "0.1.0"
+source = { editable = "packages/aggregator-podcast" }
+dependencies = [
+    { name = "aggregator-common" },
+    { name = "litellm" },
+    { name = "openai" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "aggregator-common", editable = "packages/aggregator-common" },
+    { name = "litellm", specifier = ">=1" },
+    { name = "openai", specifier = ">=2" },
 ]
 
 [[package]]

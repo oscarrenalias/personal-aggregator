@@ -57,6 +57,19 @@
           Threads
         </a>
       </li>
+      <li>
+        <a class="sidebar-link"
+           data-nav-key="podcasts"
+           @click="$store.nav.current = 'podcasts'"
+           :class="{ 'is-active': $store.nav.current === 'podcasts' }"
+           :aria-current="$store.nav.current === 'podcasts' ? 'page' : undefined"
+           hx-get="/podcasts"
+           hx-target="#article-list"
+           hx-swap="innerHTML"
+           hx-push-url="true">
+          Podcasts
+        </a>
+      </li>
     </ul>
   </section>
 

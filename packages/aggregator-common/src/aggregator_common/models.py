@@ -3,7 +3,7 @@ from datetime import datetime
 from enum import Enum as PyEnum
 from typing import List, Optional
 
-from sqlalchemy import BigInteger, Boolean, CheckConstraint, Enum, Float, ForeignKey, Index, Integer, Numeric, Text, UniqueConstraint, func
+from sqlalchemy import BigInteger, Boolean, CheckConstraint, Date, Enum, Float, ForeignKey, Index, Integer, Numeric, Text, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import JSONB, TIMESTAMP, TSVECTOR, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy.schema import Identity
@@ -358,3 +358,30 @@ class LlmCall(Base):
     request_id: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     prompt_preview: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     prompt_hash: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+
+class PodcastEpisode(Base):
+    __tablename__ = "podcast_episodes"
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(always=True), primary_key=True)
+    date: Mapped[datetime] = mapped_column(Date, nullable=False)
+    origin: Mapped[str] = mapped_column(Text, nullable=False, server_default="auto")
+    status: Mapped[str] = mapped_column(Text, nullable=False, server_default="pending")
+    episode_theme: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    script_json: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    audio_path: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    audio_size_bytes: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
+    duration_seconds: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    llm_model: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    tts_model: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    tts_voice: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    claimed_by: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    claimed_at: Mapped[Optional[datetime]] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
+    generated_at: Mapped[Optional[datetime]] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
+    )

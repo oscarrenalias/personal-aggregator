@@ -22,8 +22,10 @@ from aggregator_common.db import SessionFactory, get_session
 from aggregator_common.management import enqueue_recluster, mark_thread_viewed, set_thread_dismissed
 from aggregator_common.models import Article, Brief, BriefTopic, Category, Source
 from aggregator_common.queries import (
+    get_latest_podcast_episode,
     get_thread,
     get_thread_members,
+    list_podcast_episodes,
     list_threads,
 )
 from aggregator_common.version import version
@@ -831,6 +833,24 @@ def thread_restore(thread_id: int, db: Session = Depends(get_db)) -> Response:
 def threads_recluster(db: Session = Depends(get_db)) -> Response:
     enqueue_recluster(db)
     return Response(status_code=202, headers={"HX-Trigger": "reclustered"})
+
+
+@app.get("/podcasts")
+def podcasts(
+    request: Request,
+    db: Session = Depends(get_db),
+) -> Response:
+    latest = get_latest_podcast_episode(db)
+    episodes, _ = list_podcast_episodes(db)
+    return templates.TemplateResponse(
+        request,
+        "podcasts.html",
+        {
+            "latest_episode": latest,
+            "episodes": episodes,
+            "nav_key": "podcasts",
+        },
+    )
 
 
 @app.get("/search")

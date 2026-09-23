@@ -97,6 +97,20 @@ services:
         condition: service_completed_successfully
     restart: unless-stopped
 
+  podcast:
+    image: ${IMAGE_PREFIX:-personal-aggregator}/aggregator-podcast:${APP_VERSION:-latest}
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://aggregator:aggregator@postgres:5432/aggregator
+    volumes:
+      - podcasts_data:/data/podcasts
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
   web:
     image: ${IMAGE_PREFIX:-personal-aggregator}/aggregator-web:${APP_VERSION:-dev}
     env_file: .env
@@ -113,6 +127,8 @@ services:
       #   0.0.0.0   → reachable from any device on your LAN (default)
       #   127.0.0.1 → Pi-local only (e.g. behind Tailscale)
       - "${WEB_BIND:-0.0.0.0}:${WEB_PORT:-8000}:8000"
+    volumes:
+      - podcasts_data:/data/podcasts:ro
     depends_on:
       postgres:
         condition: service_healthy
@@ -155,3 +171,4 @@ services:
 
 volumes:
   pgdata:
+  podcasts_data:
