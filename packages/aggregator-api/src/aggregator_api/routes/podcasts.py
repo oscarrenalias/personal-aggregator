@@ -71,6 +71,26 @@ def get_latest_episode(db: Session = Depends(get_db)):
     return _to_response(episode)
 
 
+@router.get("/{episode_id}/audio")
+def get_episode_audio(episode_id: int, db: Session = Depends(get_db)):
+    episode = queries.get_podcast_episode(db, episode_id)
+    if episode is None:
+        raise HTTPException(status_code=404, detail=f"Podcast episode {episode_id} not found")
+    if not episode.audio_path or not os.path.exists(episode.audio_path):
+        raise HTTPException(status_code=404, detail=f"Audio file not found for episode {episode_id}")
+    return FileResponse(episode.audio_path, media_type="audio/mpeg")
+
+
+@router.get("/{episode_id}/script")
+def get_episode_script(episode_id: int, db: Session = Depends(get_db)):
+    episode = queries.get_podcast_episode(db, episode_id)
+    if episode is None:
+        raise HTTPException(status_code=404, detail=f"Podcast episode {episode_id} not found")
+    if episode.script_json is None:
+        raise HTTPException(status_code=404, detail=f"Script not found for episode {episode_id}")
+    return JSONResponse(episode.script_json)
+
+
 @router.get("/{date}", response_model=PodcastEpisodeResponse)
 def get_episode_by_date(date: str, db: Session = Depends(get_db)):
     try:
