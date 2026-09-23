@@ -1,8 +1,8 @@
 {#
-  podcasts.html — Podcast episodes list pane.
+  podcasts.html — Podcast episodes pane (HTMX partial; swapped into #article-list).
   Context:
     latest_episode : PodcastEpisode | None  — most recent ready episode
-    episodes       : list[PodcastEpisode]   — all ready episodes newest-first
+    episodes       : list[PodcastEpisode]   — ready episodes newest-first
     nav_key        : str                    — Alpine nav store key ('podcasts')
 #}
 <div id="article-list" role="feed" aria-label="Podcast episodes">
@@ -12,19 +12,67 @@
 
   {% if not episodes %}
   <div class="today-empty">
-    <p>No podcast episodes yet.</p>
+    <p>No podcast episodes available yet.</p>
   </div>
   {% else %}
-  {% for episode in episodes %}
-  <div class="thread-card{% if latest_episode and episode.id == latest_episode.id %} thread-card--latest{% endif %}">
+
+  {# Latest episode — full player section #}
+  {% if latest_episode %}
+  <div class="podcast-player">
     <div class="thread-card-meta">
-      <span class="thread-date">{{ episode.date }}</span>
+      <span class="thread-date">{{ latest_episode.date }}</span>
+      {% if latest_episode.duration_seconds %}
+      {% set mins = latest_episode.duration_seconds // 60 %}
+      {% set secs = latest_episode.duration_seconds % 60 %}
+      <span class="podcast-duration">{{ mins }}:{% if secs < 10 %}0{% endif %}{{ secs }}</span>
+      {% endif %}
     </div>
-    <div class="thread-card-title">{{ episode.title or "Untitled episode" }}</div>
-    {% if episode.summary %}
-    <div class="thread-card-summary">{{ episode.summary }}</div>
+    {% if latest_episode.episode_theme %}
+    <div class="thread-card-title">{{ latest_episode.episode_theme }}</div>
+    {% endif %}
+    <audio controls preload="metadata"
+           src="/api/v1/podcasts/{{ latest_episode.id }}/audio"
+           class="podcast-audio">
+      Your browser does not support the audio element.
+    </audio>
+    {% if latest_episode.script_json and latest_episode.script_json.segments %}
+    <ul class="podcast-headlines">
+      {% for seg in latest_episode.script_json.segments %}
+      {% if seg.type == 'story' and seg.headline %}
+      <li>{{ seg.headline }}</li>
+      {% endif %}
+      {% endfor %}
+    </ul>
     {% endif %}
   </div>
-  {% endfor %}
+  {% endif %}
+
+  {# Episode archive — all episodes except the latest #}
+  {% set archive_episodes = episodes | rejectattr('id', 'equalto', latest_episode.id) | list if latest_episode else episodes %}
+  {% if archive_episodes %}
+  <div class="podcast-archive">
+    <h3 class="podcast-archive-title">Previous Episodes</h3>
+    {% for episode in archive_episodes %}
+    <div class="thread-card">
+      <div class="thread-card-meta">
+        <span class="thread-date">{{ episode.date }}</span>
+        {% if episode.duration_seconds %}
+        {% set mins = episode.duration_seconds // 60 %}
+        {% set secs = episode.duration_seconds % 60 %}
+        <span class="podcast-duration">{{ mins }}:{% if secs < 10 %}0{% endif %}{{ secs }}</span>
+        {% endif %}
+      </div>
+      {% if episode.episode_theme %}
+      <div class="thread-card-title">{{ episode.episode_theme }}</div>
+      {% endif %}
+      <a class="podcast-play-link"
+         href="/api/v1/podcasts/{{ episode.id }}/audio"
+         target="_blank"
+         rel="noopener noreferrer">Play episode</a>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
   {% endif %}
 </div>
