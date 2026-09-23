@@ -137,12 +137,17 @@ do_update() {
         exit 0
     fi
 
-    # Refresh the compose file if a newer copy is present alongside install.sh.
-    # This picks up new services (e.g. podcast) without requiring a full reinstall.
-    local compose_src
+    # Refresh the compose file if a newer copy is present alongside install.sh
+    # and it is not already the installed copy (i.e. running from INSTALL_DIR itself).
+    local compose_src compose_dst
+    compose_dst="${INSTALL_DIR}/docker-compose.prod.yml"
     if compose_src="$(find_asset docker-compose.prod.yml 2>/dev/null)"; then
-        log "Refreshing docker-compose.prod.yml from release assets..."
-        cp "${compose_src}" "${INSTALL_DIR}/docker-compose.prod.yml"
+        if [[ "$(realpath "${compose_src}")" != "$(realpath "${compose_dst}" 2>/dev/null)" ]]; then
+            log "Refreshing docker-compose.prod.yml from release assets..."
+            cp "${compose_src}" "${compose_dst}"
+        else
+            log "docker-compose.prod.yml already in place (running from install dir) — no copy needed"
+        fi
     else
         log "docker-compose.prod.yml not found alongside install.sh — using existing file in ${INSTALL_DIR}"
     fi
