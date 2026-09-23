@@ -569,6 +569,7 @@ def run_wrapper_phase(
 
 def _assemble_script(
     date_str: str,
+    iso_date: str,
     episode_theme: str,
     segments: list[dict],
     wrapper: dict,
@@ -621,6 +622,7 @@ def _assemble_script(
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "date": date_str,
+        "iso_date": iso_date,
         "episode_theme": episode_theme,
         "model": model,
         "duration_estimate_seconds": duration_seconds,
@@ -640,6 +642,7 @@ def generate_podcast(
     audio_path is a placeholder string; actual audio synthesis is handled by the TTS phase.
     """
     date_str = episode.date.strftime("%A, %B %-d, %Y") if hasattr(episode.date, "strftime") else str(episode.date)
+    iso_date = episode.date.isoformat() if hasattr(episode.date, "isoformat") else str(episode.date)
 
     # Phase 1: story selection
     episode_theme, selected, candidates = run_selection_phase(session, settings)
@@ -676,7 +679,7 @@ def generate_podcast(
     log.info("Phase 3 complete.")
 
     # Assembly
-    script_json = _assemble_script(date_str, episode_theme, segments, wrapper, settings.podcast_llm_model)
+    script_json = _assemble_script(date_str, iso_date, episode_theme, segments, wrapper, settings.podcast_llm_model)
 
     # audio_path is a placeholder; TTS synthesis populates it later
     audio_path = ""

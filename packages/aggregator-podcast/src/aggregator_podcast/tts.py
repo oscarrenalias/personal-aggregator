@@ -151,7 +151,8 @@ def generate_audio(
         raise RuntimeError("OPENAI_API_KEY not set in environment")
     client = openai.OpenAI(api_key=api_key)
 
-    episode_date = script_json.get("date", "unknown")
+    # Use ISO date (YYYY-MM-DD) for the filename, not the human-readable date in the script
+    episode_date = script_json.get("iso_date") or script_json.get("date", "unknown")
     output_filename = f"podcast_{episode_date}.mp3"
     output_path = Path(audio_dir) / output_filename
     output_path.parent.mkdir(parents=True, exist_ok=True)
