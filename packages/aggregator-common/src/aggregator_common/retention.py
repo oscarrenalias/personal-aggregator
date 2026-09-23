@@ -117,7 +117,7 @@ def purge_expired_podcast_episodes(session: Session, retention_days: int) -> int
     if not rows:
         return 0
 
-    for row_id, audio_path in rows:
+    for _, audio_path in rows:
         if audio_path and os.path.exists(audio_path):
             os.remove(audio_path)
 
