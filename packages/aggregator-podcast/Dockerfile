@@ -23,6 +23,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg && rm -r
 
 RUN useradd --system --no-create-home --shell /sbin/nologin appuser
 
+# Create the audio output dir owned by appuser. Docker propagates this ownership
+# into the podcasts_data named volume when the volume is first initialised,
+# which is what lets the non-root process write the generated MP3s.
+RUN mkdir -p /data/podcasts && chown -R appuser:appuser /data
+
 COPY --from=builder /app/.venv /app/.venv
 
 USER appuser
