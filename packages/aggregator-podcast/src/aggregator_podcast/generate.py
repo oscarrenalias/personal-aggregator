@@ -15,7 +15,7 @@ import litellm
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from aggregator_common.models import Article, InterestProfile, Thread, ThreadMembership
+from aggregator_common.models import InterestProfile, Thread
 from aggregator_common.queries import get_recent_podcast_episodes
 from aggregator_podcast.config import PodcastSettings
 

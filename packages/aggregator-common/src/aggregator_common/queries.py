@@ -999,6 +999,11 @@ def _podcast_keyset_filter(cursor_date: str, cursor_id: int):
     )
 
 
+def get_podcast_episode(session: Session, episode_id: int) -> Optional[PodcastEpisode]:
+    """Return the podcast episode with the given id, or None."""
+    return session.get(PodcastEpisode, episode_id)
+
+
 def get_latest_podcast_episode(session: Session) -> Optional[PodcastEpisode]:
     """Return the most recent ready podcast episode (by date DESC, id DESC), or None."""
     return session.execute(
