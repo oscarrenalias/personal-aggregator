@@ -19,6 +19,8 @@ LABEL org.opencontainers.image.title="aggregator-podcast" \
       org.opencontainers.image.revision="" \
       org.opencontainers.image.source="https://github.com/oscarrenalias/personal-aggregator"
 
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg && rm -rf /var/lib/apt/lists/*
+
 RUN useradd --system --no-create-home --shell /sbin/nologin appuser
 
 COPY --from=builder /app/.venv /app/.venv
