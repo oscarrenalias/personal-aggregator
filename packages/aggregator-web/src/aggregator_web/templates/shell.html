@@ -21,12 +21,12 @@
 
   <title>Personal Aggregator</title>
 
-  <link rel="stylesheet" href="/static/styles.css">
+  <link rel="stylesheet" href="/static/styles.css?v={{ app_version }}">
 
   <!-- app.js must execute before Alpine starts so aggregatorApp/articleList factories
        exist when the alpine:init event fires. No defer — runs synchronously during
        head parse; safe because app.js only defines functions (no DOM access). -->
-  <script src="/static/app.js"></script>
+  <script src="/static/app.js?v={{ app_version }}"></script>
   <!-- Seed the nav store with the server-supplied initial key so $store.nav.current
        is correct on a fresh load or hard refresh before any click occurs. -->
   <script>

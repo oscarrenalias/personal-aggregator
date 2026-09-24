@@ -57,6 +57,47 @@ def test_app_js_loads_before_alpine_in_shell(client):
     )
 
 
+def test_static_assets_have_version_query_string(client):
+    """Regression: static assets must include ?v=<version> for cache-busting.
+
+    Without a version query string, browsers apply heuristic caching and may
+    serve a stale app.js after a deploy, silently breaking Alpine components.
+    This test fails against templates that reference /static/app.js and
+    /static/styles.css without a ?v= suffix.
+    """
+    from aggregator_common.version import version as get_version
+
+    expected_version = get_version()
+    assert expected_version, "aggregator_common.version() must return a non-empty string"
+
+    for path, label in [("/", "shell"), ("/threads", "threads"), ("/podcasts", "podcasts")]:
+        response = client.get(path)
+        assert response.status_code == 200, f"{label} route returned {response.status_code}"
+        html = response.text
+
+        assert f"/static/app.js?v={expected_version}" in html, (
+            f"{label}: app.js must include ?v={expected_version} for cache-busting"
+        )
+        assert f"/static/styles.css?v={expected_version}" in html, (
+            f"{label}: styles.css must include ?v={expected_version} for cache-busting"
+        )
+
+
+def test_static_assets_cache_control_no_cache(client):
+    """Regression: app.js and styles.css must carry Cache-Control: no-cache.
+
+    Without an explicit directive, browsers apply heuristic caching and may
+    serve a stale bundle. This test fails when the middleware is removed.
+    """
+    for asset_path in ("/static/app.js", "/static/styles.css"):
+        response = client.get(asset_path)
+        assert response.status_code == 200, f"{asset_path} returned {response.status_code}"
+        assert response.headers.get("cache-control") == "no-cache", (
+            f"{asset_path} must have Cache-Control: no-cache, got "
+            f"{response.headers.get('cache-control')!r}"
+        )
+
+
 def test_shell_uses_alpine_data_registered_names(client):
     """Regression: x-data must reference registered Alpine.data names (no parens).
 

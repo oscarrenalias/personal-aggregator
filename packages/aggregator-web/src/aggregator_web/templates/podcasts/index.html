@@ -21,9 +21,9 @@
 
   <title>Podcasts — Personal Aggregator</title>
 
-  <link rel="stylesheet" href="/static/styles.css">
+  <link rel="stylesheet" href="/static/styles.css?v={{ app_version }}">
 
-  <script src="/static/app.js"></script>
+  <script src="/static/app.js?v={{ app_version }}"></script>
   <script>
     document.addEventListener('alpine:init', () => {
       window.Alpine.store('nav', { current: 'podcasts' });

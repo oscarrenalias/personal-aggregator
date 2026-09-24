@@ -1,4 +1,4 @@
-const CACHE_NAME = 'aggregator-shell-v1';
+const CACHE_NAME = 'aggregator-shell-v2';
 const SHELL_URLS = [
   '/',
   '/static/styles.css',
