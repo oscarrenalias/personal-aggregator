@@ -490,6 +490,44 @@ function threadList() {
 }
 
 
+/* ── Podcast list component (bound to the podcast list div in podcasts.html)
+   Manages: episode selection, reader pane open/close, desktop auto-load.
+   ──────────────────────────────────────────────────────────────────────── */
+function podcastList() {
+  return {
+    selectedId: null,
+
+    init() {
+      this._onReaderClosed = () => { this.selectedId = null; };
+      window.addEventListener('reader:closed', this._onReaderClosed);
+      /* On desktop, auto-load the server-pre-selected episode (latest by default). */
+      if (window.innerWidth >= 1024 && this.selectedId !== null) {
+        const content = document.getElementById('reader-content');
+        htmx.ajax('GET', '/podcasts/' + this.selectedId, {
+          target: '#reader-content',
+          swap: 'innerHTML',
+        });
+        document.body.classList.add('reader-open');
+        if (content) {
+          content.addEventListener('htmx:afterSwap', () => { content.scrollTop = 0; }, { once: true });
+        }
+      }
+    },
+
+    destroy() {
+      window.removeEventListener('reader:closed', this._onReaderClosed);
+    },
+
+    /* Mark an episode as selected and slide the reader pane in on mobile.
+       Content load is handled by HTMX on the <a> inside each card. */
+    selectEpisode(id) {
+      this.selectedId = id;
+      document.body.classList.add('reader-open');
+    },
+  };
+}
+
+
 /* Register component factories with Alpine so x-data="aggregatorApp" / "articleList"
    resolve correctly regardless of when exactly Alpine initialises relative to this
    script. This file must still be loaded BEFORE the Alpine CDN script so this
@@ -513,4 +551,5 @@ document.addEventListener('alpine:init', () => {
   window.Alpine.data('articleList', articleList);
   window.Alpine.data('briefList', briefList);
   window.Alpine.data('threadList', threadList);
+  window.Alpine.data('podcastList', podcastList);
 });

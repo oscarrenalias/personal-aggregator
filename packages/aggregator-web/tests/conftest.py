@@ -84,7 +84,7 @@ def clean_db(db_engine):
     with db_engine.connect() as conn:
         conn.execute(
             text(
-                "TRUNCATE TABLE threads, articles, sources, categories, briefs"
+                "TRUNCATE TABLE threads, articles, sources, categories, briefs, podcast_episodes"
                 " RESTART IDENTITY CASCADE"
             )
         )
@@ -137,7 +137,7 @@ def client(db_engine, clean_db):
 # Helper constructors (module-level so test files can import them directly)
 # ---------------------------------------------------------------------------
 
-from aggregator_common.models import Article, Category, Source  # noqa: E402
+from aggregator_common.models import Article, Category, PodcastEpisode, Source  # noqa: E402
 from aggregator_common.state import ArticleStatus  # noqa: E402
 
 
@@ -220,3 +220,28 @@ def make_category(
     session.commit()
     session.refresh(cat)
     return cat
+
+
+def make_podcast_episode(
+    session: Session,
+    *,
+    date: str = "2025-01-01",
+    status: str = "ready",
+    episode_theme: str | None = "Test Episode Theme",
+    duration_seconds: int | None = 300,
+    script_json: dict | None = None,
+) -> PodcastEpisode:
+    from datetime import date as date_type
+
+    ep = PodcastEpisode(
+        date=date_type.fromisoformat(date),
+        status=status,
+        episode_theme=episode_theme,
+        duration_seconds=duration_seconds,
+        script_json=script_json or {},
+    )
+    session.add(ep)
+    session.flush()
+    session.commit()
+    session.refresh(ep)
+    return ep

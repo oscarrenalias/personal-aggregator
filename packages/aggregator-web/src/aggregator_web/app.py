@@ -839,46 +839,50 @@ def threads_recluster(db: Session = Depends(get_db)) -> Response:
 @app.get("/podcasts")
 def podcasts(
     request: Request,
+    hx_request: Optional[str] = Header(None, alias="HX-Request"),
     db: Session = Depends(get_db),
 ) -> Response:
     latest = get_latest_podcast_episode(db)
     episodes, _ = list_podcast_episodes(db)
-    return templates.TemplateResponse(
-        request,
-        "podcasts.html",
-        {
-            "episodes": episodes,
-            "selected_id": latest.id if latest else None,
-            "nav_key": "podcasts",
-        },
-    )
+    ctx = {
+        "episodes": episodes,
+        "selected_id": latest.id if latest else None,
+        "nav_key": "podcasts",
+    }
+    if hx_request:
+        return templates.TemplateResponse(request, "podcasts.html", ctx)
+    return templates.TemplateResponse(request, "podcasts/index.html", ctx)
 
 
 @app.get("/podcasts/{episode_id}")
 def podcast_detail(
     episode_id: int,
     request: Request,
+    hx_request: Optional[str] = Header(None, alias="HX-Request"),
     db: Session = Depends(get_db),
 ) -> Response:
     episode = get_podcast_episode_by_id(db, episode_id)
     if episode is None:
         raise HTTPException(status_code=404, detail="Episode not found")
     # HTMX partial — return only the reader fragment
-    if "HX-Request" in request.headers:
+    if hx_request:
         return templates.TemplateResponse(
             request,
             "_podcast_detail.html",
             {"episode": episode},
         )
-    # Full page load — render shell with list pane pre-populated
-    episodes, _ = list_podcast_episodes(db)
+    # Full page load (deep link / refresh) — return shell with episode pre-loaded in reader,
+    # matching the /article/{id} and /threads/{id} pattern.
+    initial_content = Markup(
+        templates.get_template("_podcast_detail.html").render(episode=episode)
+    )
     return templates.TemplateResponse(
         request,
-        "podcasts.html",
+        "shell.html",
         {
-            "episodes": episodes,
-            "selected_id": episode_id,
-            "nav_key": "podcasts",
+            "initial_reader_content": initial_content,
+            "initial_reader_open": True,
+            "initial_nav_key": "podcasts",
         },
     )
 

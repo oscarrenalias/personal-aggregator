@@ -8,7 +8,7 @@
 <div id="article-list"
      role="feed"
      aria-label="Podcast episodes"
-     x-data="{ selectedId: {{ selected_id or 'null' }} }">
+     x-data="{ ...podcastList(), selectedId: {{ selected_id or 'null' }} }">
 
   <div class="list-pane-header">
     <span class="list-pane-title">Podcasts</span>
@@ -23,8 +23,9 @@
   {% set mins = episode.duration_seconds // 60 if episode.duration_seconds else 0 %}
   {% set secs = episode.duration_seconds % 60 if episode.duration_seconds else 0 %}
   <article class="thread-card podcast-episode-card"
+           data-episode-id="{{ episode.id }}"
            :class="{ 'is-selected': selectedId === {{ episode.id }} }"
-           @click="selectedId = {{ episode.id }}">
+           @click="selectEpisode({{ episode.id }})">
     <div class="card-body">
       <div class="card-meta">
         <time class="thread-updated" datetime="{{ episode.date }}">{{ episode.date }}</time>
@@ -37,8 +38,7 @@
            hx-get="/podcasts/{{ episode.id }}"
            hx-target="#reader-content"
            hx-swap="innerHTML"
-           hx-push-url="true"
-           @click.prevent="selectedId = {{ episode.id }}">
+           hx-push-url="true">
           {% if episode.episode_theme %}{{ episode.episode_theme | truncate(120) }}{% else %}Episode – {{ episode.date }}{% endif %}
         </a>
       </h2>
