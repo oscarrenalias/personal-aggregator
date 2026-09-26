@@ -564,6 +564,125 @@ def test_measure_audio_duration_falls_back_on_ffprobe_nonzero(caplog):
     assert any("non-zero" in r.message for r in caplog.records)
 
 
+# ── complete_podcast: artwork_url normalisation ───────────────────────────────
+
+def test_complete_podcast_stores_artwork_url_from_script_json(db_session):
+    """complete_podcast persists artwork_url from script_json onto the episode row."""
+    today = date.today()
+    ep = _make_episode(db_session, episode_date=today, status="generating", claimed_by="w1")
+    db_session.commit()
+
+    script = {
+        "segments": [],
+        "episode_theme": "test",
+        "duration_estimate_seconds": 300,
+        "artwork_url": "https://cdn.example.com/cover.jpg",
+    }
+    complete_podcast(
+        db_session, ep.id,
+        script_json=script,
+        audio_path="/data/podcasts/ep.mp3",
+        audio_size_bytes=1000,
+        duration_seconds=300,
+        llm_model="gpt-4",
+        tts_model="gpt-4o-mini-tts",
+        tts_voice="marin",
+    )
+    db_session.commit()
+
+    db_session.expire(ep)
+    db_session.refresh(ep)
+    assert ep.artwork_url == "https://cdn.example.com/cover.jpg"
+
+
+def test_complete_podcast_empty_string_artwork_url_stored_as_null(db_session):
+    """An empty-string artwork_url in script_json is normalised to NULL, not ''."""
+    today = date.today()
+    ep = _make_episode(db_session, episode_date=today, status="generating", claimed_by="w1")
+    db_session.commit()
+
+    script = {
+        "segments": [],
+        "episode_theme": "test",
+        "duration_estimate_seconds": 300,
+        "artwork_url": "",
+    }
+    complete_podcast(
+        db_session, ep.id,
+        script_json=script,
+        audio_path="/data/podcasts/ep.mp3",
+        audio_size_bytes=1000,
+        duration_seconds=300,
+        llm_model="gpt-4",
+        tts_model="gpt-4o-mini-tts",
+        tts_voice="marin",
+    )
+    db_session.commit()
+
+    db_session.expire(ep)
+    db_session.refresh(ep)
+    assert ep.artwork_url is None
+
+
+def test_complete_podcast_whitespace_artwork_url_stored_as_null(db_session):
+    """A whitespace-only artwork_url is treated the same as empty string → NULL."""
+    today = date.today()
+    ep = _make_episode(db_session, episode_date=today, status="generating", claimed_by="w1")
+    db_session.commit()
+
+    script = {
+        "segments": [],
+        "episode_theme": "test",
+        "duration_estimate_seconds": 300,
+        "artwork_url": "   ",
+    }
+    complete_podcast(
+        db_session, ep.id,
+        script_json=script,
+        audio_path="/data/podcasts/ep.mp3",
+        audio_size_bytes=1000,
+        duration_seconds=300,
+        llm_model="gpt-4",
+        tts_model="gpt-4o-mini-tts",
+        tts_voice="marin",
+    )
+    db_session.commit()
+
+    db_session.expire(ep)
+    db_session.refresh(ep)
+    assert ep.artwork_url is None
+
+
+def test_complete_podcast_missing_artwork_url_key_stored_as_null(db_session):
+    """A missing artwork_url key in script_json (legacy episodes) leaves the column NULL."""
+    today = date.today()
+    ep = _make_episode(db_session, episode_date=today, status="generating", claimed_by="w1")
+    db_session.commit()
+
+    script = {
+        "segments": [],
+        "episode_theme": "no artwork key here",
+        "duration_estimate_seconds": 300,
+        # deliberately no artwork_url key
+    }
+    complete_podcast(
+        db_session, ep.id,
+        script_json=script,
+        audio_path="/data/podcasts/ep.mp3",
+        audio_size_bytes=1000,
+        duration_seconds=300,
+        llm_model="gpt-4",
+        tts_model="gpt-4o-mini-tts",
+        tts_voice="marin",
+    )
+    db_session.commit()
+
+    db_session.expire(ep)
+    db_session.refresh(ep)
+    # Must not raise; column defaults to NULL
+    assert ep.artwork_url is None
+
+
 def test_measure_audio_duration_falls_back_on_exception(caplog):
     """_measure_audio_duration falls back to estimate when ffprobe raises (e.g. not installed)."""
     import logging
