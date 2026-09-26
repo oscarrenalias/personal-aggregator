@@ -26,6 +26,15 @@
            data-episode-id="{{ episode.id }}"
            :class="{ 'is-selected': selectedId === {{ episode.id }} }"
            @click="selectEpisode({{ episode.id }})">
+    {% if episode.artwork_url %}
+    <div class="card-image">
+      <img src="{{ episode.artwork_url | e }}"
+           alt=""
+           loading="lazy"
+           decoding="async"
+           onerror="this.closest('.card-image').remove()">
+    </div>
+    {% endif %}
     <div class="card-body">
       <div class="card-meta">
         <time class="thread-updated" datetime="{{ episode.date }}">{{ episode.date }}</time>

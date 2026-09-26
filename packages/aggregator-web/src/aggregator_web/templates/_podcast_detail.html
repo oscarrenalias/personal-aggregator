@@ -13,6 +13,15 @@
 
   {# ── Header ─────────────────────────────────────────────────── #}
   <div class="podcast-detail-header">
+    {% if episode.artwork_url %}
+    <div class="card-image">
+      <img src="{{ episode.artwork_url | e }}"
+           alt=""
+           loading="lazy"
+           decoding="async"
+           onerror="this.closest('.card-image').remove()">
+    </div>
+    {% endif %}
     <div class="podcast-detail-meta">
       <time datetime="{{ episode.date }}">{{ episode.date }}</time>
       {% if episode.duration_seconds %}

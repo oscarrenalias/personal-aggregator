@@ -1833,6 +1833,17 @@
           "created_at": {
             "type": "string",
             "title": "Created At"
+          },
+          "artwork_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Artwork Url"
           }
         },
         "type": "object",
