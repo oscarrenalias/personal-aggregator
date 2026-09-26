@@ -16,7 +16,7 @@ import litellm
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from aggregator_common.models import Article, InterestProfile, PodcastEpisode, Thread, ThreadMembership
+from aggregator_common.models import Article, InterestProfile, PodcastEpisode, Source, Thread, ThreadMembership
 from aggregator_common.queries import get_recent_podcast_episodes
 from aggregator_podcast.config import PodcastSettings
 
@@ -576,6 +576,77 @@ def run_wrapper_phase(
         }
 
 
+# ── Artwork resolution ────────────────────────────────────────────────────────
+
+def _resolve_artwork_url(session: Session, script: dict) -> str | None:
+    """Walk story segments in order; return first non-null article header_image_url.
+
+    Falls back to Source.default_image_url for the first story's source.
+    Returns None when nothing resolves.
+    """
+    story_segments = [s for s in script.get("segments", []) if s.get("type") == "story"]
+    if not story_segments:
+        return None
+
+    thread_ids: list[int] = []
+    for s in story_segments:
+        tid = s.get("thread_id")
+        if tid is not None:
+            try:
+                thread_ids.append(int(tid))
+            except (ValueError, TypeError):
+                pass
+
+    if not thread_ids:
+        return None
+
+    # Batch-load one header_image_url per thread (highest importance wins).
+    img_rows = session.execute(
+        select(ThreadMembership.thread_id, Article.header_image_url)
+        .join(Article, ThreadMembership.article_id == Article.id)
+        .where(
+            ThreadMembership.thread_id.in_(thread_ids),
+            ThreadMembership.suppressed == False,  # noqa: E712
+            Article.header_image_url.isnot(None),
+            Article.header_image_url != "",
+        )
+        .distinct(ThreadMembership.thread_id)
+        .order_by(
+            ThreadMembership.thread_id,
+            Article.importance_score.desc().nulls_last(),
+            Article.feed_published_at.desc().nulls_last(),
+        )
+    ).all()
+    image_map: dict[int, str] = {row.thread_id: row.header_image_url for row in img_rows}
+
+    # Walk in story order; return the first thread that has an image.
+    for s in story_segments:
+        tid = s.get("thread_id")
+        if tid is not None:
+            try:
+                tid_int = int(tid)
+            except (ValueError, TypeError):
+                continue
+            if tid_int in image_map:
+                return image_map[tid_int]
+
+    # Fallback: Source.default_image_url for the first story's source.
+    first_tid = thread_ids[0]
+    source_default: str | None = session.scalar(
+        select(Source.default_image_url)
+        .join(Article, Article.source_id == Source.id)
+        .join(ThreadMembership, ThreadMembership.article_id == Article.id)
+        .where(
+            ThreadMembership.thread_id == first_tid,
+            ThreadMembership.suppressed == False,  # noqa: E712
+            Source.default_image_url.isnot(None),
+            Source.default_image_url != "",
+        )
+        .limit(1)
+    )
+    return source_default or None
+
+
 # ── Assembly ──────────────────────────────────────────────────────────────────
 
 def _assemble_script(
@@ -691,6 +762,9 @@ def generate_podcast(
 
     # Assembly
     script_json = _assemble_script(date_str, iso_date, episode_theme, segments, wrapper, settings.podcast_llm_model)
+
+    # Resolve cover artwork: first story thread with a header image; Source fallback; else None.
+    script_json["artwork_url"] = _resolve_artwork_url(session, script_json)
 
     # audio_path is a placeholder; TTS synthesis populates it later
     audio_path = ""

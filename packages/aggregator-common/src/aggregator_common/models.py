@@ -368,6 +368,7 @@ class PodcastEpisode(Base):
     origin: Mapped[str] = mapped_column(Text, nullable=False, server_default="auto")
     status: Mapped[str] = mapped_column(Text, nullable=False, server_default="pending")
     episode_theme: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    artwork_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     script_json: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
     audio_path: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     audio_size_bytes: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
