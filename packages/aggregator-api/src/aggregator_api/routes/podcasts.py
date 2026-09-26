@@ -63,6 +63,9 @@ def list_episodes(
     )
 
 
+# Declare literal-segment routes before the /{episode_id} int route so FastAPI
+# matches them first and does not try to coerce "latest" or "by-date" to int.
+
 @router.get("/latest", response_model=PodcastEpisodeResponse)
 def get_latest_episode(db: Session = Depends(get_db)):
     episode = queries.get_latest_podcast_episode(db)
@@ -71,27 +74,7 @@ def get_latest_episode(db: Session = Depends(get_db)):
     return _to_response(episode)
 
 
-@router.get("/{episode_id}/audio")
-def get_episode_audio(episode_id: int, db: Session = Depends(get_db)):
-    episode = queries.get_podcast_episode(db, episode_id)
-    if episode is None:
-        raise HTTPException(status_code=404, detail=f"Podcast episode {episode_id} not found")
-    if not episode.audio_path or not os.path.exists(episode.audio_path):
-        raise HTTPException(status_code=404, detail=f"Audio file not found for episode {episode_id}")
-    return FileResponse(episode.audio_path, media_type="audio/mpeg")
-
-
-@router.get("/{episode_id}/script")
-def get_episode_script(episode_id: int, db: Session = Depends(get_db)):
-    episode = queries.get_podcast_episode(db, episode_id)
-    if episode is None:
-        raise HTTPException(status_code=404, detail=f"Podcast episode {episode_id} not found")
-    if episode.script_json is None:
-        raise HTTPException(status_code=404, detail=f"Script not found for episode {episode_id}")
-    return JSONResponse(episode.script_json)
-
-
-@router.get("/{date}", response_model=PodcastEpisodeResponse)
+@router.get("/by-date/{date}", response_model=PodcastEpisodeResponse)
 def get_episode_by_date(date: str, db: Session = Depends(get_db)):
     try:
         from datetime import date as DateType
@@ -102,3 +85,49 @@ def get_episode_by_date(date: str, db: Session = Depends(get_db)):
     if episode is None:
         raise HTTPException(status_code=404, detail=f"No podcast episode found for {date}")
     return _to_response(episode)
+
+
+@router.get("/{episode_id}", response_model=PodcastEpisodeResponse)
+def get_episode(episode_id: int, db: Session = Depends(get_db)):
+    episode = queries.get_podcast_episode(db, episode_id)
+    if episode is None:
+        raise HTTPException(status_code=404, detail=f"Podcast episode {episode_id} not found")
+    return _to_response(episode)
+
+
+def _audio_response(episode_id: int, db: Session):
+    episode = queries.get_podcast_episode(db, episode_id)
+    if episode is None:
+        raise HTTPException(status_code=404, detail=f"Podcast episode {episode_id} not found")
+    if not episode.audio_path or not os.path.exists(episode.audio_path):
+        raise HTTPException(status_code=404, detail=f"Audio file not found for episode {episode_id}")
+    return FileResponse(episode.audio_path, media_type="audio/mpeg")
+
+
+@router.get("/{episode_id}/audio")
+def get_episode_audio(episode_id: int, db: Session = Depends(get_db)):
+    return _audio_response(episode_id, db)
+
+
+@router.head("/{episode_id}/audio", include_in_schema=False)
+def head_episode_audio(episode_id: int, db: Session = Depends(get_db)):
+    return _audio_response(episode_id, db)
+
+
+def _script_response(episode_id: int, db: Session):
+    episode = queries.get_podcast_episode(db, episode_id)
+    if episode is None:
+        raise HTTPException(status_code=404, detail=f"Podcast episode {episode_id} not found")
+    if episode.script_json is None:
+        raise HTTPException(status_code=404, detail=f"Script not found for episode {episode_id}")
+    return JSONResponse(episode.script_json)
+
+
+@router.get("/{episode_id}/script")
+def get_episode_script(episode_id: int, db: Session = Depends(get_db)):
+    return _script_response(episode_id, db)
+
+
+@router.head("/{episode_id}/script", include_in_schema=False)
+def head_episode_script(episode_id: int, db: Session = Depends(get_db)):
+    return _script_response(episode_id, db)

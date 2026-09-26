@@ -38,6 +38,15 @@ jobs:
       - name: Run tests
         run: bash scripts/run-tests.sh
 
+      - name: Check OpenAPI spec is up to date
+        env:
+          DATABASE_URL: postgresql://placeholder@localhost/aggregator
+        run: |
+          uv run --package aggregator-api python -c \
+            "import json; from aggregator_api.app import app; open('/tmp/openapi-fresh.json','w').write(json.dumps(app.openapi(), indent=2))"
+          diff docs/openapi.json /tmp/openapi-fresh.json || \
+            (echo "docs/openapi.json is stale — run 'make openapi' and commit the result" && exit 1)
+
   build:
     needs: [test]
     runs-on: ubuntu-latest

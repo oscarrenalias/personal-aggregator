@@ -114,7 +114,7 @@ def clean_db(db_engine):
         conn.execute(
             text(
                 "TRUNCATE TABLE brief_topics, briefs, thread_memberships, threads,"
-                " articles, sources, categories RESTART IDENTITY CASCADE"
+                " articles, sources, categories, podcast_episodes RESTART IDENTITY CASCADE"
             )
         )
         conn.execute(text("DELETE FROM interest_profile"))
