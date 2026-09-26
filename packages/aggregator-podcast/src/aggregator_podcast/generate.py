@@ -44,7 +44,7 @@ Priorities:
 
 Return a JSON object in exactly this format (no other text):
 {{
-  "episode_theme": "<one sentence summarising today's dominant theme, or empty string if none>",
+  "episode_theme": "<1-2 sentences describing what stories this episode covers and why they matter today; always non-empty>",
   "selected": [
     {{"thread_id": <int>, "rationale": "<one sentence explaining why this story and its position>"}},
     ...

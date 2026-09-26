@@ -154,12 +154,12 @@ def test_claim_podcast_returns_none_on_empty_table(db_session):
 # ── complete_podcast ──────────────────────────────────────────────────────────
 
 def test_complete_podcast_sets_ready_and_output_fields(db_session):
-    """complete_podcast sets status='ready' and populates all output fields."""
+    """complete_podcast sets status='ready' and populates all output fields including episode_theme."""
     today = date.today()
     ep = _make_episode(db_session, episode_date=today, status="generating", claimed_by="w1")
     db_session.commit()
 
-    script = {"segments": [], "episode_theme": "tech", "duration_estimate_seconds": 300}
+    script = {"segments": [], "episode_theme": "tech news today", "duration_estimate_seconds": 300}
     complete_podcast(
         db_session,
         ep.id,
@@ -186,6 +186,80 @@ def test_complete_podcast_sets_ready_and_output_fields(db_session):
     assert ep.claimed_by is None
     assert ep.claimed_at is None
     assert ep.generated_at is not None
+    assert ep.episode_theme == "tech news today"
+
+
+def test_complete_podcast_writes_episode_theme_from_script_json(db_session):
+    """complete_podcast populates episode_theme from script_json, never from a separate arg."""
+    today = date.today()
+    ep = _make_episode(db_session, episode_date=today, status="generating", claimed_by="w1")
+    db_session.commit()
+
+    theme = "AI and geopolitics reshape the week's biggest headlines."
+    script = {"segments": [], "episode_theme": theme, "duration_estimate_seconds": 500}
+    complete_podcast(
+        db_session, ep.id,
+        script_json=script,
+        audio_path="/data/podcasts/ep.mp3",
+        audio_size_bytes=5000000,
+        duration_seconds=500,
+        llm_model="gpt-4",
+        tts_model="gpt-4o-mini-tts",
+        tts_voice="marin",
+    )
+    db_session.commit()
+
+    db_session.expire(ep)
+    db_session.refresh(ep)
+    assert ep.episode_theme == theme
+
+
+def test_complete_podcast_empty_theme_stored_as_null(db_session):
+    """An empty string episode_theme in script_json is stored as NULL, not as ''."""
+    today = date.today()
+    ep = _make_episode(db_session, episode_date=today, status="generating", claimed_by="w1")
+    db_session.commit()
+
+    script = {"segments": [], "episode_theme": "   ", "duration_estimate_seconds": 300}
+    complete_podcast(
+        db_session, ep.id,
+        script_json=script,
+        audio_path="/data/podcasts/ep.mp3",
+        audio_size_bytes=1000,
+        duration_seconds=300,
+        llm_model="gpt-4",
+        tts_model="gpt-4o-mini-tts",
+        tts_voice="marin",
+    )
+    db_session.commit()
+
+    db_session.expire(ep)
+    db_session.refresh(ep)
+    assert ep.episode_theme is None
+
+
+def test_complete_podcast_missing_theme_stored_as_null(db_session):
+    """A missing episode_theme key in script_json leaves the column NULL."""
+    today = date.today()
+    ep = _make_episode(db_session, episode_date=today, status="generating", claimed_by="w1")
+    db_session.commit()
+
+    script = {"segments": [], "duration_estimate_seconds": 300}  # no episode_theme key
+    complete_podcast(
+        db_session, ep.id,
+        script_json=script,
+        audio_path="/data/podcasts/ep.mp3",
+        audio_size_bytes=1000,
+        duration_seconds=300,
+        llm_model="gpt-4",
+        tts_model="gpt-4o-mini-tts",
+        tts_voice="marin",
+    )
+    db_session.commit()
+
+    db_session.expire(ep)
+    db_session.refresh(ep)
+    assert ep.episode_theme is None
 
 
 # ── fail_podcast ──────────────────────────────────────────────────────────────
@@ -452,3 +526,53 @@ def test_continuity_block_fallback_on_bad_json(db_session, caplog):
     result = _build_continuity_block(db_session, continuity_count=2)
     # Result is a string (possibly empty-ish since no story segments)
     assert isinstance(result, str)
+
+
+# ── _measure_audio_duration ───────────────────────────────────────────────────
+
+def test_measure_audio_duration_uses_ffprobe_output():
+    """_measure_audio_duration returns the ffprobe-reported duration rounded to seconds."""
+    from unittest.mock import patch, MagicMock
+    from aggregator_podcast.loop import _measure_audio_duration
+
+    mock_result = MagicMock()
+    mock_result.returncode = 0
+    mock_result.stdout = "695.8\n"
+
+    with patch("aggregator_podcast.loop.subprocess.run", return_value=mock_result) as mock_run:
+        duration = _measure_audio_duration("/data/podcasts/ep.mp3", fallback=828)
+
+    assert duration == 696
+    mock_run.assert_called_once()
+
+
+def test_measure_audio_duration_falls_back_on_ffprobe_nonzero(caplog):
+    """_measure_audio_duration falls back to estimate when ffprobe exits non-zero."""
+    import logging
+    from unittest.mock import patch, MagicMock
+    from aggregator_podcast.loop import _measure_audio_duration
+
+    mock_result = MagicMock()
+    mock_result.returncode = 1
+    mock_result.stdout = ""
+
+    with patch("aggregator_podcast.loop.subprocess.run", return_value=mock_result):
+        with caplog.at_level(logging.WARNING, logger="aggregator_podcast.loop"):
+            duration = _measure_audio_duration("/data/podcasts/ep.mp3", fallback=828)
+
+    assert duration == 828
+    assert any("non-zero" in r.message for r in caplog.records)
+
+
+def test_measure_audio_duration_falls_back_on_exception(caplog):
+    """_measure_audio_duration falls back to estimate when ffprobe raises (e.g. not installed)."""
+    import logging
+    from unittest.mock import patch
+    from aggregator_podcast.loop import _measure_audio_duration
+
+    with patch("aggregator_podcast.loop.subprocess.run", side_effect=FileNotFoundError("ffprobe")):
+        with caplog.at_level(logging.WARNING, logger="aggregator_podcast.loop"):
+            duration = _measure_audio_duration("/data/podcasts/ep.mp3", fallback=600)
+
+    assert duration == 600
+    assert any("ffprobe" in r.message for r in caplog.records)

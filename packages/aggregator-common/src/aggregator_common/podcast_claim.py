@@ -50,6 +50,9 @@ def complete_podcast(
     episode.generated_at = datetime.now(timezone.utc)
     episode.claimed_by = None
     episode.claimed_at = None
+    # Derive theme from script_json so the column and the JSON never diverge.
+    theme = (script_json.get("episode_theme") or "").strip()
+    episode.episode_theme = theme or None
     session.flush()
 
 

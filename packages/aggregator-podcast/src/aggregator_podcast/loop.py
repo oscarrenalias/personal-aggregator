@@ -2,6 +2,7 @@ import logging
 import os
 import signal
 import socket
+import subprocess
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
@@ -24,6 +25,38 @@ from .generate import generate_podcast
 from .tts import generate_audio
 
 logger = logging.getLogger(__name__)
+
+
+def _measure_audio_duration(audio_path: str, fallback: int) -> int:
+    """Return actual MP3 duration in whole seconds via ffprobe.
+
+    Falls back to *fallback* (the LLM estimate) and logs a WARNING when ffprobe
+    is unavailable or returns a non-zero exit code. Never raises.
+    """
+    try:
+        result = subprocess.run(
+            [
+                "ffprobe", "-v", "error",
+                "-show_entries", "format=duration",
+                "-of", "csv=p=0",
+                audio_path,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            return round(float(result.stdout.strip()))
+        logger.warning(
+            "ffprobe non-zero for %s (rc=%d); using estimate %d s",
+            audio_path, result.returncode, fallback,
+        )
+    except Exception as exc:
+        logger.warning(
+            "ffprobe failed for %s (%s); using estimate %d s",
+            audio_path, exc, fallback,
+        )
+    return fallback
 
 
 def _maybe_enqueue_auto_episode(session, settings: PodcastSettings, now_utc: datetime) -> bool:
@@ -102,7 +135,8 @@ def _run_one_iteration(
         audio_dir = Path(settings.podcast_audio_dir)
         audio_path, audio_size_bytes = generate_audio(script_json, audio_dir, settings)
 
-        duration_seconds = script_json.get("duration_estimate_seconds", 0)
+        estimate = script_json.get("duration_estimate_seconds", 0)
+        duration_seconds = _measure_audio_duration(audio_path, estimate)
 
         complete_podcast(
             session,
