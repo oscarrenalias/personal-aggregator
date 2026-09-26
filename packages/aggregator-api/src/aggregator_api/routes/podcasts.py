@@ -29,6 +29,7 @@ class PodcastEpisodeResponse(BaseModel):
     tts_voice: Optional[str]
     generated_at: Optional[str]
     created_at: str
+    artwork_url: Optional[str] = None
 
 
 def _to_response(episode) -> PodcastEpisodeResponse:
