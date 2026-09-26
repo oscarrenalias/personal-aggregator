@@ -5,7 +5,7 @@ description: "Hotlink a lead-story article image as podcast episode cover art, e
 dependencies: null
 priority: medium
 complexity: null
-status: planned
+status: done
 tags:
 - podcast
 - api
