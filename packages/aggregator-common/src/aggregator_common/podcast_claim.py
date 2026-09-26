@@ -53,6 +53,9 @@ def complete_podcast(
     # Derive theme from script_json so the column and the JSON never diverge.
     theme = (script_json.get("episode_theme") or "").strip()
     episode.episode_theme = theme or None
+    # Derive artwork_url from script_json; empty string treated as NULL.
+    artwork_url = (script_json.get("artwork_url") or "").strip()
+    episode.artwork_url = artwork_url or None
     session.flush()
 
 

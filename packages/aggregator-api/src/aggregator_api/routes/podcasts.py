@@ -48,6 +48,7 @@ def _to_response(episode) -> PodcastEpisodeResponse:
         tts_voice=episode.tts_voice,
         generated_at=episode.generated_at.isoformat() if episode.generated_at else None,
         created_at=episode.created_at.isoformat(),
+        artwork_url=episode.artwork_url,
     )
 
 
