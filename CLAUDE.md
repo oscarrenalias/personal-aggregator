@@ -34,10 +34,10 @@ sources → retriever → processor → summarize-rank → clusterer → web UI
   - `GET /api/v1/categories` — list all categories with sidebar activity signals; `CategoryResponse` includes `has_priority` (category has ≥1 unread ready article above the threshold) and `last_activity` (ISO-8601 timestamp of most-recent ready article in that category); backed by `queries.list_categories()`
   - `GET /api/v1/interest-profile` — current interest profile text; reads `InterestProfile` model directly
   - `GET /api/v1/healthz` — liveness check; returns `{ "version": "...", "db": "ok"|"error" }`
-  - `GET /api/v1/podcasts` — list ready podcast episodes newest-first with keyset cursor pagination; params: `limit`, `cursor`; backed by `queries.list_podcast_episodes()`
-  - `GET /api/v1/podcasts/latest` — most recent ready podcast episode; 404 if none; backed by `queries.get_latest_podcast_episode()`
-  - `GET /api/v1/podcasts/by-date/{YYYY-MM-DD}` — episode for a specific date; 400 on malformed date; 404 if not found; backed by `queries.get_podcast_episode_by_date()`
-  - `GET /api/v1/podcasts/{id}` — single episode by integer id (canonical handle); 404 if not found; backed by `queries.get_podcast_episode()`
+  - `GET /api/v1/podcasts` — list ready podcast episodes newest-first with keyset cursor pagination; params: `limit`, `cursor`; backed by `queries.list_podcast_episodes()`; each `PodcastEpisodeResponse` includes `artwork_url` (nullable URL of the lead-story header image used as episode artwork)
+  - `GET /api/v1/podcasts/latest` — most recent ready podcast episode; 404 if none; backed by `queries.get_latest_podcast_episode()`; returns `PodcastEpisodeResponse` including `artwork_url`
+  - `GET /api/v1/podcasts/by-date/{YYYY-MM-DD}` — episode for a specific date; 400 on malformed date; 404 if not found; backed by `queries.get_podcast_episode_by_date()`; returns `PodcastEpisodeResponse` including `artwork_url`
+  - `GET /api/v1/podcasts/{id}` — single episode by integer id (canonical handle); 404 if not found; backed by `queries.get_podcast_episode()`; returns `PodcastEpisodeResponse` including `artwork_url`
   - `GET|HEAD /api/v1/podcasts/{id}/audio` — stream MP3 audio; supports `Range` requests (206); HEAD returns headers + `content-length` with no body; 404 if audio file absent
   - `GET|HEAD /api/v1/podcasts/{id}/script` — episode script JSON; 404 if not generated
 
