@@ -1,7 +1,7 @@
 ---
 name: Migrate podcast TTS off gpt-4o-mini-tts
 id: spec-aba2b326
-description: Research findings and recommended migration path for replacing gpt-4o-mini-tts (deprecated 2027-01-06) in the podcast pipeline
+description: Research findings and recommended migration path for replacing gpt-4o-mini-tts (deprecated 2028-01-06) in the podcast pipeline
 dependencies: null
 priority: medium
 complexity: null
@@ -20,10 +20,10 @@ feature_root_id: null
 
 ## Background and deadline
 
-OpenAI is shutting down `gpt-4o-mini-tts` on **2027-01-06**. Both dated snapshots
+OpenAI is shutting down `gpt-4o-mini-tts` on **2028-01-06**. Both dated snapshots
 (`gpt-4o-mini-tts-2025-03-20`, `gpt-4o-mini-tts-2025-12-15`) are deprecated; the
 undated alias we pin will stop working on the same date. That deadline is approximately
-14 months from the spike date (2026-10-02).
+15 months from the spike date (2026-10-02).
 
 Every podcast episode depends on this model via the `PODCAST_TTS_MODEL` env var,
 defaulting in `packages/aggregator-podcast/src/aggregator_podcast/config.py:18`, and
@@ -86,7 +86,7 @@ ignoring them) was not verified. The voices available are `alloy`, `echo`, `fabl
 `onyx`, `nova`, `shimmer` — `marin` and `cedar` are `gpt-4o-mini-tts`-only. Switching
 voice would be user-visible.
 
-**Critical:** `tts-1` and `tts-1-hd` share the **same 2027-01-06 deprecation date** as
+**Critical:** `tts-1` and `tts-1-hd` share the **same 2028-01-06 deprecation date** as
 `gpt-4o-mini-tts`. Migrating to either buys no additional time and trades delivery-control
 quality for nothing. Config change only.
 
@@ -208,7 +208,7 @@ shutdown. There is no urgency to act immediately.
 4. **If ElevenLabs is too expensive:** evaluate Gemini TTS (requires GOOGLE_API_KEY setup
    and accepting a WAV→MP3 transcode per segment).
 
-5. **If no acceptable alternative exists by Q4 2026:** use `tts-1` as a bridge to the
+5. **If no acceptable alternative exists by Q4 2027:** use `tts-1` as a bridge to the
    deadline. Same endpoint, same date, but degrades delivery control (instructions probably
    not respected; marin voice not available).
 

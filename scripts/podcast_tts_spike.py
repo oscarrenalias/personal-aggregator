@@ -38,7 +38,7 @@ CANDIDATES = [
         "model": "gpt-4o-mini-tts",
         "voice": "marin",
         "instructions": BASE_INSTRUCTION,
-        "note": "Current model (being deprecated 2027-01-06). Baseline.",
+        "note": "Current model (being deprecated 2028-01-06). Baseline.",
     },
     {
         "model": "gpt-realtime-2.1-mini",
@@ -56,13 +56,13 @@ CANDIDATES = [
         "model": "tts-1",
         "voice": "nova",
         "instructions": BASE_INSTRUCTION,
-        "note": "Legacy tts-1 (also deprecated 2027-01-06). Instructions param may not be supported.",
+        "note": "Legacy tts-1 (also deprecated 2028-01-06). Instructions param may not be supported.",
     },
     {
         "model": "tts-1-hd",
         "voice": "nova",
         "instructions": BASE_INSTRUCTION,
-        "note": "Legacy tts-1-hd (also deprecated 2027-01-06). Higher quality, same endpoint.",
+        "note": "Legacy tts-1-hd (also deprecated 2028-01-06). Higher quality, same endpoint.",
     },
     {
         "model": "tts-1",
@@ -106,7 +106,7 @@ def probe_model(client: openai.OpenAI, model: str, voice: str, instructions: str
 
 
 def main() -> None:
-    api_key = os.environ.get("OPENAI_API_KEY") or os.environ.get("OPENAPI_API_KEY", "")
+    api_key = os.environ.get("OPENAI_API_KEY", "")
     if not api_key:
         sys.exit("OPENAI_API_KEY not set in .env or environment")
 
