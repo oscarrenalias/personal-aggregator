@@ -1,9 +1,9 @@
 ---
 name: Migrate podcast TTS off gpt-4o-mini-tts
 id: spec-aba2b326
-description: Research findings and recommended migration path for replacing gpt-4o-mini-tts (deprecated 2027-01-06) in the podcast pipeline
+description: "Migrate podcast TTS from deprecated gpt-4o-mini-tts to gpt-realtime-2.1-mini over WebSocket, with a fidelity-validation gate and Gemini TTS as the audition alternative"
 dependencies: null
-priority: medium
+priority: high
 complexity: null
 status: draft
 tags:
@@ -21,242 +21,245 @@ feature_root_id: null
 ## Background and deadline
 
 OpenAI is shutting down `gpt-4o-mini-tts` on **2027-01-06**. Both dated snapshots
-(`gpt-4o-mini-tts-2025-03-20`, `gpt-4o-mini-tts-2025-12-15`) are deprecated; the
-undated alias we pin will stop working on the same date. That deadline is approximately
-**three months** from the spike date (2026-10-02).
+(`gpt-4o-mini-tts-2025-03-20`, `gpt-4o-mini-tts-2025-12-15`) are deprecated, so the
+undated alias we pin stops working on the same date. `tts-1` and `tts-1-hd` share that
+date, so neither is a bridge. Runway from the time of writing (2026-10-02) is **~3 months**.
 
-Every podcast episode depends on this model via the `PODCAST_TTS_MODEL` env var,
-defaulting in `packages/aggregator-podcast/src/aggregator_podcast/config.py:18`, and
-called from `packages/aggregator-podcast/src/aggregator_podcast/tts.py` via
-`client.audio.speech.with_streaming_response.create(...)`.
+Every episode depends on this model: `PODCAST_TTS_MODEL` default in
+`packages/aggregator-podcast/src/aggregator_podcast/config.py:18`, called from
+`tts.py::_synthesize_chunk()`.
 
-## What we ran — spike evidence (2026-10-02)
+**If this migration does not land, the podcast stops producing audio.** There is no
+fallback inside the OpenAI `/v1/audio/speech` family.
 
-Spike script: `scripts/podcast_tts_spike.py` (created during this investigation).
+## Evidence we gathered ourselves (live probes, 2026-10-02)
 
-**All probes used the same `/v1/audio/speech` endpoint and a 78-character text input.**
+Spike script: `scripts/podcast_tts_spike.py`. All probes hit `/v1/audio/speech` with a
+78-character input.
 
 | Model | Voice | instructions? | Result |
 |---|---|---|---|
-| `gpt-4o-mini-tts` | marin | yes | ✓ 75 264 bytes — baseline works |
-| `gpt-realtime-2.1-mini` | marin | yes | ✗ 404: `Invalid URL (POST /v1/audio/speech)` |
-| `gpt-4o-tts` | marin | yes | ✗ 404: `model gpt-4o-tts does not exist or you do not have access` |
-| `tts-1` | nova | yes | ✓ 69 504 bytes — API accepts instructions param |
-| `tts-1-hd` | nova | yes | ✓ 74 112 bytes — API accepts instructions param |
-| `tts-1` | nova | no | ✓ 68 736 bytes |
+| `gpt-4o-mini-tts` | marin | yes | ✓ 75,264 bytes — baseline works |
+| `gpt-realtime-2.1-mini` | marin | yes | ✗ 404 `Invalid URL (POST /v1/audio/speech)` |
+| `gpt-4o-tts` | marin | yes | ✗ 404 model does not exist |
+| `tts-1` / `tts-1-hd` | nova | yes | ✓ work, accept `instructions` |
 
-Additional probes via Chat Completions for audio output
-(`gpt-4o-audio-preview`, `gpt-4o-mini-audio-preview`, etc.):
-all returned 404 — not accessible with this API key.
+Chat Completions audio probes (`gpt-4o-audio-preview` and similar) all 404'd — not
+accessible with our key.
 
-**Verbatim error from `gpt-realtime-2.1-mini`:**
+**Conclusion:** `gpt-realtime-2.1-mini` is not reachable via the REST speech endpoint. A
+WebSocket adapter is required.
+
+## Rejected options
+
+- **ElevenLabs** — good API fit and quality, but ~$2.40–$3.60 per episode PAYG.
+  Rejected on cost for a personal project.
+- **`tts-1` / `tts-1-hd` as a bridge** — same 2027-01-06 shutdown. Buys no time and
+  degrades delivery control. Not an option.
+- **`gpt-audio-1.5` via Chat Completions** — one-shot REST, so architecturally simpler
+  than WebSocket, but ~$64/M audio output tokens. Far more expensive than Realtime.
+- **`litellm.speech()` as an abstraction layer** — verified by reading
+  `ElevenLabsTextToSpeechConfig.get_supported_openai_params()` that `instructions` is not
+  propagated to non-OpenAI providers. Does not solve the hard part; revisit only if we
+  end up wanting provider portability for its own sake.
+- **Waiting for a direct OpenAI batch replacement** — none announced, and the whole
+  `/v1/audio/speech` family is being retired at once. Not plannable.
+
+## Chosen direction: `gpt-realtime-2.1-mini` over WebSocket
+
+### Why it wins
+
+- **Keeps the `marin` voice** — no user-visible voice change.
+- **Per-response delivery guidance is supported**, so per-segment `instructions` survive.
+- **~$0.29/episode (~$9/month)** — roughly 67% more than `gpt-4o-mini-tts`'s ~$0.17,
+  which is immaterial in absolute terms.
+- Existing segmentation, silence padding, and ffmpeg assembly all survive.
+
+### Protocol details
+
+> **Provenance:** the protocol specifics in this section come from a third-party model
+> answer based on OpenAI's current documentation, **not from our own execution**. Treat
+> every event name, field, and figure below as needing confirmation against a live call
+> during the first implementation bead. Where it conflicts with the docs, the docs win.
+
+Connect:
+
 ```
-Error code: 404 - {'detail': {'code': None, 'message': 'Invalid URL (POST /v1/audio/speech)'},
-'error': {'code': None, 'message': 'Invalid URL (POST /v1/audio/speech)',
-'param': None, 'type': 'invalid_request_error'}}
+wss://api.openai.com/v1/realtime?model=gpt-realtime-2.1-mini
+Authorization: Bearer $OPENAI_API_KEY
 ```
 
-## Options evaluated
+Use a normal server API key. Do **not** send the obsolete `OpenAI-Beta: realtime=v1`
+header.
 
-### Option A — gpt-realtime-2.1-mini (OpenAI's recommended successor)
+Event sequence per episode:
 
-**Confirmed incompatible.** OpenAI's own deprecation page recommends this model, but it
-only supports the Realtime WebSocket endpoint (`v1/realtime`). Speech generation via
-`/v1/audio/speech` is explicitly unsupported per the model card, and confirmed by the
-spike (see error above).
+1. Receive `session.created`.
+2. Send `session.update` (voice, output format, base instructions); await `session.updated`.
+3. Per segment: send `response.create`; accumulate every `response.output_audio.delta`
+   (base64 PCM); await `response.done`.
+4. **Accept the segment only if `response.done` carries `response.status == "completed"`.**
 
-The Realtime API is designed for interactive voice agents (WebRTC/WebSocket sessions),
-not batch synthesis. Migrating to it would mean:
-- Rewriting `tts.py` to manage WebSocket sessions per segment
-- Handling async event streams (audio delta events)
-- Receiving raw PCM or Opus (not MP3 directly) — encode step required
-- Significantly higher architectural complexity for a pipeline that is deliberately simple
+Session config:
 
-**Pricing:** $10/1M audio input tokens, $20/1M audio output tokens.
-Audio tokens billing in session mode is harder to estimate per-episode.
+```json
+{
+  "type": "session.update",
+  "session": {
+    "type": "realtime",
+    "instructions": "<base instruction>",
+    "output_modalities": ["audio"],
+    "audio": {
+      "input": {"turn_detection": null},
+      "output": {
+        "voice": "marin",
+        "format": {"type": "audio/pcm", "rate": 24000}
+      }
+    }
+  }
+}
+```
 
-**Verdict: Rejected.** Architecturally mismatched for offline batch synthesis. The
-official migration recommendation is misleading for this use case.
+Per-segment response, isolated from conversation history:
 
-### Option B — Stay on tts-1 / tts-1-hd (temporary bridge)
+```json
+{
+  "type": "response.create",
+  "response": {
+    "conversation": "none",
+    "instructions": "<full base instruction + segment modifiers>",
+    "input": [
+      {
+        "type": "message",
+        "role": "user",
+        "content": [{"type": "input_text", "text": "<segment text>"}]
+      }
+    ]
+  }
+}
+```
 
-Both models also accept the `instructions` parameter (confirmed by spike — no API error).
-However, whether `tts-1`/`tts-1-hd` actually *obeys* the instructions (vs. silently
-ignoring them) was not verified. The voices available are `alloy`, `echo`, `fable`,
-`onyx`, `nova`, `shimmer` — `marin` and `cedar` are `gpt-4o-mini-tts`-only. Switching
-voice would be user-visible.
+Both `conversation: "none"` **and** an explicit `input` array are required —
+`conversation: "none"` alone does not give an isolated input context. `response.instructions`
+overrides session instructions for that response only and is **not** appended to them, so
+send the complete instruction string every time.
 
-**Critical:** `tts-1` and `tts-1-hd` share the **same 2027-01-06 deprecation date** as
-`gpt-4o-mini-tts`. Migrating to either buys no additional time and trades delivery-control
-quality for nothing. Config change only.
+### Constraints and behaviours to design around
 
-**Pricing:** `tts-1` $15/1M chars, `tts-1-hd` $30/1M chars (character-based billing,
-unlike token-based `gpt-4o-mini-tts`). For a typical episode (~8 000 chars): tts-1
-≈ $0.12/day, tts-1-hd ≈ $0.24/day. Current gpt-4o-mini-tts cost is lower.
+- **Output is PCM16 24 kHz mono only** (`audio/pcm`; also `pcmu`/`pcma` G.711). No MP3,
+  WAV, AAC or Opus. This costs us almost nothing: we already generate silence at
+  `anullsrc=r=24000:cl=mono` and encode with `libmp3lame`.
+- **Encode once at the end.** Rather than per-segment MP3 then concat, concatenate raw PCM
+  plus PCM silence and encode the whole episode in a single ffmpeg pass. This is *better*
+  than the current pipeline — it removes a per-segment encode and avoids re-encoding
+  during concat.
+- **Session duration cap is 60 minutes.** 17 short sequential responses fit comfortably;
+  reconnect per daily job.
+- **Voice is immutable once a session has produced audio.** Set it in `session.update`.
+- **Do not set a low output-token cap.** Leave `max_output_tokens` unbounded (`"inf"`);
+  the model's ceiling is 32,000, not the older 4,096.
+- **Our 1000-char sentence split is no longer required** by an input limit, but keep it:
+  short segments bound retry cost and make fidelity checks tractable.
+- **Rate limits** — published Tier 1 is 200 RPM / 40,000 TPM, but our project's limits are
+  authoritative. Handle `rate_limits.updated` and use bounded exponential backoff with
+  jitter.
 
-**Verdict: Rejected** as a destination. Potentially useful as a last-minute stop-gap if
-the migration isn't complete by deadline, but that should not be the plan.
+## The main risk: this is a generative model, not a deterministic TTS
 
-### Option C — ElevenLabs (direct SDK)
+`gpt-realtime-2.1-mini` generates audio rather than mechanically reading text. It may
+**paraphrase, omit, or add commentary**, and `instructions` are guidance rather than a
+contract. For a *news* podcast this is a correctness problem, not just a quality one —
+names, numbers, dates and quotations have to come out verbatim.
 
-ElevenLabs is the de-facto standard for high-quality batch narration TTS. It:
-- Supports one-shot HTTP synthesis (no session management)
-- Natively outputs MP3 — no encode step
-- Offers voice stability, style exaggeration, and style-prompt fields for delivery control
-- Has 30+ high-quality voices, including voices suited for news narration
-- Is built specifically for offline batch use, not interactive agents
+This is the single biggest unknown in the migration and the reason for an explicit
+validation gate.
 
-**Delivery control:** ElevenLabs provides `voice_settings` (stability, similarity_boost,
-style, use_speaker_boost) and, on Flash v2.5+, a natural-language `style_prompt` field
-analogous to `instructions`. This is roughly equivalent expressiveness.
+**Mitigation, to be implemented, not optional:**
 
-**Not tested** (no `ELEVENLABS_API_KEY` in this environment). API key acquisition cost is
-low.
+- Subscribe to `response.output_audio_transcript.delta` and assemble the model's own
+  transcript per segment.
+- Compare it against the normalised source text and fail or retry the segment on
+  material divergence. Pay particular attention to the **final sentence** — truncation
+  has bitten this pipeline before (see below).
+- The generated transcript is *not* acoustic proof. During migration, listen to
+  representative episodes and independently verify a sample.
 
-**Pricing:** approximately $0.30/1 000 characters on pay-as-you-go, or subscription tiers
-with lower per-char cost at volume. A 12-minute episode is roughly 8 000–12 000 chars →
-$2.40–$3.60/episode PAYG, or dramatically less on a Creator/Pro subscription.
-This is significantly more expensive than gpt-4o-mini-tts at comparable quality.
+Related prior incident worth preserving: we previously used `stream_to_file()`, which
+silently dropped the final audio chunk and truncated the last sentence of every episode.
+The current code uses explicit `iter_bytes(chunk_size=4096)`. The WebSocket path
+reintroduces the same failure class in new clothing — hence requiring
+`response.status == "completed"` rather than inferring completion from a terminal event.
 
-**Migration size:** Moderate. `tts.py` would need to replace the OpenAI SDK call with the
-ElevenLabs SDK. The `_build_instruction()` function logic stays the same but maps to
-ElevenLabs `style_prompt`. Voice changes required (marin → ElevenLabs equivalent).
+## Audition alternative: Google `gemini-3.8-flash-lite-tts`
 
-**Verdict:** Viable as a migration target. Cost increase is notable; worth evaluating
-whether subscription pricing fits the deployment profile.
+Worth comparing before committing, and **cheaper**:
 
-### Option D — Google Gemini TTS (gemini-3.8-flash-tts)
+| | gpt-realtime-2.1-mini | gemini-3.8-flash-lite-tts |
+|---|---|---|
+| Cost / 12-min episode | ~$0.288 | ~$0.108 now, ~$0.216 from Jan 2027 |
+| Designed for | conversational agents | **narration / exact recitation** |
+| Delivery control | per-response `instructions` | style field, supplied separately from text |
+| Voice | keeps `marin` | different voice — user-visible change |
+| Output | PCM16 24 kHz | WAV (unary) |
+| Transport | WebSocket session | one-shot request |
 
-Google released batch TTS via Gemini. It:
-- Supports one-shot synthesis (not conversational-only)
-- Has delivery control via `speech_metadata.style` (free-text style field) and inline
-  markers like `<pause>` — broadly equivalent to `instructions`
-- Offers 30 studio voices plus extended library and voice design
-- **Does NOT support MP3 output** — only WAV, PCM, mu-law, A-law at up to 24 kHz
+Its documentation explicitly targets exact recitation and batch production, which speaks
+directly to the fidelity risk above. Against that: a voice change, an unverified quality
+bar, a different SDK and auth, and it is labelled Preview with a price rise already
+announced for January 2027.
 
-The WAV-only limitation matters: we'd need an ffmpeg transcode step per segment (or per
-episode). We already use ffmpeg for concat, so this is mechanically possible, but adds
-latency and a dependency failure mode.
+Not tested — no `GOOGLE_API_KEY` in the environment.
 
-**Not tested** (no `GOOGLE_API_KEY` in this environment).
+## Plan
 
-**Pricing:** not documented in accessible pages; assumed competitive with OpenAI for
-inference-class models.
-
-**Migration size:** Moderate-large. Different SDK (google-generativeai), different auth
-(GOOGLE_API_KEY or ADC), no MP3 — encode step in `tts.py`.
-
-**Verdict:** Secondary option. The WAV-only gap is annoying but solvable. Worth keeping
-in mind if ElevenLabs cost is prohibitive.
-
-### Option E — Route TTS through litellm.speech()
-
-`litellm` (already installed in the stack) provides a `litellm.speech()` function that
-abstracts providers: confirmed support for `openai`, `elevenlabs`, `vertex_ai`, `azure`,
-`google` (litellm v1.88.1, discovered during spike).
-
-**The case for it:** switching the TTS call in `tts.py` from `openai.OpenAI.audio.speech`
-to `litellm.speech()` would make future provider migrations a one-line config change.
-
-**The case against it — delivery control:** `litellm`'s ElevenLabs integration lists only
-`["voice", "response_format", "speed"]` as supported OpenAI params (verified by reading
-`ElevenLabsTextToSpeechConfig.get_supported_openai_params()`). The `instructions`
-parameter is **not propagated to ElevenLabs through litellm**. Provider-specific delivery
-control would require passing raw kwargs outside the abstraction layer.
-
-**The case against it — streaming:** our current code uses
-`with_streaming_response.create()` specifically to iterate bytes without the
-`stream_to_file` truncation bug. The litellm path returns `HttpxBinaryResponseContent`;
-whether this supports the same streaming iteration was not tested.
-
-**Verdict:** Partial recommendation. Switching to `litellm.speech()` for the OpenAI path
-today is low-risk and future-proofs provider switching. But delivery control (`instructions`)
-can't be abstracted cleanly across providers, so litellm alone doesn't solve the ElevenLabs
-migration.
-
-### Option F — Wait for an OpenAI batch TTS successor
-
-No announcement found. OpenAI is retiring the entire `/v1/audio/speech` endpoint family
-simultaneously, suggesting they are not planning a direct replacement in that form.
-
-With only ~3 months of runway this is a weak hedge — there is not enough time to wait and
-still migrate comfortably if nothing is announced. Worth checking OpenAI's changelog, but
-not worth planning around.
-
-**Verdict:** Not the plan. Monitor, but do not depend on it.
-
-## Recommendation
-
-> **Corrected after the spike.** The investigation recorded the deadline as 2028-01-06 and
-> built its timeline on a ~14-month runway. The actual date is **2027-01-06** — confirmed
-> against OpenAI's deprecation page and the notification email. The real runway from the
-> spike date is **~3 months**, so the original "no urgency" framing did not hold and the
-> phasing below has been rewritten. All technical findings above are unaffected.
-
-`gpt-4o-mini-tts` keeps working until 2027-01-06, so nothing is broken today — but three
-months is not long for a change that needs a human listening test and a possible billing
-relationship with a new provider. Start now rather than in December.
-
-**Recommended path (hard deadline 2027-01-06):**
-
-1. **Evaluate ElevenLabs** with a real API key. The key unknowns are voice quality for news
-   narration and cost at the daily episode volume. Run a real test with the
-   `scripts/podcast_tts_spike.py` pattern: synthesise one representative episode segment
-   per voice candidate and listen to the result.
-
-2. **If ElevenLabs cost/quality is acceptable:** migrate `tts.py` directly to the
-   ElevenLabs SDK. The `_build_instruction()` function maps cleanly to their
-   `style_prompt`. Delivery control is preserved.
-
-3. **As a preparatory step (low risk, can do now):** refactor `_synthesize_chunk()` in
-   `tts.py` to call `litellm.speech()` instead of the OpenAI SDK directly, staying on
-   OpenAI for now. This decouples the call from a specific SDK and makes the eventual
-   provider swap a config + param mapping change, not a client-library swap.
-
-4. **If ElevenLabs is too expensive:** evaluate Gemini TTS (requires GOOGLE_API_KEY setup
-   and accepting a WAV→MP3 transcode per segment).
-
-5. **`tts-1` is not a bridge.** It shares the same 2027-01-06 shutdown date, so it buys
-   zero additional time while degrading delivery control. If the migration is not done by
-   the deadline the podcast simply stops producing audio — there is no fallback inside the
-   OpenAI `/v1/audio/speech` family. Plan accordingly.
-
-## Quality risk: voice and delivery control
-
-Any migration off `gpt-4o-mini-tts` is a user-visible change:
-- **Voice:** `marin` is `gpt-4o-mini-tts`-specific. Any replacement uses a different voice,
-  which may sound different enough to notice.
-- **Delivery control:** the `instructions` mechanism is what fixed the "flat audio"
-  complaint in the original podcast prototype. Losing it or degrading it (e.g., switching
-  to a `speed`-only parameter) would be a quality regression. The migration must preserve
-  an equivalent delivery-guidance mechanism.
+1. **Build the Realtime adapter** behind the existing `generate_audio()` interface.
+   Replace `_synthesize_chunk()`; keep sentence splitting, silence padding and the
+   script-walking logic. Confirm every protocol detail above against live calls as you go.
+2. **Switch assembly to PCM-concat-then-single-encode.**
+3. **Implement the transcript fidelity check** with retry on divergence.
+4. **Generate several complete episodes and listen to them.** Compare against current
+   `gpt-4o-mini-tts` output for voice match and narration fidelity.
+5. **Decision gate.** If fidelity is unacceptable, audition `gemini-3.8-flash-lite-tts`
+   before committing further. Do not skip straight to a full Gemini migration without
+   having compared.
+6. Make the provider/model selectable by config so the decision is reversible.
 
 ## Files that would change
 
-| File | Change needed |
+| File | Change |
 |---|---|
-| `packages/aggregator-podcast/src/aggregator_podcast/tts.py` | Replace `openai.OpenAI.audio.speech` call with provider-agnostic call; update delivery-instruction mapping |
-| `packages/aggregator-podcast/src/aggregator_podcast/config.py` | Update `podcast_tts_model` and `podcast_tts_voice` defaults |
-| `packages/aggregator-podcast/pyproject.toml` | Add or swap SDK dependency (ElevenLabs SDK, or none if using litellm) |
-| `CLAUDE.md` | Update `PODCAST_TTS_MODEL` and `PODCAST_TTS_VOICE` env var documentation |
-| `.env.example` | Update default values |
-| `scripts/podcast_tts.py` | Update model name and voice defaults (reference harness) |
+| `packages/aggregator-podcast/src/aggregator_podcast/tts.py` | Replace `_synthesize_chunk()` with a WebSocket adapter; PCM accumulation; transcript capture; switch to concat-PCM-then-encode-once |
+| `packages/aggregator-podcast/src/aggregator_podcast/config.py` | `podcast_tts_model` default; any new transport/validation settings |
+| `packages/aggregator-podcast/pyproject.toml` | Add a WebSocket client dependency (e.g. `websocket-client`, or `websockets.sync` to stay synchronous — `loop.py` is sync) |
+| `CLAUDE.md` | `PODCAST_TTS_MODEL` / `PODCAST_TTS_VOICE` docs; note PCM-to-MP3 assembly |
+| `.env.example` | Updated defaults |
+| `scripts/podcast_tts.py` | Reference harness updated to the new path |
 
-## Acceptance criteria (for when this spec becomes a bead)
+## Acceptance criteria
 
-- [ ] A replacement model/provider is identified and tested end-to-end: full episode
-  synthesis completes without truncation, MP3 file is valid and complete
-- [ ] Delivery control mechanism verified: audio sounds appropriately paced and
-  differentiated by segment type (not flat)
-- [ ] `PODCAST_TTS_MODEL` default in `config.py:18` points to a non-deprecated model
-- [ ] Cost per episode estimated and acceptable
-- [ ] `scripts/podcast_tts.py` updated to use the replacement for reference
+- [ ] A full episode synthesises end-to-end over WebSocket with no truncation; the final
+  sentence of the last segment is present in the audio.
+- [ ] Every segment is accepted only on `response.done` with `status == "completed"`;
+  a disconnect, timeout, `failed`, `cancelled` or `incomplete` response never yields a
+  finished segment file.
+- [ ] Per-segment delivery guidance demonstrably takes effect — audio is differentiated by
+  segment type and pace, not flat.
+- [ ] Transcript fidelity check is in place and fails/retries on material divergence from
+  the source text.
+- [ ] A failed segment retries from scratch; partial PCM is discarded, never appended to.
+- [ ] Successful segments persist so a reconnect does not regenerate the whole episode.
+- [ ] `PODCAST_TTS_MODEL` default points at a non-deprecated model.
+- [ ] Measured per-episode cost logged from `response.done` usage and within ~$0.30.
+- [ ] A human has listened to at least one complete episode and signed off on voice and
+  fidelity.
 
 ## Pending decisions
 
-- **Which provider?** ElevenLabs (quality, cost?), Gemini (WAV issue), or OpenAI batch
-  successor if announced.
-- **litellm abstraction?** Preparatory litellm.speech() switch worth doing now vs. deferred
-  to migration.
-- **Voice selection**: which voice from the replacement provider sounds best for news
-  narration? Requires a human listening test.
+- **Realtime vs Gemini** — resolve at the step-5 gate, on fidelity and voice quality.
+  Cost favours Gemini; voice continuity and architectural familiarity favour Realtime.
+- **Sync or async WebSocket client.** `loop.py` is synchronous; `websocket-client` or
+  `websockets.sync.client` keeps it that way. An `asyncio.run()` wrapper is also fine if
+  contained to `tts.py`.
+- **How strict the fidelity check should be.** Exact match will false-positive on
+  normalisation differences; too loose and paraphrasing slips through. Needs calibration
+  against real output.
