@@ -1,7 +1,7 @@
 ---
 name: Migrate podcast TTS off gpt-4o-mini-tts
 id: spec-aba2b326
-description: Research findings and recommended migration path for replacing gpt-4o-mini-tts (deprecated 2028-01-06) in the podcast pipeline
+description: Research findings and recommended migration path for replacing gpt-4o-mini-tts (deprecated 2027-01-06) in the podcast pipeline
 dependencies: null
 priority: medium
 complexity: null
@@ -20,10 +20,10 @@ feature_root_id: null
 
 ## Background and deadline
 
-OpenAI is shutting down `gpt-4o-mini-tts` on **2028-01-06**. Both dated snapshots
+OpenAI is shutting down `gpt-4o-mini-tts` on **2027-01-06**. Both dated snapshots
 (`gpt-4o-mini-tts-2025-03-20`, `gpt-4o-mini-tts-2025-12-15`) are deprecated; the
 undated alias we pin will stop working on the same date. That deadline is approximately
-15 months from the spike date (2026-10-02).
+**three months** from the spike date (2026-10-02).
 
 Every podcast episode depends on this model via the `PODCAST_TTS_MODEL` env var,
 defaulting in `packages/aggregator-podcast/src/aggregator_podcast/config.py:18`, and
@@ -86,7 +86,7 @@ ignoring them) was not verified. The voices available are `alloy`, `echo`, `fabl
 `onyx`, `nova`, `shimmer` — `marin` and `cedar` are `gpt-4o-mini-tts`-only. Switching
 voice would be user-visible.
 
-**Critical:** `tts-1` and `tts-1-hd` share the **same 2028-01-06 deprecation date** as
+**Critical:** `tts-1` and `tts-1-hd` share the **same 2027-01-06 deprecation date** as
 `gpt-4o-mini-tts`. Migrating to either buys no additional time and trades delivery-control
 quality for nothing. Config change only.
 
@@ -179,17 +179,25 @@ migration.
 No announcement found. OpenAI is retiring the entire `/v1/audio/speech` endpoint family
 simultaneously, suggesting they are not planning a direct replacement in that form.
 
-Given the 14-month runway, this is a reasonable hedge if the intent is to stay on OpenAI.
-Check OpenAI's changelog quarterly.
+With only ~3 months of runway this is a weak hedge — there is not enough time to wait and
+still migrate comfortably if nothing is announced. Worth checking OpenAI's changelog, but
+not worth planning around.
 
-**Verdict:** Not the plan, but monitor the situation.
+**Verdict:** Not the plan. Monitor, but do not depend on it.
 
 ## Recommendation
 
-**Do nothing to production code today.** `gpt-4o-mini-tts` works and has 14 months until
-shutdown. There is no urgency to act immediately.
+> **Corrected after the spike.** The investigation recorded the deadline as 2028-01-06 and
+> built its timeline on a ~14-month runway. The actual date is **2027-01-06** — confirmed
+> against OpenAI's deprecation page and the notification email. The real runway from the
+> spike date is **~3 months**, so the original "no urgency" framing did not hold and the
+> phasing below has been rewritten. All technical findings above are unaffected.
 
-**Recommended migration path (Q3 2027 deadline, earliest start Q1 2027):**
+`gpt-4o-mini-tts` keeps working until 2027-01-06, so nothing is broken today — but three
+months is not long for a change that needs a human listening test and a possible billing
+relationship with a new provider. Start now rather than in December.
+
+**Recommended path (hard deadline 2027-01-06):**
 
 1. **Evaluate ElevenLabs** with a real API key. The key unknowns are voice quality for news
    narration and cost at the daily episode volume. Run a real test with the
@@ -208,9 +216,10 @@ shutdown. There is no urgency to act immediately.
 4. **If ElevenLabs is too expensive:** evaluate Gemini TTS (requires GOOGLE_API_KEY setup
    and accepting a WAV→MP3 transcode per segment).
 
-5. **If no acceptable alternative exists by Q4 2027:** use `tts-1` as a bridge to the
-   deadline. Same endpoint, same date, but degrades delivery control (instructions probably
-   not respected; marin voice not available).
+5. **`tts-1` is not a bridge.** It shares the same 2027-01-06 shutdown date, so it buys
+   zero additional time while degrading delivery control. If the migration is not done by
+   the deadline the podcast simply stops producing audio — there is no fallback inside the
+   OpenAI `/v1/audio/speech` family. Plan accordingly.
 
 ## Quality risk: voice and delivery control
 
