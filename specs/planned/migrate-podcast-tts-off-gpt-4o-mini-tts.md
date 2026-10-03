@@ -308,12 +308,42 @@ than the current pipeline.
 - **Quota.** 10 req/min on free tier is tight for a 17-segment episode. Confirm whether a
   paid tier is needed before the first scheduled production run.
 
+## Resolved Decisions (post-implementation)
+
+### Cost and quota
+
+Per-segment audio token usage is logged on every synthesis call:
+`logger.info("segment audio tokens: %d", resp.usage_metadata.candidates_token_count)`
+in `tts.py`.
+
+Based on the measured ~32 audio tokens/second, a 12-minute episode produces approximately
+**23,000 audio tokens**. At Google's published rate for `gemini-3.8-flash-lite-tts`:
+
+- **Current (pre-January 2027):** ~$0.14/episode
+- **After January 2027 (announced increase):** ~$0.28/episode
+
+Cost parity with the OpenAI Realtime alternative, as expected — not a cost advantage, but
+acceptable given the fidelity guarantee and simpler integration. The **free tier (10 req/min)
+is sufficient for a single daily episode** when `PODCAST_TTS_REQUESTS_PER_MINUTE=10` rate
+limiting is active (implemented in `tts.py`). No paid tier upgrade is required for the
+current single-daily-episode use case.
+
+### Transcript fidelity check
+
+**Not retained in production.** The POC demonstrated verbatim recitation with the Kore
+voice across a number- and name-dense test (0.935 word-sequence similarity; all divergences
+were Whisper transcription conventions, not Gemini errors). A runtime fidelity check would
+add latency and an additional API dependency for marginal safety benefit.
+
+Production safeguards that remain in place:
+- `data[:4] == b"RIFF"` guard validates format on every synthesised chunk.
+- `PODCAST_TTS_MODEL` and `PODCAST_TTS_VOICE` are configurable — a model downgrade can be
+  reverted without a code change.
+- The POC harness (`scripts/podcast_tts_gemini_check.py`) is available for ad-hoc manual
+  spot-checks if fidelity regressions are suspected after a model update.
+
 ## Pending Decisions
 
-- **Verify real pricing** against Google's published rates and the measured ~32 audio
-  tokens/second, and decide whether a paid tier is required for quota headroom.
-- **Whether to keep a transcript fidelity check** in production. Not required by the POC
-  evidence, but cheap insurance against a model update changing behaviour.
 - **Whether transitions warrant their own style.** Transitions exist to signal a topic
   change, so a distinct tone would reinforce their purpose — but they currently carry no
   `topic_category` and so fall through to unstyled. Judge this only after hearing a full
