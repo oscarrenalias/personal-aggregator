@@ -178,6 +178,8 @@ def generate_audio(
     script_json: dict,
     audio_dir: Path,
     settings: PodcastSettings,
+    *,
+    episode_id: int,
 ) -> tuple[str, int]:
     """Synthesise an MP3 from a podcast script dict.
 
@@ -188,9 +190,9 @@ def generate_audio(
         raise RuntimeError("GOOGLE_API_KEY not set in environment")
     client = genai.Client(api_key=api_key)
 
-    # Use ISO date (YYYY-MM-DD) for the filename, not the human-readable date in the script
+    # Include episode_id in the filename to avoid collisions when two episodes share a date.
     episode_date = script_json.get("iso_date") or script_json.get("date", "unknown")
-    output_filename = f"podcast_{episode_date}.mp3"
+    output_filename = f"podcast_{episode_date}_{episode_id}.mp3"
     output_path = Path(audio_dir) / output_filename
     output_path.parent.mkdir(parents=True, exist_ok=True)
 

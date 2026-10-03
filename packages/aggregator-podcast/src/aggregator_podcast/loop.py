@@ -133,7 +133,7 @@ def _run_one_iteration(
         script_json, _ = generate_podcast(episode, settings, session)
 
         audio_dir = Path(settings.podcast_audio_dir)
-        audio_path, audio_size_bytes = generate_audio(script_json, audio_dir, settings)
+        audio_path, audio_size_bytes = generate_audio(script_json, audio_dir, settings, episode_id=episode_id)
 
         estimate = script_json.get("duration_estimate_seconds", 0)
         duration_seconds = _measure_audio_duration(audio_path, estimate)

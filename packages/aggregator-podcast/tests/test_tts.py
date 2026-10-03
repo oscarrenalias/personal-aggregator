@@ -418,7 +418,107 @@ class TestConfigParsing:
 
 
 # ---------------------------------------------------------------------------
-# 6. Integration test (requires live GOOGLE_API_KEY)
+# 6. Filename uniqueness (regression for same-date collision bug)
+# ---------------------------------------------------------------------------
+
+class TestFilenameUniqueness:
+    """Two episodes sharing a date must write to distinct paths and not overwrite each other."""
+
+    def _make_script(self, iso_date: str) -> dict:
+        return {
+            "iso_date": iso_date,
+            "segments": [
+                {
+                    "type": "intro",
+                    "text": "Hello.",
+                    "tts_hints": {"pause_before": "none"},
+                }
+            ],
+        }
+
+    def _patch_generate_audio(self, monkeypatch, tmp_path):
+        """Patch all external calls inside generate_audio so no real TTS/ffmpeg runs."""
+        import aggregator_podcast.tts as tts_mod
+
+        wav_data = b"RIFF" + b"\x00" * 40
+
+        def fake_synthesize(text, seg, client, model, voice, out_path, tmp_dir, max_chars, settings):
+            with open(out_path, "wb") as f:
+                f.write(wav_data)
+
+        def fake_make_silence(duration, tmp_dir):
+            p = os.path.join(tmp_dir, f"silence_{duration:.2f}s.wav")
+            with open(p, "wb") as f:
+                f.write(wav_data)
+            return p
+
+        def fake_subprocess_run(cmd, **kwargs):
+            # Simulate ffmpeg concat/encode: write dummy MP3 bytes to the output file.
+            # The output path is the last positional argument that does not start with '-'.
+            for arg in reversed(cmd):
+                if not arg.startswith("-"):
+                    with open(arg, "wb") as f:
+                        f.write(b"\xff\xfb" + b"\x00" * 100)  # dummy MP3 header
+                    break
+            result = MagicMock()
+            result.returncode = 0
+            result.stderr = ""
+            return result
+
+        monkeypatch.setenv("GOOGLE_API_KEY", "fake-key")
+        monkeypatch.setattr(tts_mod, "_synthesize", fake_synthesize)
+        monkeypatch.setattr(tts_mod, "_make_silence", fake_make_silence)
+        monkeypatch.setattr("aggregator_podcast.tts.subprocess.run", fake_subprocess_run)
+        monkeypatch.setattr("google.genai.Client", MagicMock)
+
+    def test_different_episode_ids_produce_different_paths(self, tmp_path, monkeypatch):
+        """Two episodes with the same date but different ids must write to distinct paths."""
+        self._patch_generate_audio(monkeypatch, tmp_path)
+        from aggregator_podcast.tts import generate_audio
+
+        settings = _make_settings()
+        script = self._make_script("2026-10-03")
+
+        path_a, _ = generate_audio(script, tmp_path, settings, episode_id=10759)
+        path_b, _ = generate_audio(script, tmp_path, settings, episode_id=11651)
+
+        assert path_a != path_b
+        assert "10759" in path_a
+        assert "11651" in path_b
+
+    def test_audio_path_matches_file_on_disk(self, tmp_path, monkeypatch):
+        """The returned audio_path must point to a file that actually exists."""
+        self._patch_generate_audio(monkeypatch, tmp_path)
+        from aggregator_podcast.tts import generate_audio
+
+        settings = _make_settings()
+        script = self._make_script("2026-10-03")
+
+        path, size = generate_audio(script, tmp_path, settings, episode_id=42)
+
+        assert os.path.exists(path), f"audio file not found at {path}"
+        assert size > 0
+
+    def test_second_same_date_episode_leaves_first_file_intact(self, tmp_path, monkeypatch):
+        """Generating a second same-date episode must not overwrite the first episode's file."""
+        self._patch_generate_audio(monkeypatch, tmp_path)
+        from aggregator_podcast.tts import generate_audio
+
+        settings = _make_settings()
+        script = self._make_script("2026-10-03")
+
+        path_a, _ = generate_audio(script, tmp_path, settings, episode_id=10759)
+        first_content = open(path_a, "rb").read()
+
+        path_b, _ = generate_audio(script, tmp_path, settings, episode_id=11651)
+
+        assert os.path.exists(path_a), "First episode's file was deleted"
+        assert open(path_a, "rb").read() == first_content, "First episode's file was overwritten"
+        assert path_a != path_b
+
+
+# ---------------------------------------------------------------------------
+# 7. Integration test (requires live GOOGLE_API_KEY)
 # ---------------------------------------------------------------------------
 
 GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY", "")
@@ -443,7 +543,7 @@ def test_generate_audio_live(tmp_path):
         ],
     }
 
-    audio_path, audio_size = generate_audio(script, tmp_path, settings)
+    audio_path, audio_size = generate_audio(script, tmp_path, settings, episode_id=1)
 
     assert audio_path.endswith(".mp3")
     assert audio_size > 0
