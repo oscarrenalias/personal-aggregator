@@ -93,6 +93,25 @@ class TestGetEpisodeByDate:
         resp = client.get("/podcasts/2025-05-01")
         assert resp.status_code == 422
 
+    def test_returns_highest_id_when_two_ready_episodes_on_same_date(self, client, db_session):
+        """Regression: scalar_one_or_none() raised MultipleResultsFound (500) when two
+        episodes share a date. The fixed query returns the newer (higher-id) ready episode.
+
+        The partial unique index allows one 'auto' + one 'manual' episode per date,
+        mirroring production: scheduled run + manual trigger on the same day."""
+        older = make_episode(db_session, episode_date=date(2025, 10, 3), origin="auto")
+        newer = make_episode(db_session, episode_date=date(2025, 10, 3), origin="manual")
+        assert newer.id > older.id
+        resp = client.get("/podcasts/by-date/2025-10-03")
+        assert resp.status_code == 200
+        assert resp.json()["id"] == newer.id
+
+    def test_returns_404_when_only_pending_episode_for_date(self, client, db_session):
+        """Non-ready episodes (pending, generating, failed) must not be returned; 404 expected."""
+        make_episode(db_session, episode_date=date(2025, 10, 4), status="pending")
+        resp = client.get("/podcasts/by-date/2025-10-04")
+        assert resp.status_code == 404
+
 
 class TestGetLatestEpisode:
     def test_latest_resolves_and_is_not_shadowed_by_id_route(self, client, db_session):

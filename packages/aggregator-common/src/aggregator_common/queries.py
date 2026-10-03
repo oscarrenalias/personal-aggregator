@@ -1033,9 +1033,12 @@ def get_latest_podcast_episode(session: Session) -> Optional[PodcastEpisode]:
 
 
 def get_podcast_episode_by_date(session: Session, episode_date: DateType) -> Optional[PodcastEpisode]:
-    """Return the podcast episode for the given date, or None if no episode exists for that date."""
+    """Return the newest ready podcast episode for the given date, or None."""
     return session.execute(
-        select(PodcastEpisode).where(PodcastEpisode.date == episode_date)
+        select(PodcastEpisode)
+        .where(PodcastEpisode.date == episode_date, PodcastEpisode.status == "ready")
+        .order_by(PodcastEpisode.id.desc())
+        .limit(1)
     ).scalar_one_or_none()
 
 
