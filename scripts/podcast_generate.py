@@ -562,9 +562,10 @@ Craft each segment like this:
    "Techmeme links to a Bloomberg report", "Politico reports that", "as Bloomberg notes".
 3. Concrete specifics — numbers, names, dates, percentages — from the source material. \
    Avoid vague generalities.
-4. Historical arc when the thread has meaningful prior history: "this is the latest chapter \
-   in a story that began in [date], when..." — draw from the known_facts list. If the thread \
-   is new today, skip the historical framing.
+4. Historical arc when the thread has meaningful prior history: briefly orient the listener \
+   to how this story developed — when it started and what the key earlier moments were — \
+   drawing from the known_facts list. Use your own words and phrasing; do not reproduce any \
+   fixed formula. If the thread is new today, skip the historical framing entirely.
 5. A direct quote only when you have the actual text in an excerpt. Introduce it fully: \
    "[Name], [title], told [outlet]: '...'"  Never paraphrase as if it were a direct quote.
 6. 150-220 words of spoken text. Short sentences. Active voice. No bullet points.

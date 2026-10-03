@@ -20,3 +20,4 @@ class PodcastSettings(Settings):
     podcast_tts_max_chars_per_chunk: int = Field(1000, description="Maximum characters per TTS API chunk")
     podcast_continuity_count: int = Field(2, description="Number of previous podcasts included for continuity context")
     podcast_max_stories: int = Field(6, description="Maximum number of stories selected per episode")
+    podcast_polish_enabled: bool = Field(True, description="Run cross-segment polish pass to vary repeated phrasing")

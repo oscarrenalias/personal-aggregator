@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -359,9 +360,10 @@ Craft each segment like this:
    "Techmeme links to a Bloomberg report", "Politico reports that", "as Bloomberg notes".
 3. Concrete specifics — numbers, names, dates, percentages — from the source material. \
    Avoid vague generalities.
-4. Historical arc when the thread has meaningful prior history: "this is the latest chapter \
-   in a story that began in [date], when..." — draw from the known_facts list. If the thread \
-   is new today, skip the historical framing.
+4. Historical arc when the thread has meaningful prior history: briefly orient the listener \
+   to how this story developed — when it started and what the key earlier moments were — \
+   drawing from the known_facts list. Use your own words and phrasing; do not reproduce any \
+   fixed formula. If the thread is new today, skip the historical framing entirely.
 5. A direct quote only when you have the actual text in an excerpt. Introduce it fully: \
    "[Name], [title], told [outlet]: '...'"  Never paraphrase as if it were a direct quote.
 6. 150-220 words of spoken text. Short sentences. Active voice. No bullet points.
@@ -493,6 +495,100 @@ def run_segment_phase(
     except json.JSONDecodeError as exc:
         log.warning("Thread %d: segment JSON parse failed (%s).", thread_id, exc)
         return None
+
+
+# ── Phase 2.5: Cross-segment polish pass ─────────────────────────────────────
+
+_POLISH_SYSTEM = """\
+You are a copy editor reviewing a set of podcast story segments. Your only job is to vary \
+repeated sentence openings and repeated connective phrasing so that no two segments begin \
+the same way.
+
+Rules:
+- Change ONLY wording that is repetitive across segments — opening sentences and connective \
+  phrases. Change nothing else.
+- Do NOT alter any number, name, date, percentage, or direct quotation. Do not change the \
+  meaning of any sentence.
+- Do NOT touch the fields headline, thread_id, topic_category, sources, or is_developing.
+- Only the text field of each segment may differ from what you receive.
+- If a segment does not need any change, return its text unchanged.
+
+Return a JSON object with exactly this structure:
+{
+  "segments": [
+    {"index": 0, "text": "<segment text>"},
+    {"index": 1, "text": "<segment text>"},
+    ...
+  ]
+}
+The array must have the same number of entries as the input.\
+"""
+
+
+def _extract_digits(text: str) -> list[str]:
+    return re.findall(r"\d+", text)
+
+
+def run_polish_phase(segments: list[dict], settings: "PodcastSettings") -> list[dict]:
+    """Phase 2.5: cross-segment rewrite to vary repeated openings and connective phrasing.
+
+    Returns a list of segments with only the `text` field potentially changed.
+    Never raises — falls back to original segments on any error.
+    """
+    if not segments:
+        return segments
+
+    payload = [{"index": i, "text": s.get("text", "")} for i, s in enumerate(segments)]
+    user_content = (
+        "Vary repeated segment openings and connective phrasing across the segments below. "
+        "Return only JSON — no other text.\n\n"
+        + json.dumps({"segments": payload}, ensure_ascii=False)
+    )
+
+    messages: list[dict] = [
+        {"role": "system", "content": _POLISH_SYSTEM},
+        {"role": "user", "content": user_content},
+    ]
+
+    log.info("Phase 2.5: running cross-segment polish pass over %d segments.", len(segments))
+    try:
+        response = litellm.completion(
+            model=settings.podcast_llm_model,
+            messages=messages,
+            max_tokens=settings.podcast_llm_max_tokens,
+            response_format={"type": "json_object"},
+        )
+        content = response.choices[0].message.content or ""
+        result = json.loads(_extract_json(content))
+    except Exception as exc:  # noqa: BLE001
+        log.warning("Phase 2.5: polish call failed (%s) — keeping original segments.", exc)
+        return segments
+
+    rewritten = result.get("segments")
+    if not isinstance(rewritten, list) or len(rewritten) != len(segments):
+        log.warning(
+            "Phase 2.5: malformed polish response (expected %d entries) — keeping originals.",
+            len(segments),
+        )
+        return segments
+
+    output = list(segments)
+    for entry in rewritten:
+        idx = entry.get("index")
+        new_text = entry.get("text", "")
+        if not isinstance(idx, int) or idx < 0 or idx >= len(segments):
+            continue
+        original_text = segments[idx].get("text", "")
+        if _extract_digits(new_text) != _extract_digits(original_text):
+            log.warning(
+                "Phase 2.5: segment %d rewrite altered digits — discarding rewrite for this segment.",
+                idx,
+            )
+            continue
+        output[idx] = {**segments[idx], "text": new_text}
+
+    log.info("Phase 2.5: polish pass complete.")
+    return output
 
 
 # ── Phase 3: Wrapper (intro, transitions, outro) ──────────────────────────────
@@ -755,6 +851,12 @@ def generate_podcast(
         raise ValueError("Phase 2 produced no segments — cannot generate episode.")
 
     log.info("Phase 2 complete: %d segment(s) written.", len(segments))
+
+    # Phase 2.5: cross-segment polish pass
+    if settings.podcast_polish_enabled:
+        segments = run_polish_phase(segments, settings)
+    else:
+        log.info("Phase 2.5: skipped (podcast_polish_enabled=False).")
 
     # Phase 3: intro, transitions, outro
     wrapper = run_wrapper_phase(date_str, episode_theme, segments, settings)
