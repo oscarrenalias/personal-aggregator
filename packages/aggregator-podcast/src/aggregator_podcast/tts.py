@@ -3,12 +3,16 @@ from __future__ import annotations
 
 import logging
 import os
+import random
 import re
 import subprocess
 import tempfile
+import time
 from pathlib import Path
+from typing import Optional
 
 from google import genai
+from google.genai import errors as genai_errors
 from google.genai import types
 
 from aggregator_podcast.config import PodcastSettings
@@ -23,6 +27,28 @@ PAUSE_DURATIONS: dict[str, float] = {
 }
 
 FINAL_SILENCE = 0.5
+
+_MAX_RETRIES = 5
+_BASE_BACKOFF = 1.0
+_last_tts_call: float = 0.0
+
+
+def _pace_request(requests_per_minute: int) -> None:
+    """Sleep if necessary to stay within the configured request rate."""
+    global _last_tts_call
+    if requests_per_minute <= 0:
+        return
+    interval = 60.0 / requests_per_minute
+    elapsed = time.monotonic() - _last_tts_call
+    if elapsed < interval:
+        time.sleep(interval - elapsed)
+    _last_tts_call = time.monotonic()
+
+
+def _extract_retry_delay(exc: Exception) -> Optional[float]:
+    """Return retryDelay seconds from a 429 error body, or None."""
+    m = re.search(r'"retryDelay"\s*:\s*"(\d+(?:\.\d+)?)s"', str(exc))
+    return float(m.group(1)) if m else None
 
 
 def _make_silence(duration: float, tmp_dir: str) -> str:
@@ -66,25 +92,42 @@ def _synthesize_chunk(
     out_path: str,
     settings: PodcastSettings,
 ) -> None:
+    """Synthesise one text chunk to a WAV file, with rate limiting and 429 retry."""
     part = types.Part(text=text)
     style = settings.podcast_tts_style_map.get(seg.get("topic_category", ""))
     if style:
         part.speech_metadata = types.SpeechMetadata(style=style)
 
-    resp = client.models.generate_content(
-        model=model,
-        contents=[types.Content(role="user", parts=[part])],
-        config=types.GenerateContentConfig(
-            response_modalities=["AUDIO"],
-            speech_config=types.SpeechConfig(
-                voice_config=types.VoiceConfig(
-                    prebuilt_voice_config=types.PrebuiltVoiceConfig(
-                        voice_name=voice
-                    )
-                )
-            ),
+    config = types.GenerateContentConfig(
+        response_modalities=["AUDIO"],
+        speech_config=types.SpeechConfig(
+            voice_config=types.VoiceConfig(
+                prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name=voice)
+            )
         ),
     )
+
+    for attempt in range(_MAX_RETRIES + 1):
+        _pace_request(settings.podcast_tts_requests_per_minute)
+        try:
+            resp = client.models.generate_content(
+                model=model,
+                contents=[types.Content(role="user", parts=[part])],
+                config=config,
+            )
+            break
+        except genai_errors.ClientError as exc:
+            if exc.code != 429 or attempt >= _MAX_RETRIES:
+                raise
+            retry_delay = _extract_retry_delay(exc)
+            backoff = retry_delay if retry_delay is not None else (_BASE_BACKOFF * (2 ** attempt))
+            jitter = random.uniform(0, backoff * 0.1)
+            wait = backoff + jitter
+            logger.warning(
+                "TTS 429 on attempt %d/%d; waiting %.1fs before retry",
+                attempt + 1, _MAX_RETRIES, wait,
+            )
+            time.sleep(wait)
 
     data = resp.candidates[0].content.parts[0].inline_data.data
     if data[:4] != b"RIFF":
