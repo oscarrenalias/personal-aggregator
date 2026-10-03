@@ -579,7 +579,7 @@ def run_polish_phase(segments: list[dict], settings: "PodcastSettings") -> list[
         if not isinstance(idx, int) or idx < 0 or idx >= len(segments):
             continue
         original_text = segments[idx].get("text", "")
-        if _extract_digits(new_text) != _extract_digits(original_text):
+        if sorted(_extract_digits(new_text)) != sorted(_extract_digits(original_text)):
             log.warning(
                 "Phase 2.5: segment %d rewrite altered digits — discarding rewrite for this segment.",
                 idx,
