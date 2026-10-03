@@ -1,3 +1,5 @@
+from typing import Dict
+
 from pydantic import Field
 from pydantic_settings import SettingsConfigDict
 
@@ -15,9 +17,18 @@ class PodcastSettings(Settings):
     podcast_candidate_window_hours: int = Field(36, description="Hours of article history to include as candidates")
     podcast_llm_model: str = Field("gpt-5.6-terra", description="LLM model for podcast script generation")
     podcast_llm_max_tokens: int = Field(4096, description="Maximum output tokens for LLM script generation calls")
-    podcast_tts_model: str = Field("gpt-4o-mini-tts", description="TTS model for audio synthesis")
-    podcast_tts_voice: str = Field("marin", description="Voice name for TTS synthesis")
+    podcast_tts_model: str = Field("gemini-3.8-flash-lite-tts", description="TTS model for audio synthesis")
+    podcast_tts_voice: str = Field("Kore", description="Voice name for TTS synthesis")
     podcast_tts_max_chars_per_chunk: int = Field(1000, description="Maximum characters per TTS API chunk")
+    podcast_tts_style_map: Dict[str, str] = Field(
+        default_factory=lambda: {
+            "World Politics": "Serious, factual, authoritative.",
+            "AI & Technology": "Curious and engaged, brighter tone.",
+            "Motorsport": "Lively and engaged, but still a straight news report.",
+        },
+        description="Mapping of topic_category to TTS style string; categories absent from the map send no speech_metadata",
+    )
+    podcast_tts_requests_per_minute: int = Field(10, description="Maximum TTS API requests per minute for rate limiting")
     podcast_continuity_count: int = Field(2, description="Number of previous podcasts included for continuity context")
     podcast_max_stories: int = Field(6, description="Maximum number of stories selected per episode")
     podcast_polish_enabled: bool = Field(True, description="Run cross-segment polish pass to vary repeated phrasing")
