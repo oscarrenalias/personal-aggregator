@@ -1,36 +1,19 @@
 """TTS synthesis: converts a podcast script JSON dict to an MP3 file."""
 from __future__ import annotations
 
+import logging
 import os
 import re
 import subprocess
 import tempfile
 from pathlib import Path
 
-import openai
+from google import genai
+from google.genai import types
 
 from aggregator_podcast.config import PodcastSettings
 
-BASE_INSTRUCTION = (
-    "Read this as a professional daily news podcast. "
-    "Calm, authoritative, and conversational. Moderate pace. "
-    "Use brief natural pauses between sentences. "
-    "Emphasise names, numbers, and major developments with subtle inflection. "
-    "Never sound theatrical or overly enthusiastic. "
-    "Slight change in cadence when moving between topics."
-)
-
-_TYPE_INSTRUCTION: dict[str, str] = {
-    "intro":      "This is the programme opening. Warm and welcoming, slightly measured pace to draw the listener in.",
-    "story":      "This is a news story segment. Clear, direct, fact-forward. Let the content carry the weight.",
-    "transition": "This is a brief signpost between topics. Slightly lighter cadence, one natural breath of separation.",
-    "outro":      "This is the programme closing. Warm and unhurried. Slightly slower than the main stories.",
-}
-
-_PACE_INSTRUCTION: dict[str, str] = {
-    "slow": " Speak noticeably slower than your default pace.",
-    "fast": " Slightly brisker pace than normal.",
-}
+logger = logging.getLogger(__name__)
 
 PAUSE_DURATIONS: dict[str, float] = {
     "none":   0.0,
@@ -42,23 +25,14 @@ PAUSE_DURATIONS: dict[str, float] = {
 FINAL_SILENCE = 0.5
 
 
-def _build_instruction(seg: dict) -> str:
-    hints = seg.get("tts_hints", {})
-    seg_type = seg.get("type", "story")
-    instruction = BASE_INSTRUCTION + " " + _TYPE_INSTRUCTION.get(seg_type, _TYPE_INSTRUCTION["story"])
-    pace = hints.get("pace", "normal")
-    instruction += _PACE_INSTRUCTION.get(pace, "")
-    return instruction
-
-
 def _make_silence(duration: float, tmp_dir: str) -> str:
-    path = os.path.join(tmp_dir, f"silence_{duration:.2f}s.mp3")
+    path = os.path.join(tmp_dir, f"silence_{duration:.2f}s.wav")
     subprocess.run(
         [
             "ffmpeg", "-y",
             "-f", "lavfi", "-i", "anullsrc=r=24000:cl=mono",
             "-t", str(duration),
-            "-q:a", "9", "-acodec", "libmp3lame",
+            "-c:a", "pcm_s16le",
             path,
         ],
         check=True,
@@ -85,44 +59,64 @@ def _split_sentences(text: str, max_chars: int) -> list[str]:
 
 def _synthesize_chunk(
     text: str,
-    instructions: str,
-    client: openai.OpenAI,
+    seg: dict,
+    client: genai.Client,
     model: str,
     voice: str,
     out_path: str,
+    settings: PodcastSettings,
 ) -> None:
-    with client.audio.speech.with_streaming_response.create(
+    part = types.Part(text=text)
+    style = settings.podcast_tts_style_map.get(seg.get("topic_category", ""))
+    if style:
+        part.speech_metadata = types.SpeechMetadata(style=style)
+
+    resp = client.models.generate_content(
         model=model,
-        voice=voice,
-        input=text,
-        instructions=instructions,
-        response_format="mp3",
-    ) as response:
-        with open(out_path, "wb") as f:
-            for chunk in response.iter_bytes(chunk_size=4096):
-                f.write(chunk)
+        contents=[types.Content(role="user", parts=[part])],
+        config=types.GenerateContentConfig(
+            response_modalities=["AUDIO"],
+            speech_config=types.SpeechConfig(
+                voice_config=types.VoiceConfig(
+                    prebuilt_voice_config=types.PrebuiltVoiceConfig(
+                        voice_name=voice
+                    )
+                )
+            ),
+        ),
+    )
+
+    data = resp.candidates[0].content.parts[0].inline_data.data
+    if data[:4] != b"RIFF":
+        raise RuntimeError(f"TTS response is not a WAV file (header: {data[:4]!r})")
+
+    logger.info("segment audio tokens: %d", resp.usage_metadata.candidates_token_count)
+
+    with open(out_path, "wb") as f:
+        f.write(data)
 
 
 def _synthesize(
     text: str,
-    instructions: str,
-    client: openai.OpenAI,
+    seg: dict,
+    client: genai.Client,
     model: str,
     voice: str,
     out_path: str,
     tmp_dir: str,
     max_chars: int,
+    settings: PodcastSettings,
 ) -> None:
     """TTS with automatic sentence-boundary splitting for long inputs."""
     chunks = _split_sentences(text, max_chars)
     if len(chunks) == 1:
-        _synthesize_chunk(text, instructions, client, model, voice, out_path)
+        _synthesize_chunk(text, seg, client, model, voice, out_path, settings)
         return
 
     chunk_paths = []
     for i, chunk_text in enumerate(chunks):
-        cp = os.path.join(tmp_dir, f"{os.path.basename(out_path)}.part{i}.mp3")
-        _synthesize_chunk(chunk_text, instructions, client, model, voice, cp)
+        cp = os.path.join(tmp_dir, f"{os.path.basename(out_path)}.part{i}.wav")
+        _synthesize_chunk(chunk_text, seg, client, model, voice, cp, settings)
         chunk_paths.append(cp)
 
     list_path = out_path + ".parts.txt"
@@ -146,10 +140,10 @@ def generate_audio(
 
     Returns (audio_path, audio_size_bytes).
     """
-    api_key = os.environ.get("OPENAI_API_KEY") or os.environ.get("OPENAPI_API_KEY", "")
+    api_key = os.environ.get("GOOGLE_API_KEY", "")
     if not api_key:
-        raise RuntimeError("OPENAI_API_KEY not set in environment")
-    client = openai.OpenAI(api_key=api_key)
+        raise RuntimeError("GOOGLE_API_KEY not set in environment")
+    client = genai.Client(api_key=api_key)
 
     # Use ISO date (YYYY-MM-DD) for the filename, not the human-readable date in the script
     episode_date = script_json.get("iso_date") or script_json.get("date", "unknown")
@@ -177,17 +171,17 @@ def generate_audio(
             if pause_secs > 0:
                 parts.append(get_silence(pause_secs))
 
-            instructions = _build_instruction(seg)
-            seg_path = os.path.join(tmp_dir, f"seg_{i:03d}.mp3")
+            seg_path = os.path.join(tmp_dir, f"seg_{i:03d}.wav")
             _synthesize(
                 text,
-                instructions,
+                seg,
                 client,
                 settings.podcast_tts_model,
                 settings.podcast_tts_voice,
                 seg_path,
                 tmp_dir,
                 settings.podcast_tts_max_chars_per_chunk,
+                settings,
             )
             parts.append(seg_path)
 
@@ -203,7 +197,7 @@ def generate_audio(
             [
                 "ffmpeg", "-y",
                 "-f", "concat", "-safe", "0", "-i", list_path,
-                "-c", "copy",
+                "-codec:a", "libmp3lame", "-q:a", "2",
                 str(output_path),
             ],
             capture_output=True,
