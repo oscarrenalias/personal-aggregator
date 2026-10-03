@@ -271,9 +271,11 @@ At process startup, every service calls `aggregator_common.load_env()` (python-d
 | `PODCAST_CANDIDATE_WINDOW_HOURS` | `36` | Hours of article history to include as story candidates |
 | `PODCAST_LLM_MODEL` | `gpt-5.6-terra` | LLM model for podcast script generation |
 | `PODCAST_LLM_MAX_TOKENS` | `4096` | Maximum output tokens for LLM script generation calls |
-| `PODCAST_TTS_MODEL` | `gpt-4o-mini-tts` | TTS model for audio synthesis |
-| `PODCAST_TTS_VOICE` | `marin` | Voice name for TTS synthesis |
+| `PODCAST_TTS_MODEL` | `gemini-3.8-flash-lite-tts` | TTS model for audio synthesis (Gemini TTS via Google AI; requires `GOOGLE_API_KEY`) |
+| `PODCAST_TTS_VOICE` | `Kore` | Voice name for TTS synthesis |
 | `PODCAST_TTS_MAX_CHARS_PER_CHUNK` | `1000` | Maximum characters per TTS API chunk |
+| `PODCAST_TTS_STYLE_MAP` | `{"World Politics": "Serious…", "AI & Technology": "Curious…", "Motorsport": "Lively…"}` | JSON object mapping topic_category → TTS style string; categories absent from the map send no speech_metadata |
+| `PODCAST_TTS_REQUESTS_PER_MINUTE` | `10` | Maximum TTS API requests per minute for rate limiting |
 | `PODCAST_CONTINUITY_COUNT` | `2` | Number of previous podcast episodes included for continuity context |
 | `PODCAST_MAX_STORIES` | `6` | Maximum number of stories selected per episode; enforced as a hard cap after Phase 1 selection regardless of LLM output |
 | `PODCAST_POLISH_ENABLED` | `true` | Run a cross-segment polish pass (Phase 2.5) after segment writing to vary repeated sentence openings and connective phrasing across segments; set `false` to skip the pass and reduce LLM cost |
@@ -335,7 +337,7 @@ Full instructions live in [`deploy/README.md`](deploy/README.md). Summary:
 
 1. Download the release assets from the latest GitHub Release: `install.sh`, `docker-compose.prod.yml`, `aggregator.service`, `.env.example`.
 2. Run `sudo ./install.sh install` — this creates `/opt/personal-aggregator/`, copies the compose file and `.env`, installs the `aggregator` systemd unit, and starts the service.
-3. Edit `/opt/personal-aggregator/.env` to set `OPENAI_API_KEY` (or `ANTHROPIC_API_KEY`) and `DATABASE_URL`, then `sudo systemctl restart aggregator`.
+3. Edit `/opt/personal-aggregator/.env` to set `OPENAI_API_KEY` (or `ANTHROPIC_API_KEY`) and `DATABASE_URL`, then `sudo systemctl restart aggregator`. If using the podcast service, also set `GOOGLE_API_KEY` (required for Gemini TTS audio synthesis).
 
 Use `--check` for a dry-run preview: `sudo ./install.sh --check install`.
 
