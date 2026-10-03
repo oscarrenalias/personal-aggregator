@@ -193,10 +193,24 @@ def generate_audio(
             for p in parts:
                 f.write(f"file '{p}'\n")
 
+        concat_wav = os.path.join(tmp_dir, "concat.wav")
         result = subprocess.run(
             [
                 "ffmpeg", "-y",
                 "-f", "concat", "-safe", "0", "-i", list_path,
+                "-c", "copy",
+                concat_wav,
+            ],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            raise RuntimeError(f"ffmpeg concat failed (exit {result.returncode}): {result.stderr}")
+
+        result = subprocess.run(
+            [
+                "ffmpeg", "-y",
+                "-i", concat_wav,
                 "-codec:a", "libmp3lame", "-q:a", "2",
                 str(output_path),
             ],
@@ -204,7 +218,7 @@ def generate_audio(
             text=True,
         )
         if result.returncode != 0:
-            raise RuntimeError(f"ffmpeg failed (exit {result.returncode}): {result.stderr}")
+            raise RuntimeError(f"ffmpeg encode failed (exit {result.returncode}): {result.stderr}")
 
     audio_size_bytes = output_path.stat().st_size
     return str(output_path), audio_size_bytes

@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """
-Convert podcast_script.json → MP3 using OpenAI gpt-4o-mini-tts with delivery instructions.
+Convert podcast_script.json → MP3 using Gemini TTS.
 
 Usage:
   uv run --all-packages python scripts/podcast_tts.py
   uv run --all-packages python scripts/podcast_tts.py --input podcast_script.json --output podcast.mp3
-  uv run --all-packages python scripts/podcast_tts.py --voice cedar --dry-run
+  uv run --all-packages python scripts/podcast_tts.py --voice Puck --dry-run
 """
 from __future__ import annotations
 
@@ -18,39 +18,23 @@ import tempfile
 from datetime import date
 from pathlib import Path
 
-# Bootstrap: load .env so OPENAI_API_KEY is available
+# Bootstrap: load .env so GOOGLE_API_KEY is available
 _ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_ROOT / "packages" / "aggregator-common" / "src"))
 from aggregator_common.env import load_env
 load_env()
 
-import openai
+from google import genai
+from google.genai import types
 
-MODEL = "gpt-4o-mini-tts"
-DEFAULT_VOICE = "marin"
+MODEL = "gemini-3.8-flash-lite-tts"
+DEFAULT_VOICE = "Kore"
 
-# Base delivery instruction shared across all segments.
-BASE_INSTRUCTION = (
-    "Read this as a professional daily news podcast. "
-    "Calm, authoritative, and conversational. Moderate pace. "
-    "Use brief natural pauses between sentences. "
-    "Emphasise names, numbers, and major developments with subtle inflection. "
-    "Never sound theatrical or overly enthusiastic. "
-    "Slight change in cadence when moving between topics."
-)
-
-# Per-type additions layered on top of the base instruction.
-_TYPE_INSTRUCTION: dict[str, str] = {
-    "intro":      "This is the programme opening. Warm and welcoming, slightly measured pace to draw the listener in.",
-    "story":      "This is a news story segment. Clear, direct, fact-forward. Let the content carry the weight.",
-    "transition": "This is a brief signpost between topics. Slightly lighter cadence, one natural breath of separation.",
-    "outro":      "This is the programme closing. Warm and unhurried. Slightly slower than the main stories.",
-}
-
-# Pace modifier appended when the hint asks for something other than normal.
-_PACE_INSTRUCTION: dict[str, str] = {
-    "slow":  " Speak noticeably slower than your default pace.",
-    "fast":  " Slightly brisker pace than normal.",
+# Style map: topic_category → TTS style string. Mirrors PODCAST_TTS_STYLE_MAP default.
+_DEFAULT_STYLE_MAP: dict[str, str] = {
+    "World Politics": "Serious and measured, as befits weighty international affairs.",
+    "AI & Technology": "Curious and engaged, with a forward-looking tone.",
+    "Motorsport": "Lively and energetic, conveying the excitement of racing.",
 }
 
 # Silence (seconds) inserted BEFORE a segment, keyed on pause_before hint.
@@ -64,24 +48,24 @@ PAUSE_DURATIONS = {
 FINAL_SILENCE = 0.5
 
 
-def _build_instruction(seg: dict) -> str:
-    hints = seg.get("tts_hints", {})
-    instruction = BASE_INSTRUCTION
-    seg_type = seg.get("type", "story")
-    instruction += " " + _TYPE_INSTRUCTION.get(seg_type, _TYPE_INSTRUCTION["story"])
-    pace = hints.get("pace", "normal")
-    instruction += _PACE_INSTRUCTION.get(pace, "")
-    return instruction
+def _load_style_map() -> dict[str, str]:
+    raw = os.environ.get("PODCAST_TTS_STYLE_MAP", "")
+    if raw:
+        try:
+            return json.loads(raw)
+        except json.JSONDecodeError:
+            pass
+    return _DEFAULT_STYLE_MAP
 
 
 def _make_silence(duration: float, tmp_dir: str) -> str:
-    path = os.path.join(tmp_dir, f"silence_{duration:.2f}s.mp3")
+    path = os.path.join(tmp_dir, f"silence_{duration:.2f}s.wav")
     subprocess.run(
         [
             "ffmpeg", "-y",
             "-f", "lavfi", "-i", "anullsrc=r=24000:cl=mono",
             "-t", str(duration),
-            "-q:a", "9", "-acodec", "libmp3lame",
+            "-c:a", "pcm_s16le",
             path,
         ],
         check=True,
@@ -90,23 +74,7 @@ def _make_silence(duration: float, tmp_dir: str) -> str:
     return path
 
 
-# gpt-4o-mini-tts input text limit (characters). Segments exceeding this are
-# split at sentence boundaries to avoid silent truncation.
 _MAX_INPUT_CHARS = 1000
-
-
-def _synthesize_chunk(text: str, instructions: str, client: openai.OpenAI, voice: str, out_path: str) -> None:
-    """Single TTS call; writes raw bytes to avoid stream_to_file flush issues."""
-    with client.audio.speech.with_streaming_response.create(
-        model=MODEL,
-        voice=voice,
-        input=text,
-        instructions=instructions,
-        response_format="mp3",
-    ) as response:
-        with open(out_path, "wb") as f:
-            for chunk in response.iter_bytes(chunk_size=4096):
-                f.write(chunk)
 
 
 def _split_sentences(text: str, max_chars: int) -> list[str]:
@@ -125,18 +93,61 @@ def _split_sentences(text: str, max_chars: int) -> list[str]:
     return chunks
 
 
-def _synthesize(text: str, instructions: str, client: openai.OpenAI, voice: str, out_path: str, tmp_dir: str) -> None:
+def _synthesize_chunk(
+    text: str,
+    seg: dict,
+    client: genai.Client,
+    voice: str,
+    out_path: str,
+    style_map: dict[str, str],
+) -> None:
+    part = types.Part(text=text)
+    style = style_map.get(seg.get("topic_category", ""))
+    if style:
+        part.speech_metadata = types.SpeechMetadata(style=style)
+
+    resp = client.models.generate_content(
+        model=MODEL,
+        contents=[types.Content(role="user", parts=[part])],
+        config=types.GenerateContentConfig(
+            response_modalities=["AUDIO"],
+            speech_config=types.SpeechConfig(
+                voice_config=types.VoiceConfig(
+                    prebuilt_voice_config=types.PrebuiltVoiceConfig(
+                        voice_name=voice
+                    )
+                )
+            ),
+        ),
+    )
+
+    data = resp.candidates[0].content.parts[0].inline_data.data
+    if data[:4] != b"RIFF":
+        raise RuntimeError(f"TTS response is not a WAV file (header: {data[:4]!r})")
+
+    with open(out_path, "wb") as f:
+        f.write(data)
+
+
+def _synthesize(
+    text: str,
+    seg: dict,
+    client: genai.Client,
+    voice: str,
+    out_path: str,
+    tmp_dir: str,
+    style_map: dict[str, str],
+) -> None:
     """TTS with automatic sentence-boundary splitting for long inputs."""
     chunks = _split_sentences(text, _MAX_INPUT_CHARS)
     if len(chunks) == 1:
-        _synthesize_chunk(text, instructions, client, voice, out_path)
+        _synthesize_chunk(text, seg, client, voice, out_path, style_map)
         return
 
-    # Multiple chunks: synthesise each then concatenate with ffmpeg
     chunk_paths = []
     for i, chunk_text in enumerate(chunks):
-        cp = os.path.join(tmp_dir, f"{os.path.basename(out_path)}.part{i}.mp3")
-        _synthesize_chunk(chunk_text, instructions, client, voice, cp)
+        cp = os.path.join(tmp_dir, f"{os.path.basename(out_path)}.part{i}.wav")
+        _synthesize_chunk(chunk_text, seg, client, voice, cp, style_map)
         chunk_paths.append(cp)
 
     list_path = out_path + ".parts.txt"
@@ -145,18 +156,18 @@ def _synthesize(text: str, instructions: str, client: openai.OpenAI, voice: str,
             f.write(f"file '{p}'\n")
     subprocess.run(
         ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", list_path, "-c", "copy", out_path],
-        check=True, capture_output=True,
+        check=True,
+        capture_output=True,
     )
     os.unlink(list_path)
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Convert podcast JSON script to MP3")
+    parser = argparse.ArgumentParser(description="Convert podcast JSON script to MP3 via Gemini TTS")
     parser.add_argument("--input", default="podcast_script.json")
     parser.add_argument("--output", default=f"podcast_{date.today()}.mp3")
     parser.add_argument("--voice", default=DEFAULT_VOICE,
-                        choices=["marin", "cedar", "alloy", "echo", "fable", "onyx", "nova", "shimmer", "ash", "ballad", "coral", "sage", "verse"],
-                        help="OpenAI TTS voice (default: marin)")
+                        help="Gemini TTS voice name (default: Kore)")
     parser.add_argument("--dry-run", action="store_true",
                         help="Print segment plan without making any API calls")
     args = parser.parse_args()
@@ -185,18 +196,14 @@ def main() -> None:
                   f"pace={hints.get('pace','normal'):<7} "
                   f"chars={len(text)}")
             total_chars += len(text)
-        # gpt-4o-mini-tts pricing: $0.60/1M input tokens + $12/1M audio output tokens
-        # ~4 chars per token for English prose; audio output priced per token of audio
-        est_input_tokens = total_chars / 4
-        print(f"\nTotal: {total_chars} chars  ~{est_input_tokens:.0f} input tokens")
-        print(f"Est. text-input cost: ~${est_input_tokens / 1_000_000 * 0.60:.5f}")
-        print("(Audio output cost depends on generated duration, billed separately at $12/1M audio tokens)")
+        print(f"\nTotal: {total_chars} chars across {len(segments)} segments")
         return
 
-    api_key = os.environ.get("OPENAI_API_KEY") or os.environ.get("OPENAPI_API_KEY", "")
+    api_key = os.environ.get("GOOGLE_API_KEY", "")
     if not api_key:
-        sys.exit("OPENAI_API_KEY not set in .env or environment")
-    client = openai.OpenAI(api_key=api_key)
+        sys.exit("GOOGLE_API_KEY not set in .env or environment")
+    client = genai.Client(api_key=api_key)
+    style_map = _load_style_map()
 
     with tempfile.TemporaryDirectory() as tmp_dir:
         parts: list[str] = []
@@ -226,9 +233,8 @@ def main() -> None:
             print(f"  [{i+1:02d}/{len(segments)}] {seg_type:<12} {len(text):>5} chars  "
                   f"[{pct:>3}%]  {label[:55]}", end=" ... ", flush=True)
 
-            instructions = _build_instruction(seg)
-            seg_path = os.path.join(tmp_dir, f"seg_{i:03d}.mp3")
-            _synthesize(text, instructions, client, args.voice, seg_path, tmp_dir)
+            seg_path = os.path.join(tmp_dir, f"seg_{i:03d}.wav")
+            _synthesize(text, seg, client, args.voice, seg_path, tmp_dir, style_map)
             parts.append(seg_path)
             print("✓")
 
@@ -245,7 +251,7 @@ def main() -> None:
             [
                 "ffmpeg", "-y",
                 "-f", "concat", "-safe", "0", "-i", list_path,
-                "-c", "copy",
+                "-codec:a", "libmp3lame", "-q:a", "2",
                 args.output,
             ],
             capture_output=True,
