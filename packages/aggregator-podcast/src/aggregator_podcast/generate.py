@@ -372,7 +372,7 @@ Return a JSON object in exactly this format:
 {
   "headline": "<broadcast-style one-sentence headline>",
   "text": "<the full spoken segment, 150-220 words>",
-  "topic_category": "<e.g. AI & Technology, World Politics, Business & Finance, Motorsport, Gaming, Science, Other>",
+  "topic_category": "<one of: AI & Technology, World Politics, Business & Finance, Motorsport, Gaming, Science, Other>",
   "sources": ["<source name>", ...],
   "is_developing": <true if thread has substantial prior history, false if new today>,
   "tts_hints": {
