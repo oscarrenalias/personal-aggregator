@@ -5,7 +5,7 @@ description: "Shadow-evaluation framework (config, sampling, background executor
 dependencies: null
 priority: high
 complexity: null
-status: planned
+status: done
 tags:
 - llm
 - migration
