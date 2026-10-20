@@ -12,6 +12,9 @@ load_env()
 config = context.config
 
 if config.config_file_name is not None:
+    # disable_existing_loggers=False preserves loggers registered before Alembic
+    # loads its config (e.g. aggregator_common.experiment); the default True would
+    # silence them and break tests that configure loggers at import time.
     fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 target_metadata = Base.metadata
