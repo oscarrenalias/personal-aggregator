@@ -624,11 +624,12 @@ def write_item(rows: list, *, truncate_raw: bool = True) -> None:
         values = []
         for row in rows:
             raw_out = row.raw_output
-            if truncate_raw and raw_out is not None and len(raw_out) > _RAW_TRUNC:
-                raw_out = raw_out[:_RAW_TRUNC]
             err = row.error
-            if err is not None and len(err) > _ERR_TRUNC:
-                err = err[:_ERR_TRUNC]
+            if truncate_raw:
+                if raw_out is not None and len(raw_out) > _RAW_TRUNC:
+                    raw_out = raw_out[:_RAW_TRUNC]
+                if err is not None and len(err) > _ERR_TRUNC:
+                    err = err[:_ERR_TRUNC]
             values.append({
                 "experiment": row.experiment,
                 "service": row.service,
