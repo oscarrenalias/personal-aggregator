@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import json
 import logging
+import time
+from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Callable
 
 import litellm
 from pydantic import ValidationError
@@ -22,6 +24,34 @@ logger = logging.getLogger(__name__)
 
 class GenerationError(Exception):
     pass
+
+
+@dataclass
+class BriefRunResult:
+    seed_messages: list[dict]
+    payload: BriefSubmitSchema
+    turns: int
+    forced_submit: bool
+    corrective_turn: bool
+    request_ids: list[str]
+    model: str = ""
+
+
+class BriefLoopError(GenerationError):
+    def __init__(
+        self,
+        message: str,
+        *,
+        status: str,
+        turns: int = 0,
+        request_ids: list[str] | None = None,
+        last_submit_args: str | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.status = status
+        self.turns = turns
+        self.request_ids = request_ids if request_ids is not None else []
+        self.last_submit_args = last_submit_args
 
 
 def _to_assistant_dict(message: Any) -> dict:
@@ -79,31 +109,54 @@ def _reconcile_references(session: Session, raw_refs: list[dict]) -> list[dict]:
     return out
 
 
+def _build_llm_kwargs(
+    messages: list[dict],
+    settings: BriefSettings,
+    *,
+    force_submit: bool = False,
+    ref_id: str | None = None,
+    extra_metadata: dict | None = None,
+) -> dict:
+    tool_choice: Any = (
+        {"type": "function", "function": {"name": "submit_brief"}}
+        if force_submit
+        else "auto"
+    )
+    metadata: dict = {"service": "brief", "operation": "generate", "ref_id": ref_id}
+    if extra_metadata:
+        metadata.update(extra_metadata)
+    return {
+        "model": settings.brief_llm_model,
+        "messages": messages,
+        "tools": TOOL_SCHEMAS,
+        "tool_choice": tool_choice,
+        "max_tokens": settings.brief_llm_max_output_tokens,
+        "temperature": settings.brief_llm_temperature,
+        "timeout": settings.brief_llm_timeout_seconds,
+        "metadata": metadata,
+    }
+
+
 def _call_llm(
     messages: list[dict],
     settings: BriefSettings,
     *,
     force_submit: bool = False,
     ref_id: str | None = None,
+    extra_metadata: dict | None = None,
 ) -> Any:
     # On the final iteration we force submit_brief so the loop always yields a
     # brief instead of failing when the model keeps exploring with search/get
     # tools. The seed message already carries the top candidate articles, so the
     # model has enough context to submit even if it never called a tool.
-    tool_choice: Any = (
-        {"type": "function", "function": {"name": "submit_brief"}}
-        if force_submit
-        else "auto"
-    )
     return litellm.completion(
-        model=settings.brief_llm_model,
-        messages=messages,
-        tools=TOOL_SCHEMAS,
-        tool_choice=tool_choice,
-        max_tokens=settings.brief_llm_max_output_tokens,
-        temperature=settings.brief_llm_temperature,
-        timeout=settings.brief_llm_timeout_seconds,
-        metadata={"service": "brief", "operation": "generate", "ref_id": ref_id},
+        **_build_llm_kwargs(
+            messages,
+            settings,
+            force_submit=force_submit,
+            ref_id=ref_id,
+            extra_metadata=extra_metadata,
+        )
     )
 
 
@@ -117,37 +170,56 @@ def _extract_submit(tool_calls: list[Any]) -> dict | None:
     return None
 
 
-def generate_brief(session: Session, brief: Brief, settings: BriefSettings) -> None:
-    """Run the agentic tool-use loop and persist the resulting brief.
+def run_brief_loop(
+    session: Session,
+    messages: list[dict],
+    call_fn: Callable[[list[dict], bool], Any],
+    settings: BriefSettings,
+    *,
+    deadline: float | None = None,
+    clock: Callable[[], float] = time.monotonic,
+) -> BriefRunResult:
+    """Run the brief tool-use loop parameterised by call_fn.
 
-    Raises GenerationError on unrecoverable failures (tool limit exceeded,
-    schema validation failure after corrective turn, etc.).
-    Callers (loop.py) are responsible for marking the brief complete or failed.
+    call_fn(messages, force_submit) must return a litellm-compatible response.
+    Raises BriefLoopError on all failure paths (same message texts as the
+    GenerationError paths in generate_brief so existing match= tests keep passing).
     """
-    profile_row = session.scalar(select(InterestProfile))
-    interest_profile_text = (
-        profile_row.profile_text.strip() if profile_row and profile_row.profile_text else ""
-    )
-
-    system_prompt = build_system_prompt(settings, interest_profile_text)
-    seed_messages = build_seed_messages(session, settings, brief.period_start, brief.period_end)
-
-    messages: list[dict] = [{"role": "system", "content": system_prompt}] + seed_messages
+    seed_messages = list(messages)
+    messages = list(messages)
 
     submit_payload: dict | None = None
-    last_response: Any = None
+    turns = 0
+    forced_submit_turn = False
+    corrective_turn = False
+    request_ids: list[str] = []
+    last_submit_args: str | None = None
+    last_model: str = settings.brief_llm_model
 
-    brief_ref_id = str(brief.id)
     for _iteration in range(settings.brief_tool_max_calls):
+        if deadline is not None and clock() >= deadline:
+            raise BriefLoopError(
+                "deadline",
+                status="timeout",
+                turns=turns,
+                request_ids=request_ids,
+                last_submit_args=last_submit_args,
+            )
+
         force_submit = _iteration == settings.brief_tool_max_calls - 1
-        response = _call_llm(messages, settings, force_submit=force_submit, ref_id=brief_ref_id)
-        last_response = response
+        response = call_fn(messages, force_submit)
+        turns += 1
+        last_model = getattr(response, "model", None) or last_model
+
+        req_id = getattr(response, "id", None)
+        if req_id:
+            request_ids.append(req_id)
+
         assistant_message = response.choices[0].message
         messages.append(_to_assistant_dict(assistant_message))
 
         tool_calls = assistant_message.tool_calls or []
         if not tool_calls:
-            # Model stopped calling tools without submit_brief
             break
 
         found_submit = False
@@ -164,6 +236,7 @@ def generate_brief(session: Session, brief: Brief, settings: BriefSettings) -> N
                 continue
 
             if tool_name == "submit_brief":
+                last_submit_args = tc.function.arguments
                 submit_payload = tool_args
                 messages.append({
                     "role": "tool",
@@ -171,6 +244,7 @@ def generate_brief(session: Session, brief: Brief, settings: BriefSettings) -> N
                     "content": json.dumps({"status": "received"}),
                 })
                 found_submit = True
+                forced_submit_turn = force_submit
             else:
                 try:
                     result = dispatch_tool(session, tool_name, tool_args)
@@ -187,15 +261,19 @@ def generate_brief(session: Session, brief: Brief, settings: BriefSettings) -> N
             break
 
     if submit_payload is None:
-        raise GenerationError(
-            f"Tool loop exhausted {settings.brief_tool_max_calls} iteration(s) without submit_brief"
+        raise BriefLoopError(
+            f"Tool loop exhausted {settings.brief_tool_max_calls} iteration(s) without submit_brief",
+            status="parse_error",
+            turns=turns,
+            request_ids=request_ids,
+            last_submit_args=last_submit_args,
         )
 
-    # Validate — one corrective turn on failure
     try:
         validated = BriefSubmitSchema.model_validate(submit_payload)
     except ValidationError as first_exc:
         logger.warning("submit_brief validation failed, sending corrective turn: %s", first_exc)
+        corrective_turn = True
         messages.append({
             "role": "user",
             "content": (
@@ -204,34 +282,108 @@ def generate_brief(session: Session, brief: Brief, settings: BriefSettings) -> N
                 f"Validation errors:\n{first_exc}"
             ),
         })
-        corrective_response = _call_llm(messages, settings, ref_id=brief_ref_id)
-        last_response = corrective_response
+
+        if deadline is not None and clock() >= deadline:
+            raise BriefLoopError(
+                "deadline",
+                status="timeout",
+                turns=turns,
+                request_ids=request_ids,
+                last_submit_args=last_submit_args,
+            )
+
+        corrective_response = call_fn(messages, False)
+        turns += 1
+        last_model = getattr(corrective_response, "model", None) or last_model
+
+        req_id = getattr(corrective_response, "id", None)
+        if req_id:
+            request_ids.append(req_id)
+
         corrective_message = corrective_response.choices[0].message
-        corrective_payload = _extract_submit(corrective_message.tool_calls or [])
+        corrective_tool_calls = corrective_message.tool_calls or []
+        for tc in corrective_tool_calls:
+            if tc.function.name == "submit_brief":
+                last_submit_args = tc.function.arguments
+                break
+
+        corrective_payload = _extract_submit(corrective_tool_calls)
 
         if corrective_payload is None:
-            raise GenerationError(
-                f"Model did not call submit_brief in corrective turn: {first_exc}"
-            ) from first_exc
+            raise BriefLoopError(
+                f"Model did not call submit_brief in corrective turn: {first_exc}",
+                status="parse_error",
+                turns=turns,
+                request_ids=request_ids,
+                last_submit_args=last_submit_args,
+            )
 
         try:
             validated = BriefSubmitSchema.model_validate(corrective_payload)
         except ValidationError as second_exc:
-            raise GenerationError(
-                f"submit_brief still invalid after corrective turn: {second_exc}"
+            raise BriefLoopError(
+                f"submit_brief still invalid after corrective turn: {second_exc}",
+                status="parse_error",
+                turns=turns,
+                request_ids=request_ids,
+                last_submit_args=last_submit_args,
             ) from second_exc
 
-    # Reconcile and persist
-    model_name: str = getattr(last_response, "model", None) or settings.brief_llm_model
+    return BriefRunResult(
+        seed_messages=seed_messages,
+        payload=validated,
+        turns=turns,
+        forced_submit=forced_submit_turn,
+        corrective_turn=corrective_turn,
+        request_ids=request_ids,
+        model=last_model,
+    )
 
-    # Clear any existing topics (idempotent re-generation)
+
+def generate_brief(
+    session: Session,
+    brief: Brief,
+    settings: BriefSettings,
+    *,
+    extra_metadata: dict | None = None,
+) -> BriefRunResult:
+    """Run the agentic tool-use loop and persist the resulting brief.
+
+    Raises GenerationError on unrecoverable failures (tool limit exceeded,
+    schema validation failure after corrective turn, etc.).
+    Callers (loop.py) are responsible for marking the brief complete or failed.
+    """
+    profile_row = session.scalar(select(InterestProfile))
+    interest_profile_text = (
+        profile_row.profile_text.strip() if profile_row and profile_row.profile_text else ""
+    )
+
+    system_prompt = build_system_prompt(settings, interest_profile_text)
+    seed_messages = build_seed_messages(session, settings, brief.period_start, brief.period_end)
+
+    messages: list[dict] = [{"role": "system", "content": system_prompt}] + seed_messages
+
+    brief_ref_id = str(brief.id)
+    _extra: dict = {"extra_metadata": extra_metadata} if extra_metadata is not None else {}
+    call_fn = lambda m, f: _call_llm(  # noqa: E731
+        m, settings, force_submit=f, ref_id=brief_ref_id, **_extra
+    )
+
+    try:
+        result = run_brief_loop(session, messages, call_fn, settings)
+    except BriefLoopError as exc:
+        raise GenerationError(str(exc)) from exc
+
+    validated = result.payload
+
+    # Reconcile and persist
     for existing in list(brief.topics):
         session.delete(existing)
     session.flush()
 
     brief.headline = validated.headline
     brief.intro = validated.intro
-    brief.model = model_name
+    brief.model = result.model
     brief.generated_at = datetime.now(tz=timezone.utc)
 
     for position, topic_schema in enumerate(validated.topics):
@@ -254,5 +406,7 @@ def generate_brief(session: Session, brief: Brief, settings: BriefSettings) -> N
         "Brief %d generated: %d topic(s) via %s",
         brief.id,
         len(validated.topics),
-        model_name,
+        result.model,
     )
+
+    return result

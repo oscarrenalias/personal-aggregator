@@ -313,6 +313,26 @@ Unset, empty, or `"enabled": false` → no sampling and no shadow work; the prod
 - **Control metadata tagging** — when an item is sampled, the production LLM call receives `metadata.experiment=<name>` and `metadata.arm="control"`; arm calls receive `metadata.arm=<arm_name>`. Items skipped at any decision step leave control metadata untagged.
 - **`allowed_openai_params`** — when `reasoning_effort` is present in the effective arm kwargs, `build_arm_kwargs` automatically adds `allowed_openai_params=["reasoning_effort"]` to satisfy litellm's client-side validation.
 
+### `brief.generate` operation
+
+Unlike the single-call operations (`summarize_rank.rank`, `clusterer.*`), `brief.generate` re-runs the **full brief agent tool loop** in read-only shadow sessions after the production brief has been committed and its session closed. `ref_id` = `str(brief.id)`. **Only `origin='auto'` (scheduled) briefs are shadowed** — manual briefs (admin CLI or MCP `refresh_brief`) are never passed to `experiment.decide`.
+
+**Responses bridge.** `gpt-6-luna` on Chat Completions supports function tools only with `reasoning_effort="none"`. At `low` or `medium` effort the API requires the OpenAI Responses bridge: `model="openai/responses/gpt-6-luna"`. Parameter constraints for Responses bridge arms: `temperature` must be removed (set `null` in `params`) and `max_tokens` replaced by `max_completion_tokens`. The `luna-none` arm uses Chat Completions directly and only needs the `max_tokens` → `max_completion_tokens` swap. (Findings from spec A, phase 0.)
+
+Recommended `brief.generate` config block:
+
+```json
+"brief.generate": {"sample_rate": 1.0, "arms": [
+  {"name": "luna-none",   "model": "gpt-6-luna",                  "params": {"reasoning_effort": "none",                          "max_tokens": null, "max_completion_tokens": 8192}},
+  {"name": "luna-low",    "model": "openai/responses/gpt-6-luna", "params": {"reasoning_effort": "low",    "temperature": null, "max_tokens": null, "max_completion_tokens": 8192}},
+  {"name": "luna-medium", "model": "openai/responses/gpt-6-luna", "params": {"reasoning_effort": "medium", "temperature": null, "max_tokens": null, "max_completion_tokens": 8192}}
+]}
+```
+
+**Deadline.** All arms share a 600 s budget starting when the shadow run begins (post-commit). Arms not started before the deadline get no row (counted as `skipped_deadline` in logs). The deadline is checked before each arm and before each turn inside `run_brief_loop`. SIGTERM also stops the runner between arms via `stop_event`.
+
+**Row `output`.** Each row stores `{"payload": <BriefSubmitSchema as JSON>, "turns": int, "forced_submit": bool, "corrective_turn": bool}`. Payloads are never truncated (`truncate_raw=False`). Partial items are accepted — arms that completed before the deadline are written even when later arms are skipped, unlike the all-or-nothing rule for single-call operations.
+
 ### Storage
 
 **`llm_calls` — new columns (migration `d6e7f8a9b0c1`)**
