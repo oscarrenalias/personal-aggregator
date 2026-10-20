@@ -111,6 +111,7 @@ src/aggregator_common/
   management.py    # write helpers: mark_thread_viewed (stamps last_viewed_at), set_thread_dismissed, create/update/merge threads, source/category mutations
   retention.py     # purge_expired_articles / purge_expired_threads / purge_expired_briefs / purge_expired_llm_calls — called by janitor
   llm_telemetry.py # setup_llm_telemetry() — LiteLLM custom logger persisting LlmCall rows; optional Langfuse callback activates when all three LANGFUSE_* env vars are set
+  experiment.py    # LLM shadow A/B framework — init/shutdown, decide (6-step gate), build_arm_kwargs, submit_shadow, write_item; configured via LLM_EXPERIMENT JSON; never interferes with the production call path
   migrations/      # Alembic environment; versions/ holds migration scripts
 ```
 
@@ -202,6 +203,7 @@ At process startup, every service calls `aggregator_common.load_env()` (python-d
 | `LANGFUSE_PUBLIC_KEY` | *(unset)* | Langfuse public key; Langfuse callback activates only when all three `LANGFUSE_*` vars are set |
 | `LANGFUSE_SECRET_KEY` | *(unset)* | Langfuse secret key |
 | `LANGFUSE_HOST` | *(unset)* | Langfuse host URL (defaults to Langfuse cloud when omitted) |
+| `LLM_EXPERIMENT` | *(unset)* | JSON blob configuring the LLM shadow A/B experiment; parsed by `experiment.py` at startup — invalid JSON logs one ERROR and disables the experiment. See **LLM shadow evaluation framework** below. |
 | `WEB_HOST` | `127.0.0.1` | Host to bind the web server (never `0.0.0.0` in production) |
 | `WEB_PORT` | `8000` | Port to bind the web server |
 | `WEB_PAGE_SIZE` | `50` | Number of articles per page in feed lists |
@@ -281,6 +283,85 @@ At process startup, every service calls `aggregator_common.load_env()` (python-d
 | `PODCAST_POLISH_ENABLED` | `true` | Run a cross-segment polish pass (Phase 2.5) after segment writing to vary repeated sentence openings and connective phrasing across segments; set `false` to skip the pass and reduce LLM cost |
 
 **Per-service config convention:** Each service subclasses `aggregator_common.config.Settings` and adds its own fields using a `<SERVICE>_` prefix (e.g., `PROCESSOR_BATCH_SIZE`, `RETRIEVER_POLL_INTERVAL_SECONDS`). Shared fields live in the base class; service-specific fields never bleed into other services' namespaces.
+
+## LLM shadow evaluation framework
+
+`aggregator_common.experiment` provides a low-overhead A/B shadow harness that runs experimental LLM arms alongside the production call without blocking it. All shadow work runs on a background thread pool (2 workers, queue depth 50); if the queue is full the item is silently dropped. The production call is never delayed.
+
+### Configuration (`LLM_EXPERIMENT`)
+
+Set `LLM_EXPERIMENT` to a JSON object (see `.env.example` for the full experiment config). Top-level fields:
+
+| Field | Type | Description |
+|---|---|---|
+| `name` | string | Experiment identifier, stamped on every row |
+| `enabled` | bool | Set `false` to disable without removing the config |
+| `until` | ISO-8601 UTC timestamp | Shadow calls stop after this date |
+| `max_daily_cost_usd` | float | Daily cost cap for shadow arms (evaluated against `llm_calls` where `arm != "control"`) |
+| `operations` | object | Per-operation config keyed by operation name |
+
+Valid operation keys: `summarize_rank.rank`, `clusterer.classify`, `clusterer.merge`, `clusterer.consolidate_facts`, `brief.generate`. Each operation accepts `sample_rate` (0.0–1.0) and `arms` (list of `{name, model, params}`). A `null` value in `params` removes that key from the control kwargs. `messages`, `tools`, `tool_choice`, `response_format`, `timeout`, and `metadata` cannot be overridden in `params` — a config error disables the experiment.
+
+Unset, empty, or `"enabled": false` → no sampling and no shadow work; the production call path behaves exactly as without the variable.
+
+### Shadow contract
+
+- **Non-interference** — shadow calls run after the production call completes, on a background thread pool. The production call's result is always the one persisted; shadow output is only written to `llm_shadow_results`.
+- **Sampling** — deterministic by `sha256(f"{name}:{operation}:{ref_id}")` so the same article gets the same decision across process restarts. Items with `ref_id is None` are never sampled.
+- **Budget guard** — daily shadow cost is cached from `llm_calls` every 60 s; once `max_daily_cost_usd` is reached all shadow items are skipped for the remainder of the day.
+- **`until` guard** — no shadow sampling after the configured UTC timestamp, regardless of budget.
+- **Control metadata tagging** — when an item is sampled, the production LLM call receives `metadata.experiment=<name>` and `metadata.arm="control"`; arm calls receive `metadata.arm=<arm_name>`. Items skipped at any decision step leave control metadata untagged.
+- **`allowed_openai_params`** — when `reasoning_effort` is present in the effective arm kwargs, `build_arm_kwargs` automatically adds `allowed_openai_params=["reasoning_effort"]` to satisfy litellm's client-side validation.
+
+### Storage
+
+**`llm_calls` — new columns (migration `d6e7f8a9b0c1`)**
+
+| Column | Type | Description |
+|---|---|---|
+| `experiment` | `text` (nullable) | Experiment name; `NULL` for non-experiment calls |
+| `arm` | `text` (nullable) | `"control"` for production calls tagged with an active experiment; arm name for shadow arms |
+| `reasoning_effort` | `text` (nullable) | `reasoning_effort` parameter passed to the model (e.g. `"low"`, `"medium"`, `"none"`) |
+| `reasoning_tokens` | `integer` (nullable) | Reasoning tokens consumed, from LLM response usage |
+
+Index `ix_llm_calls_experiment_arm` on `(experiment, arm, service, operation, ref_id)` for analysis joins.
+
+**`llm_shadow_results` table (migration `d6e7f8a9b0c1`)**
+
+Stores raw outcomes of both control and shadow arms for offline comparison.
+
+| Column | Type | Description |
+|---|---|---|
+| `id` | bigint identity | PK |
+| `created_at` | timestamptz | Auto-set by DB (`now()`) |
+| `experiment` | text | Experiment name |
+| `service` | text | Service component (e.g. `summarize_rank`) |
+| `operation` | text | Operation key (e.g. `rank`) |
+| `ref_id` | text | Article or thread ID the call was made for |
+| `arm` | text | `"control"` or arm name |
+| `model` | text | Model string used |
+| `prompt_hash` | text | SHA-256 of the serialised messages list |
+| `status` | text | `ok`, `parse_error`, `api_error`, `timeout`, or `refusal` |
+| `attempts` | int | Retry count for this outcome |
+| `params` | jsonb | Arm-specific params (empty object for control) |
+| `output` | jsonb | Parsed structured output (nullable) |
+| `raw_output` | text | Truncated raw LLM text (≤ 8 KB, nullable) |
+| `error` | text | Error message (≤ 2 KB, nullable) |
+| `request_ids` | jsonb | LLM provider request IDs (nullable) |
+
+Unique constraint `uq_llm_shadow_results_item_arm` on `(experiment, service, operation, ref_id, arm)`; duplicate writes use `ON CONFLICT DO NOTHING`.
+
+**Retention** — `llm_shadow_results` has **no janitor retention policy**. The table is intended to be dropped by the cutover spec once the experiment concludes.
+
+### Operator deploy note
+
+Before deploying the shadow framework, raise the article retention period to cover the full experiment window so articles are not purged before analysis completes:
+
+```
+JANITOR_ARTICLE_RETENTION_DAYS=35
+```
+
+The default is 14 days; 35 covers a month-long experiment with a one-week buffer. Revert to 14 after the experiment table is dropped.
 
 ## Logging
 

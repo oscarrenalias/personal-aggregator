@@ -332,6 +332,7 @@ class LlmCall(Base):
     __table_args__ = (
         Index("ix_llm_calls_created_at", "created_at"),
         Index("ix_llm_calls_service_created_at", "service", "created_at"),
+        Index("ix_llm_calls_experiment_arm", "experiment", "arm", "service", "operation", "ref_id"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -358,6 +359,37 @@ class LlmCall(Base):
     request_id: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     prompt_preview: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     prompt_hash: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    experiment: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    arm: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    reasoning_effort: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    reasoning_tokens: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+
+
+class LlmShadowResult(Base):
+    __tablename__ = "llm_shadow_results"
+    __table_args__ = (
+        UniqueConstraint("experiment", "service", "operation", "ref_id", "arm", name="uq_llm_shadow_results_item_arm"),
+        Index("ix_llm_shadow_results_experiment_service_operation", "experiment", "service", "operation"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(always=True), primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
+    )
+    experiment: Mapped[str] = mapped_column(Text, nullable=False)
+    service: Mapped[str] = mapped_column(Text, nullable=False)
+    operation: Mapped[str] = mapped_column(Text, nullable=False)
+    ref_id: Mapped[str] = mapped_column(Text, nullable=False)
+    arm: Mapped[str] = mapped_column(Text, nullable=False)
+    model: Mapped[str] = mapped_column(Text, nullable=False)
+    prompt_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False)
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False)
+    params: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    output: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    raw_output: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    request_ids: Mapped[Optional[list]] = mapped_column(JSONB, nullable=True)
 
 
 class PodcastEpisode(Base):
