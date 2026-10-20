@@ -1,6 +1,8 @@
 import argparse
 import sys
 
+import aggregator_common.experiment as experiment
+
 from aggregator_common import load_env
 from aggregator_common.llm_telemetry import setup_llm_telemetry
 from aggregator_common.logging_setup import configure_logging
@@ -20,6 +22,7 @@ def main() -> None:
     settings = ClustererSettings()
     configure_logging(settings, stream=sys.stdout)
     setup_llm_telemetry(settings)
+    experiment.init(settings)
 
     if args.once:
         from aggregator_clusterer.worker import run_once

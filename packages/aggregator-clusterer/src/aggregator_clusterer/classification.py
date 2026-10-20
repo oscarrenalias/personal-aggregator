@@ -3,12 +3,14 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Callable, Optional
 
 import litellm
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+import aggregator_common.experiment as experiment
+from aggregator_common.experiment import CallOutcome
 from aggregator_common.models import Article, ClassificationLabel, Thread
 from aggregator_clusterer.candidates import CandidateMatch
 from aggregator_clusterer.config import ClustererSettings
@@ -194,6 +196,145 @@ def _error_result() -> "ClassificationResult":
     )
 
 
+def _attempt(kwargs: dict, presented_ids: set[int]) -> CallOutcome:
+    """Make one LLM classification attempt and parse the response.
+
+    Returns CallOutcome with:
+    - status="ok"          → value is ClassificationResult, output is the parsed dict
+    - status="parse_error" → empty content, invalid JSON, or missing/invalid label
+    - status="api_error"   → non-timeout completion exception
+    - status="timeout"     → litellm timeout exception
+    Thread_id outside presented candidates is coerced to None (ok).
+    """
+    try:
+        response = litellm.completion(**kwargs)
+    except litellm.exceptions.Timeout as exc:
+        return CallOutcome(
+            status="timeout",
+            value=None,
+            output=None,
+            raw_output=None,
+            attempts=1,
+            request_ids=[],
+            error=str(exc),
+            exception=exc,
+        )
+    except Exception as exc:
+        return CallOutcome(
+            status="api_error",
+            value=None,
+            output=None,
+            raw_output=None,
+            attempts=1,
+            request_ids=[],
+            error=str(exc),
+            exception=exc,
+        )
+
+    content = response.choices[0].message.content
+    raw_output = content or ""
+
+    if not content:
+        return CallOutcome(
+            status="parse_error",
+            value=None,
+            output=None,
+            raw_output=raw_output,
+            attempts=1,
+            request_ids=[],
+            error="empty_content",
+            response=response,
+        )
+
+    try:
+        data = json.loads(content)
+    except json.JSONDecodeError as exc:
+        return CallOutcome(
+            status="parse_error",
+            value=None,
+            output=None,
+            raw_output=raw_output,
+            attempts=1,
+            request_ids=[],
+            error=f"json_parse_error: {exc}",
+            response=response,
+        )
+
+    try:
+        label = ClassificationLabel(data["label"])
+    except (KeyError, ValueError) as exc:
+        return CallOutcome(
+            status="parse_error",
+            value=None,
+            output=None,
+            raw_output=raw_output,
+            attempts=1,
+            request_ids=[],
+            error=f"invalid_label: {exc}",
+            response=response,
+        )
+
+    # thread_id must be None for labels that don't attach to an existing thread,
+    # and must be one of the presented candidate ids to guard against hallucinated ids.
+    raw_thread_id = data.get("thread_id")
+    if label in (ClassificationLabel.new_thread, ClassificationLabel.related_new_thread):
+        thread_id: Optional[int] = None
+    else:
+        if raw_thread_id is not None:
+            tid = int(raw_thread_id)
+            thread_id = tid if tid in presented_ids else None
+        else:
+            thread_id = None
+
+    try:
+        confidence = float(data.get("confidence", 0.0))
+        confidence = max(0.0, min(1.0, confidence))
+    except (TypeError, ValueError):
+        confidence = 0.0
+
+    raw_facts = data.get("new_facts", [])
+    new_facts = [str(f) for f in raw_facts] if isinstance(raw_facts, list) else []
+    reason = str(data.get("reason", ""))
+    raw_title = data.get("thread_title")
+    thread_title: Optional[str] = _truncate_title(str(raw_title)) if raw_title else None
+
+    result = ClassificationResult(
+        label=label,
+        thread_id=thread_id,
+        confidence=confidence,
+        new_facts=new_facts,
+        reason=reason,
+        thread_title=thread_title,
+    )
+    parsed_output = {
+        "label": label.value,
+        "thread_id": thread_id,
+        # raw_thread_id lets classify_article log the hallucinated-id warning for the control arm
+        "raw_thread_id": data.get("thread_id"),
+        "confidence": confidence,
+        "new_facts": new_facts,
+        "reason": reason,
+        "thread_title": thread_title,
+    }
+    return CallOutcome(
+        status="ok",
+        value=result,
+        output=parsed_output,
+        raw_output=content,
+        attempts=1,
+        request_ids=[],
+        error=None,
+        response=response,
+    )
+
+
+def _make_attempt_fn(presented_ids: set[int]) -> Callable[[dict], CallOutcome]:
+    """Return a closure suitable for experiment.submit_shadow."""
+    def attempt(kwargs: dict) -> CallOutcome:
+        return _attempt(kwargs, presented_ids)
+    return attempt
+
+
 def classify_article(
     article: Article,
     candidates: list[CandidateMatch],
@@ -210,87 +351,64 @@ def classify_article(
         {"role": "user", "content": user_message},
     ]
 
-    try:
-        response = litellm.completion(
-            model=settings.clusterer_llm_model,
-            messages=messages,
-            max_tokens=settings.clusterer_llm_max_output_tokens,
-            temperature=settings.clusterer_llm_temperature,
-            timeout=settings.clusterer_llm_timeout_seconds,
-            metadata={"service": "clusterer", "operation": "classify", "ref_id": str(article.id)},
-        )
-    except Exception as exc:
-        logger.error("LLM call failed during article classification (article_id=%s): %s", article.id, exc)
+    decision = experiment.decide("clusterer.classify", str(article.id))
+
+    control_kwargs: dict = {
+        "model": settings.clusterer_llm_model,
+        "messages": messages,
+        "max_tokens": settings.clusterer_llm_max_output_tokens,
+        "temperature": settings.clusterer_llm_temperature,
+        "timeout": settings.clusterer_llm_timeout_seconds,
+        "metadata": {"service": "clusterer", "operation": "classify", "ref_id": str(article.id)},
+    }
+    if decision is not None:
+        control_kwargs["metadata"] = decision.control_metadata(control_kwargs["metadata"])
+
+    attempt_fn = _make_attempt_fn(presented_ids)
+    control_outcome = attempt_fn(control_kwargs)
+
+    # Log token usage from control response
+    response = getattr(control_outcome, "response", None)
+    if response is not None:
+        usage = getattr(response, "usage", None)
+        if usage is not None:
+            logger.debug(
+                "classification token usage article_id=%s model=%s prompt_tokens=%s completion_tokens=%s",
+                article.id,
+                getattr(response, "model", settings.clusterer_llm_model),
+                getattr(usage, "prompt_tokens", 0),
+                getattr(usage, "completion_tokens", 0),
+            )
+
+    experiment.submit_shadow(decision, control_kwargs, control_outcome, attempt_fn)
+
+    if control_outcome.status == "timeout":
+        logger.error("LLM timeout during article classification (article_id=%s): %s", article.id, control_outcome.error)
+        return _error_result()
+    if control_outcome.status == "api_error":
+        logger.error("LLM call failed during article classification (article_id=%s): %s", article.id, control_outcome.error)
+        return _error_result()
+    if control_outcome.status == "parse_error":
+        logger.error("LLM response parse error for article_id=%s: %s", article.id, control_outcome.error)
         return _error_result()
 
-    # Log token usage
-    usage = getattr(response, "usage", None)
-    if usage is not None:
-        logger.debug(
-            "classification token usage article_id=%s model=%s prompt_tokens=%s completion_tokens=%s",
+    # Warn when the LLM hallucinated a thread_id that was coerced to None inside _attempt
+    output = control_outcome.output or {}
+    raw_tid = output.get("raw_thread_id")
+    if (
+        raw_tid is not None
+        and output.get("thread_id") is None
+        and output.get("label") not in (
+            ClassificationLabel.new_thread.value,
+            ClassificationLabel.related_new_thread.value,
+        )
+    ):
+        logger.warning(
+            "LLM returned thread_id=%s not in presented candidates %s for article_id=%s; treating as new",
+            raw_tid,
+            presented_ids,
             article.id,
-            getattr(response, "model", settings.clusterer_llm_model),
-            getattr(usage, "prompt_tokens", 0),
-            getattr(usage, "completion_tokens", 0),
         )
 
-    content = response.choices[0].message.content
-    if not content:
-        logger.error("Empty LLM response for article_id=%s", article.id)
-        return _error_result()
-
-    try:
-        data = json.loads(content)
-    except json.JSONDecodeError as exc:
-        logger.error("JSON parse error classifying article_id=%s: %s — raw: %r", article.id, exc, content[:200])
-        return _error_result()
-
-    try:
-        label = ClassificationLabel(data["label"])
-    except (KeyError, ValueError) as exc:
-        logger.error("Invalid label in classification response for article_id=%s: %s", article.id, exc)
-        return _error_result()
-
-    # thread_id must be None for labels that don't attach to an existing thread,
-    # and must be one of the presented candidate ids to guard against hallucinated ids.
-    raw_thread_id = data.get("thread_id")
-    if label in (ClassificationLabel.new_thread, ClassificationLabel.related_new_thread):
-        thread_id: Optional[int] = None
-    else:
-        if raw_thread_id is not None:
-            tid = int(raw_thread_id)
-            if tid in presented_ids:
-                thread_id = tid
-            else:
-                logger.warning(
-                    "LLM returned thread_id=%s not in presented candidates %s for article_id=%s; treating as new",
-                    tid,
-                    presented_ids,
-                    article.id,
-                )
-                thread_id = None
-        else:
-            thread_id = None
-
-    try:
-        confidence = float(data.get("confidence", 0.0))
-        confidence = max(0.0, min(1.0, confidence))
-    except (TypeError, ValueError):
-        confidence = 0.0
-
-    raw_facts = data.get("new_facts", [])
-    new_facts = [str(f) for f in raw_facts] if isinstance(raw_facts, list) else []
-
-    reason = str(data.get("reason", ""))
-
-    raw_title = data.get("thread_title")
-    thread_title: Optional[str] = _truncate_title(str(raw_title)) if raw_title else None
-
-    return ClassificationResult(
-        label=label,
-        thread_id=thread_id,
-        confidence=confidence,
-        new_facts=new_facts,
-        reason=reason,
-        thread_title=thread_title,
-    )
+    result: ClassificationResult = control_outcome.value
+    return result

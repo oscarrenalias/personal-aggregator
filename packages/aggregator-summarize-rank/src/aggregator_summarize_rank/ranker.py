@@ -7,6 +7,9 @@ from typing import Any, Sequence
 import litellm
 from pydantic import ValidationError
 
+from aggregator_common import experiment
+from aggregator_common.experiment import CallOutcome
+
 from .config import SummarizeRankSettings
 from .prompt import _CategoryEntry, build_messages, get_prompt_version
 from .schema import RankResult
@@ -46,6 +49,53 @@ def _filter_categories(raw: list[str], enabled: Sequence[_CategoryEntry]) -> lis
     return out
 
 
+def attempt(call_kwargs: dict) -> CallOutcome:
+    """Run litellm.completion with 1 retry on parse error.
+
+    Returns CallOutcome(status='ok') on success.
+    Re-raises the original exception unchanged for api_error / timeout.
+    Raises RankError for parse_error after retry.
+    """
+    last_parse_error: Exception | None = None
+    request_ids: list = []
+
+    for i in range(2):
+        try:
+            response = litellm.completion(**call_kwargs)
+        except Exception:
+            raise  # api_error or timeout — re-raise unchanged
+
+        rid = getattr(response, "id", None)
+        if rid:
+            request_ids = [rid]
+
+        raw: str | None = None
+        if response.choices:
+            raw = response.choices[0].message.content
+
+        try:
+            result = _parse_rank_result(response)
+        except (ValidationError, ValueError, json.JSONDecodeError) as exc:
+            last_parse_error = exc
+            if i == 0:
+                logger.warning("Malformed LLM response (attempt 1), retrying: %s", exc)
+                continue
+            raise RankError(f"Invalid LLM response after retry: {exc}") from exc
+
+        return CallOutcome(
+            status="ok",
+            value=result,
+            output=result.model_dump(),
+            raw_output=raw,
+            attempts=i + 1,
+            request_ids=request_ids,
+            error=None,
+            response=response,
+        )
+
+    raise RankError(f"Invalid LLM response after retry: {last_parse_error}") from last_parse_error
+
+
 def rank(
     article_input: dict[str, Any],
     interest_profile_text: str,
@@ -56,48 +106,50 @@ def rank(
     messages = build_messages(article_input, interest_profile_text, settings, enabled_categories)
     prompt_version = get_prompt_version()
 
-    last_error: Exception | None = None
-    for attempt in range(2):
-        response = litellm.completion(
-            model=settings.llm_model,
-            messages=messages,
-            response_format=RankResult,
-            max_tokens=settings.llm_max_output_tokens,
-            temperature=settings.llm_temperature,
-            timeout=settings.llm_timeout_seconds,
-            metadata={"service": "summarize_rank", "operation": "rank", "ref_id": str(article_id) if article_id is not None else None},
-        )
-        try:
-            result = _parse_rank_result(response)
-        except (ValidationError, ValueError, json.JSONDecodeError) as exc:
-            last_error = exc
-            if attempt == 0:
-                logger.warning("Malformed LLM response (attempt 1), retrying: %s", exc)
-                continue
-            raise RankError(f"Invalid LLM response after retry: {exc}") from exc
+    ref_id = str(article_id) if article_id is not None else None
+    decision = experiment.decide("summarize_rank.rank", ref_id)
 
-        result.categories = _filter_categories(result.categories, enabled_categories or [])
+    base_metadata: dict[str, Any] = {
+        "service": "summarize_rank",
+        "operation": "rank",
+        "ref_id": ref_id,
+    }
 
-        usage = response.usage if response.usage else None
-        prompt_tokens = getattr(usage, "prompt_tokens", 0) or 0
-        completion_tokens = getattr(usage, "completion_tokens", 0) or 0
+    control_kwargs: dict[str, Any] = {
+        "model": settings.llm_model,
+        "messages": messages,
+        "response_format": RankResult,
+        "max_tokens": settings.llm_max_output_tokens,
+        "temperature": settings.llm_temperature,
+        "timeout": settings.llm_timeout_seconds,
+        "metadata": decision.control_metadata(base_metadata) if decision is not None else base_metadata,
+    }
 
-        cost: float | None = None
-        try:
-            cost = litellm.completion_cost(completion_response=response)
-        except Exception:
-            pass
+    control_outcome = attempt(control_kwargs)
 
-        usage_dict: dict[str, Any] = {
-            "model": response.model or settings.llm_model,
-            "prompt_tokens": prompt_tokens,
-            "completion_tokens": completion_tokens,
-            "prompt_version": prompt_version,
-        }
-        if cost is not None:
-            usage_dict["cost"] = cost
+    result: RankResult = control_outcome.value
+    result.categories = _filter_categories(result.categories, enabled_categories or [])
 
-        return result, usage_dict
+    response = control_outcome.response
+    usage = response.usage if response.usage else None
+    prompt_tokens = getattr(usage, "prompt_tokens", 0) or 0
+    completion_tokens = getattr(usage, "completion_tokens", 0) or 0
 
-    # unreachable but satisfies type checker
-    raise RankError(f"Invalid LLM response after retry: {last_error}") from last_error
+    cost: float | None = None
+    try:
+        cost = litellm.completion_cost(completion_response=response)
+    except Exception:
+        pass
+
+    usage_dict: dict[str, Any] = {
+        "model": response.model or settings.llm_model,
+        "prompt_tokens": prompt_tokens,
+        "completion_tokens": completion_tokens,
+        "prompt_version": prompt_version,
+    }
+    if cost is not None:
+        usage_dict["cost"] = cost
+
+    experiment.submit_shadow(decision, control_kwargs, control_outcome, attempt)
+
+    return result, usage_dict

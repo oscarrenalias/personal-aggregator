@@ -10,6 +10,7 @@ from types import SimpleNamespace
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from aggregator_common import experiment
 from aggregator_common.claim import claim_batch, reap_stale_claims
 from aggregator_common.db import SessionFactory
 from aggregator_common.models import Article, Category, InterestProfile
@@ -41,6 +42,7 @@ def run(settings: SummarizeRankSettings) -> None:
     def _handle_signal(signum: int, _: object) -> None:
         logger.info("Signal %d received, stopping after in-flight futures drain", signum)
         stop_event.set()
+        experiment.shutdown()
 
     signal.signal(signal.SIGINT, _handle_signal)
     signal.signal(signal.SIGTERM, _handle_signal)
