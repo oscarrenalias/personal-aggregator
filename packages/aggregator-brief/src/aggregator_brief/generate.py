@@ -79,31 +79,54 @@ def _reconcile_references(session: Session, raw_refs: list[dict]) -> list[dict]:
     return out
 
 
+def _build_llm_kwargs(
+    messages: list[dict],
+    settings: BriefSettings,
+    *,
+    force_submit: bool = False,
+    ref_id: str | None = None,
+    extra_metadata: dict | None = None,
+) -> dict:
+    tool_choice: Any = (
+        {"type": "function", "function": {"name": "submit_brief"}}
+        if force_submit
+        else "auto"
+    )
+    metadata: dict = {"service": "brief", "operation": "generate", "ref_id": ref_id}
+    if extra_metadata:
+        metadata.update(extra_metadata)
+    return {
+        "model": settings.brief_llm_model,
+        "messages": messages,
+        "tools": TOOL_SCHEMAS,
+        "tool_choice": tool_choice,
+        "max_tokens": settings.brief_llm_max_output_tokens,
+        "temperature": settings.brief_llm_temperature,
+        "timeout": settings.brief_llm_timeout_seconds,
+        "metadata": metadata,
+    }
+
+
 def _call_llm(
     messages: list[dict],
     settings: BriefSettings,
     *,
     force_submit: bool = False,
     ref_id: str | None = None,
+    extra_metadata: dict | None = None,
 ) -> Any:
     # On the final iteration we force submit_brief so the loop always yields a
     # brief instead of failing when the model keeps exploring with search/get
     # tools. The seed message already carries the top candidate articles, so the
     # model has enough context to submit even if it never called a tool.
-    tool_choice: Any = (
-        {"type": "function", "function": {"name": "submit_brief"}}
-        if force_submit
-        else "auto"
-    )
     return litellm.completion(
-        model=settings.brief_llm_model,
-        messages=messages,
-        tools=TOOL_SCHEMAS,
-        tool_choice=tool_choice,
-        max_tokens=settings.brief_llm_max_output_tokens,
-        temperature=settings.brief_llm_temperature,
-        timeout=settings.brief_llm_timeout_seconds,
-        metadata={"service": "brief", "operation": "generate", "ref_id": ref_id},
+        **_build_llm_kwargs(
+            messages,
+            settings,
+            force_submit=force_submit,
+            ref_id=ref_id,
+            extra_metadata=extra_metadata,
+        )
     )
 
 
