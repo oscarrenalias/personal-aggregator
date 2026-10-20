@@ -9,6 +9,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
+from aggregator_common import experiment
 from aggregator_common.brief_claim import (
     claim_brief,
     complete_brief,
@@ -19,7 +20,8 @@ from aggregator_common.db import SessionFactory as _DefaultSessionFactory
 from aggregator_common.models import Brief
 
 from .config import BriefSettings
-from .generate import generate_brief
+from .generate import BriefRunResult, generate_brief
+from .shadow import run_shadow
 
 logger = logging.getLogger(__name__)
 
@@ -73,6 +75,7 @@ def _run_one_iteration(
     settings: BriefSettings,
     session_factory,
     worker_id: str,
+    stop_event: threading.Event | None = None,
 ) -> bool:
     """Run one poll cycle: reap → daily-trigger → claim → generate → complete/fail.
 
@@ -102,13 +105,20 @@ def _run_one_iteration(
 
     # Generation runs in its own session so the claim transaction is already committed.
     session = session_factory()
+    result: BriefRunResult | None = None
+    decision = None
+    generation_ok = False
     try:
         brief = session.get(Brief, brief_id)
         if brief is None:
             logger.error("Brief %d not found after claim", brief_id)
             return False
 
-        generate_brief(session, brief, settings)
+        if brief.origin == "auto":
+            decision = experiment.decide("brief.generate", str(brief_id))
+
+        extra_metadata = decision.control_metadata({}) if decision is not None else None
+        result = generate_brief(session, brief, settings, extra_metadata=extra_metadata)
 
         complete_brief(
             session,
@@ -120,6 +130,7 @@ def _run_one_iteration(
         )
 
         session.commit()
+        generation_ok = True
         logger.info("Brief %d completed successfully", brief_id)
         return True
 
@@ -140,6 +151,11 @@ def _run_one_iteration(
         return False
     finally:
         session.close()
+        if generation_ok and decision is not None and result is not None:
+            try:
+                run_shadow(result, decision, settings, session_factory, stop_event=stop_event)
+            except Exception:
+                logger.exception("Shadow runner raised for brief %d", brief_id)
 
 
 def run_once(settings: BriefSettings, session_factory=None) -> None:
@@ -160,15 +176,17 @@ def run(settings: BriefSettings, session_factory=None) -> None:
     def _handle_signal(signum: int, _: object) -> None:
         logger.info("Signal %d received, stopping", signum)
         stop_event.set()
+        experiment.shutdown()
 
     signal.signal(signal.SIGINT, _handle_signal)
     signal.signal(signal.SIGTERM, _handle_signal)
 
+    experiment.init(settings)
     logger.info("Brief daemon starting (worker_id=%s)", worker_id)
 
     while not stop_event.is_set():
         try:
-            _run_one_iteration(settings, session_factory, worker_id)
+            _run_one_iteration(settings, session_factory, worker_id, stop_event=stop_event)
         except Exception:
             logger.exception("Unexpected error in poll iteration")
         stop_event.wait(timeout=settings.brief_poll_interval_seconds)
