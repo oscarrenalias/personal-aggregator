@@ -452,3 +452,115 @@ class TestFiresThroughLiteLLMCompletion:
         assert row.operation == "classify"
         assert row.ref_id == "7"
         assert row.status == "success"
+
+    def test_experiment_arm_written_via_real_callback_path(self, db_session_factory, session):
+        """AC-10: experiment and arm are recorded via litellm real callback (mock_response)."""
+        import time
+        import litellm
+
+        logger = LlmTelemetryLogger(db_session_factory)
+        original = list(litellm.callbacks)
+        litellm.callbacks = [logger]
+        try:
+            litellm.completion(
+                model="gpt-4.1-mini",
+                messages=[{"role": "user", "content": "test"}],
+                mock_response="result",
+                metadata={
+                    "service": "summarize_rank",
+                    "operation": "rank",
+                    "ref_id": "99",
+                    "experiment": "test-exp",
+                    "arm": "luna-low",
+                },
+            )
+            row = None
+            for _ in range(20):
+                session.rollback()
+                row = session.execute(
+                    select(LlmCall).where(LlmCall.ref_id == "99")
+                ).scalars().first()
+                if row is not None:
+                    break
+                time.sleep(0.1)
+        finally:
+            litellm.callbacks = original
+
+        assert row is not None, "telemetry row not written"
+        assert row.experiment == "test-exp", f"experiment should be 'test-exp', got {row.experiment!r}"
+        assert row.arm == "luna-low", f"arm should be 'luna-low', got {row.arm!r}"
+
+    def test_reasoning_effort_written_via_real_callback_path(self, db_session_factory, session):
+        """AC-10: reasoning_effort is recorded via litellm real callback (mock_response).
+        Must use allowed_openai_params to pass reasoning_effort through litellm's validation.
+        """
+        import time
+        import litellm
+
+        logger = LlmTelemetryLogger(db_session_factory)
+        original = list(litellm.callbacks)
+        litellm.callbacks = [logger]
+        try:
+            litellm.completion(
+                model="gpt-4.1-mini",
+                messages=[{"role": "user", "content": "test-re"}],
+                mock_response="result",
+                reasoning_effort="low",
+                allowed_openai_params=["reasoning_effort"],
+                metadata={
+                    "service": "clusterer",
+                    "operation": "classify",
+                    "ref_id": "re-test-1",
+                },
+            )
+            row = None
+            for _ in range(20):
+                session.rollback()
+                row = session.execute(
+                    select(LlmCall).where(LlmCall.ref_id == "re-test-1")
+                ).scalars().first()
+                if row is not None:
+                    break
+                time.sleep(0.1)
+        finally:
+            litellm.callbacks = original
+
+        assert row is not None, "telemetry row not written"
+        assert row.reasoning_effort == "low", f"reasoning_effort should be 'low', got {row.reasoning_effort!r}"
+
+    def test_control_arm_tagged_when_experiment_set(self, db_session_factory, session):
+        """AC-10: control arm (arm='control') is captured correctly via real callback."""
+        import time
+        import litellm
+
+        logger = LlmTelemetryLogger(db_session_factory)
+        original = list(litellm.callbacks)
+        litellm.callbacks = [logger]
+        try:
+            litellm.completion(
+                model="gpt-4.1-mini",
+                messages=[{"role": "user", "content": "control-test"}],
+                mock_response="result",
+                metadata={
+                    "service": "summarize_rank",
+                    "operation": "rank",
+                    "ref_id": "ctrl-ref-1",
+                    "experiment": "test-exp",
+                    "arm": "control",
+                },
+            )
+            row = None
+            for _ in range(20):
+                session.rollback()
+                row = session.execute(
+                    select(LlmCall).where(LlmCall.ref_id == "ctrl-ref-1")
+                ).scalars().first()
+                if row is not None:
+                    break
+                time.sleep(0.1)
+        finally:
+            litellm.callbacks = original
+
+        assert row is not None
+        assert row.experiment == "test-exp"
+        assert row.arm == "control"
