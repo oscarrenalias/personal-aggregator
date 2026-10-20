@@ -481,3 +481,44 @@ class TestLoopShadowWiring:
 
         assert result is True
         mock_shadow.assert_not_called()
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# AC 5 (real Postgres): arm session is truly read-only — writes raise an error
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+class TestReadOnlyArmSessionReal:
+    """Proves that the SET TRANSACTION READ ONLY statement applied to the arm
+    session actually prevents writes, using a real testcontainers Postgres DB."""
+
+    def test_write_in_arm_session_raises_and_briefs_unchanged(self, db_engine):
+        from sqlalchemy import text
+        from sqlalchemy.orm import sessionmaker
+        from sqlalchemy.exc import ProgrammingError, InternalError
+
+        factory = sessionmaker(bind=db_engine, autocommit=False, autoflush=False)
+
+        # Verify starting row count for briefs.
+        with db_engine.connect() as conn:
+            before_count = conn.execute(text("SELECT COUNT(*) FROM briefs")).scalar()
+
+        arm_session = factory()
+        try:
+            arm_session.execute(text("SET TRANSACTION READ ONLY"))
+            with pytest.raises((ProgrammingError, InternalError)):
+                arm_session.execute(
+                    text(
+                        "INSERT INTO briefs (status, origin, period_start, period_end)"
+                        " VALUES ('pending', 'auto', now(), now())"
+                    )
+                )
+                arm_session.flush()
+        finally:
+            arm_session.rollback()
+            arm_session.close()
+
+        # Briefs table must be unchanged.
+        with db_engine.connect() as conn:
+            after_count = conn.execute(text("SELECT COUNT(*) FROM briefs")).scalar()
+        assert after_count == before_count

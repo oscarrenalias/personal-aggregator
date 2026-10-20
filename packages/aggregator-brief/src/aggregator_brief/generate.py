@@ -364,8 +364,9 @@ def generate_brief(
     messages: list[dict] = [{"role": "system", "content": system_prompt}] + seed_messages
 
     brief_ref_id = str(brief.id)
+    _extra: dict = {"extra_metadata": extra_metadata} if extra_metadata is not None else {}
     call_fn = lambda m, f: _call_llm(  # noqa: E731
-        m, settings, force_submit=f, ref_id=brief_ref_id, extra_metadata=extra_metadata
+        m, settings, force_submit=f, ref_id=brief_ref_id, **_extra
     )
 
     try:
