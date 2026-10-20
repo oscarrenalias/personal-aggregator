@@ -110,6 +110,30 @@ class LlmTelemetryLogger(CustomLogger):
             operation = str(metadata.get("operation", "unknown"))
             ref_id_val = metadata.get("ref_id")
             ref_id = str(ref_id_val) if ref_id_val is not None else None
+            experiment_val = metadata.get("experiment")
+            experiment = str(experiment_val) if experiment_val is not None else None
+            arm_val = metadata.get("arm")
+            arm = str(arm_val) if arm_val is not None else None
+
+            optional_params = kwargs.get("optional_params") or {}
+            re_val = optional_params.get("reasoning_effort") if isinstance(optional_params, dict) else None
+            if re_val is None:
+                re_val = kwargs.get("reasoning_effort")
+            reasoning_effort = str(re_val) if re_val is not None else None
+
+            # reasoning_tokens from completion_tokens_details — handles attribute and dict forms
+            completion_details = getattr(usage, "completion_tokens_details", None)
+            if completion_details is None and isinstance(usage, dict):
+                completion_details = usage.get("completion_tokens_details")
+            if completion_details is not None:
+                rt = (
+                    getattr(completion_details, "reasoning_tokens", None)
+                    if hasattr(completion_details, "reasoning_tokens")
+                    else completion_details.get("reasoning_tokens") if isinstance(completion_details, dict) else None
+                )
+                reasoning_tokens = int(rt) if rt is not None else None
+            else:
+                reasoning_tokens = None
 
             request_id_val = getattr(response_obj, "id", None) or kwargs.get("litellm_call_id")
             request_id = str(request_id_val) if request_id_val is not None else None
@@ -141,6 +165,10 @@ class LlmTelemetryLogger(CustomLogger):
                 request_id=request_id,
                 prompt_preview=prompt_preview,
                 prompt_hash=prompt_hash,
+                experiment=experiment,
+                arm=arm,
+                reasoning_effort=reasoning_effort,
+                reasoning_tokens=reasoning_tokens,
             )
 
             session = self._session_factory()
@@ -173,6 +201,16 @@ class LlmTelemetryLogger(CustomLogger):
             operation = str(metadata.get("operation", "unknown"))
             ref_id_val = metadata.get("ref_id")
             ref_id = str(ref_id_val) if ref_id_val is not None else None
+            experiment_val = metadata.get("experiment")
+            experiment = str(experiment_val) if experiment_val is not None else None
+            arm_val = metadata.get("arm")
+            arm = str(arm_val) if arm_val is not None else None
+
+            optional_params = kwargs.get("optional_params") or {}
+            re_val = optional_params.get("reasoning_effort") if isinstance(optional_params, dict) else None
+            if re_val is None:
+                re_val = kwargs.get("reasoning_effort")
+            reasoning_effort = str(re_val) if re_val is not None else None
 
             request_id_val = kwargs.get("litellm_call_id")
             request_id = str(request_id_val) if request_id_val is not None else None
@@ -193,6 +231,10 @@ class LlmTelemetryLogger(CustomLogger):
                 tool_names=None,
                 ref_id=ref_id,
                 request_id=request_id,
+                experiment=experiment,
+                arm=arm,
+                reasoning_effort=reasoning_effort,
+                reasoning_tokens=None,
             )
 
             session = self._session_factory()
