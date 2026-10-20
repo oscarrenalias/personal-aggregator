@@ -5,7 +5,7 @@ description: Post-completion shadow runs of the full brief tool loop with gpt-6-
 dependencies: null
 priority: high
 complexity: null
-status: planned
+status: done
 tags:
 - llm
 - migration
