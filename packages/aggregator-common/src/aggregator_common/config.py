@@ -17,3 +17,6 @@ class Settings(BaseSettings):
     langfuse_public_key: Optional[str] = Field(None, description="Langfuse public key (enables Langfuse callback when all three keys are set)")
     langfuse_secret_key: Optional[str] = Field(None, description="Langfuse secret key")
     langfuse_host: Optional[str] = Field(None, description="Langfuse host URL (defaults to Langfuse cloud when omitted)")
+
+    # LLM shadow experiment (raw string; parsed by experiment.py to avoid crashing startup on bad JSON)
+    llm_experiment: Optional[str] = Field(None, description="JSON blob configuring the LLM shadow experiment (LLM_EXPERIMENT)")
