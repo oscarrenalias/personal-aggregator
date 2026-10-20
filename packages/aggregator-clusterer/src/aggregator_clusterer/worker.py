@@ -11,7 +11,9 @@ import litellm
 from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
+from aggregator_common import experiment
 from aggregator_common.db import SessionFactory as _DefaultSessionFactory
+from aggregator_common.experiment import CallOutcome
 from aggregator_common.models import Article, Thread, ThreadMembership
 from aggregator_common.queries import list_unassigned_ready_articles
 from aggregator_clusterer.candidates import get_candidates
@@ -28,7 +30,7 @@ logger = logging.getLogger(__name__)
 _ADVISORY_LOCK_KEY = 1129855059
 
 
-def _make_llm_facts_fn(settings: ClustererSettings) -> Callable[[list[str]], list[str] | None]:
+def _make_llm_facts_fn(settings: ClustererSettings) -> Callable[[int, list[str]], list[str] | None]:
     """Return a litellm-backed known_facts summariser for the facts consolidation pass.
 
     Returns None on any LLM or parse error (fail-open signal) so consolidate.py
@@ -38,7 +40,8 @@ def _make_llm_facts_fn(settings: ClustererSettings) -> Callable[[list[str]], lis
     target_total = max(1, int(settings.clusterer_max_known_facts * settings.clusterer_facts_condensed_target_ratio))
     target = max(1, target_total - settings.clusterer_known_facts_keep_recent)
 
-    def llm_facts_fn(old_facts: list[str]) -> list[str] | None:
+    def llm_facts_fn(thread_id: int, old_facts: list[str]) -> list[str] | None:
+        ref_id = str(thread_id)
         facts_text = "\n".join(f"- {f}" for f in old_facts)
         messages = [
             {
@@ -56,24 +59,43 @@ def _make_llm_facts_fn(settings: ClustererSettings) -> Callable[[list[str]], lis
                 "content": f"Facts to consolidate:\n{facts_text}",
             },
         ]
-        try:
-            response = litellm.completion(
-                model=settings.clusterer_llm_model,
-                messages=messages,
-                max_tokens=settings.clusterer_llm_max_output_tokens,
-                temperature=settings.clusterer_llm_temperature,
-                timeout=settings.clusterer_llm_timeout_seconds,
-                metadata={"service": "clusterer", "operation": "consolidate_facts"},
-            )
+        base_metadata: dict = {"service": "clusterer", "operation": "consolidate_facts", "ref_id": ref_id}
+        decision = experiment.decide("clusterer.consolidate_facts", ref_id)
+
+        control_kwargs: dict = {
+            "model": settings.clusterer_llm_model,
+            "messages": messages,
+            "max_tokens": settings.clusterer_llm_max_output_tokens,
+            "temperature": settings.clusterer_llm_temperature,
+            "timeout": settings.clusterer_llm_timeout_seconds,
+            "metadata": decision.control_metadata(base_metadata) if decision is not None else base_metadata,
+        }
+
+        def attempt(call_kwargs: dict) -> CallOutcome:
+            response = litellm.completion(**call_kwargs)
             content = response.choices[0].message.content or ""
             data = json.loads(content)
             if isinstance(data, list):
-                return [str(f) for f in data]
-            logger.warning("Unexpected format from facts LLM (not a list); signalling failure")
-            return None
+                result = [str(f) for f in data]
+                return CallOutcome(
+                    status="ok",
+                    value=result,
+                    output=result,
+                    raw_output=content,
+                    attempts=1,
+                    request_ids=[response.id] if getattr(response, "id", None) else [],
+                    error=None,
+                )
+            raise ValueError("LLM facts response is not a list")
+
+        try:
+            control_outcome = attempt(control_kwargs)
         except Exception:
             logger.exception("LLM facts consolidation call failed; signalling failure")
             return None
+
+        experiment.submit_shadow(decision, control_kwargs, control_outcome, attempt)
+        return control_outcome.value  # list[str]
 
     return llm_facts_fn
 
@@ -86,6 +108,7 @@ def _make_llm_merge_fn(settings: ClustererSettings) -> Callable[[Thread, Thread]
     """
 
     def llm_merge_fn(keep: Thread, absorb: Thread) -> bool:
+        ref_id = f"{min(keep.id, absorb.id)}:{max(keep.id, absorb.id)}"
         messages = [
             {
                 "role": "system",
@@ -108,18 +131,36 @@ def _make_llm_merge_fn(settings: ClustererSettings) -> Callable[[Thread, Thread]
                 ),
             },
         ]
-        try:
-            response = litellm.completion(
-                model=settings.clusterer_llm_model,
-                messages=messages,
-                max_tokens=128,
-                temperature=0.0,
-                timeout=settings.clusterer_llm_timeout_seconds,
-                metadata={"service": "clusterer", "operation": "merge"},
-            )
+        base_metadata: dict = {"service": "clusterer", "operation": "merge", "ref_id": ref_id}
+        decision = experiment.decide("clusterer.merge", ref_id)
+
+        control_kwargs: dict = {
+            "model": settings.clusterer_llm_model,
+            "messages": messages,
+            "max_tokens": 128,
+            "temperature": 0.0,
+            "timeout": settings.clusterer_llm_timeout_seconds,
+            "metadata": decision.control_metadata(base_metadata) if decision is not None else base_metadata,
+        }
+
+        def attempt(call_kwargs: dict) -> CallOutcome:
+            response = litellm.completion(**call_kwargs)
             content = response.choices[0].message.content or ""
             data = json.loads(content)
-            return bool(data.get("same_story", False))
+            same_story = bool(data.get("same_story", False))
+            return CallOutcome(
+                status="ok",
+                value=same_story,
+                output={"same_story": same_story, "reason": data.get("reason", "")},
+                raw_output=content,
+                attempts=1,
+                request_ids=[response.id] if getattr(response, "id", None) else [],
+                error=None,
+                response=response,
+            )
+
+        try:
+            control_outcome = attempt(control_kwargs)
         except Exception:
             logger.exception(
                 "LLM merge check failed for threads %s/%s; skip merge (fail-open)",
@@ -127,6 +168,9 @@ def _make_llm_merge_fn(settings: ClustererSettings) -> Callable[[Thread, Thread]
                 absorb.id,
             )
             return False
+
+        experiment.submit_shadow(decision, control_kwargs, control_outcome, attempt)
+        return bool(control_outcome.value)
 
     return llm_merge_fn
 
@@ -460,6 +504,7 @@ def run(settings: ClustererSettings, session_factory=None) -> None:
     def _handle_signal(signum: int, _: object) -> None:
         logger.info("Signal %d received, stopping after current cycle", signum)
         stop_event.set()
+        experiment.shutdown()
 
     signal.signal(signal.SIGINT, _handle_signal)
     signal.signal(signal.SIGTERM, _handle_signal)

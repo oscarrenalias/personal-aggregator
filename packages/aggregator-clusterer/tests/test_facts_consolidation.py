@@ -34,7 +34,7 @@ class _CountingStub:
             ["condensed A", "condensed B"] if result is _DEFAULT else result
         )
 
-    def __call__(self, old_facts: list[str]) -> list[str] | None:
+    def __call__(self, thread_id: int, old_facts: list[str]) -> list[str] | None:
         self.calls += 1
         return self._result
 
@@ -153,7 +153,7 @@ class TestRunFactsConsolidationPass:
         facts = [f"fact-{i}" for i in range(15)]
         call_count = {"n": 0}
 
-        def raising_stub(old_facts: list[str]) -> list[str] | None:
+        def raising_stub(thread_id: int, old_facts: list[str]) -> list[str] | None:
             call_count["n"] += 1
             if call_count["n"] == 1:
                 raise RuntimeError("simulated LLM failure")

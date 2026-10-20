@@ -463,7 +463,7 @@ def run_surfacing_pass(session: Session, settings: ClustererSettings) -> int:
 def run_facts_consolidation_pass(
     session: Session,
     settings: ClustererSettings,
-    llm_summarize_fn: Callable[[list[str]], list[str] | None],
+    llm_summarize_fn: Callable[[int, list[str]], list[str] | None],
 ) -> int:
     """Condense known_facts for active threads that exceed the cap.
 
@@ -512,7 +512,7 @@ def run_facts_consolidation_pass(
             continue
 
         try:
-            condensed = llm_summarize_fn(older)
+            condensed = llm_summarize_fn(thread.id, older)
         except Exception:
             logger.exception(
                 "LLM facts condensation failed for thread %d; skipping", thread.id
@@ -594,7 +594,7 @@ def run_consolidation_pass(
     session: Session,
     settings: ClustererSettings,
     llm_merge_fn: Callable[[Thread, Thread], bool],
-    llm_summarize_facts_fn: Callable[[list[str]], list[str] | None] | None = None,
+    llm_summarize_facts_fn: Callable[[int, list[str]], list[str] | None] | None = None,
     *,
     changed_since: datetime | None = None,
     bypass_verdict_cache: bool = False,
