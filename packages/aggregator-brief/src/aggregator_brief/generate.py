@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import json
 import logging
+import time
+from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Callable
 
 import litellm
 from pydantic import ValidationError
@@ -22,6 +24,33 @@ logger = logging.getLogger(__name__)
 
 class GenerationError(Exception):
     pass
+
+
+@dataclass
+class BriefRunResult:
+    seed_messages: list[dict]
+    payload: BriefSubmitSchema
+    turns: int
+    forced_submit: bool
+    corrective_turn: bool
+    request_ids: list[str]
+
+
+class BriefLoopError(GenerationError):
+    def __init__(
+        self,
+        message: str,
+        *,
+        status: str,
+        turns: int = 0,
+        request_ids: list[str] | None = None,
+        last_submit_args: str | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.status = status
+        self.turns = turns
+        self.request_ids = request_ids if request_ids is not None else []
+        self.last_submit_args = last_submit_args
 
 
 def _to_assistant_dict(message: Any) -> dict:
@@ -138,6 +167,172 @@ def _extract_submit(tool_calls: list[Any]) -> dict | None:
             except json.JSONDecodeError:
                 return None
     return None
+
+
+def run_brief_loop(
+    session: Session,
+    messages: list[dict],
+    call_fn: Callable[[list[dict], bool], Any],
+    settings: BriefSettings,
+    *,
+    deadline: float | None = None,
+    clock: Callable[[], float] = time.monotonic,
+) -> BriefRunResult:
+    """Run the brief tool-use loop parameterised by call_fn.
+
+    call_fn(messages, force_submit) must return a litellm-compatible response.
+    Raises BriefLoopError on all failure paths (same message texts as the
+    GenerationError paths in generate_brief so existing match= tests keep passing).
+    """
+    seed_messages = list(messages)
+    messages = list(messages)
+
+    submit_payload: dict | None = None
+    turns = 0
+    forced_submit_turn = False
+    corrective_turn = False
+    request_ids: list[str] = []
+    last_submit_args: str | None = None
+
+    for _iteration in range(settings.brief_tool_max_calls):
+        if deadline is not None and clock() >= deadline:
+            raise BriefLoopError(
+                "deadline",
+                status="timeout",
+                turns=turns,
+                request_ids=request_ids,
+                last_submit_args=last_submit_args,
+            )
+
+        force_submit = _iteration == settings.brief_tool_max_calls - 1
+        response = call_fn(messages, force_submit)
+        turns += 1
+
+        req_id = getattr(response, "id", None)
+        if req_id:
+            request_ids.append(req_id)
+
+        assistant_message = response.choices[0].message
+        messages.append(_to_assistant_dict(assistant_message))
+
+        tool_calls = assistant_message.tool_calls or []
+        if not tool_calls:
+            break
+
+        found_submit = False
+        for tc in tool_calls:
+            tool_name = tc.function.name
+            try:
+                tool_args = json.loads(tc.function.arguments)
+            except json.JSONDecodeError as exc:
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": tc.id,
+                    "content": json.dumps({"error": f"Invalid JSON arguments: {exc}"}),
+                })
+                continue
+
+            if tool_name == "submit_brief":
+                last_submit_args = tc.function.arguments
+                submit_payload = tool_args
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": tc.id,
+                    "content": json.dumps({"status": "received"}),
+                })
+                found_submit = True
+                forced_submit_turn = force_submit
+            else:
+                try:
+                    result = dispatch_tool(session, tool_name, tool_args)
+                except Exception as exc:
+                    result = {"error": str(exc)}
+                    logger.warning("Tool %r raised: %s", tool_name, exc)
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": tc.id,
+                    "content": json.dumps(result),
+                })
+
+        if found_submit:
+            break
+
+    if submit_payload is None:
+        raise BriefLoopError(
+            f"Tool loop exhausted {settings.brief_tool_max_calls} iteration(s) without submit_brief",
+            status="parse_error",
+            turns=turns,
+            request_ids=request_ids,
+            last_submit_args=last_submit_args,
+        )
+
+    try:
+        validated = BriefSubmitSchema.model_validate(submit_payload)
+    except ValidationError as first_exc:
+        logger.warning("submit_brief validation failed, sending corrective turn: %s", first_exc)
+        corrective_turn = True
+        messages.append({
+            "role": "user",
+            "content": (
+                "Your submit_brief payload was invalid. Correct the errors below and call "
+                "submit_brief again with a valid payload.\n\n"
+                f"Validation errors:\n{first_exc}"
+            ),
+        })
+
+        if deadline is not None and clock() >= deadline:
+            raise BriefLoopError(
+                "deadline",
+                status="timeout",
+                turns=turns,
+                request_ids=request_ids,
+                last_submit_args=last_submit_args,
+            )
+
+        corrective_response = call_fn(messages, False)
+        turns += 1
+
+        req_id = getattr(corrective_response, "id", None)
+        if req_id:
+            request_ids.append(req_id)
+
+        corrective_message = corrective_response.choices[0].message
+        corrective_tool_calls = corrective_message.tool_calls or []
+        for tc in corrective_tool_calls:
+            if tc.function.name == "submit_brief":
+                last_submit_args = tc.function.arguments
+                break
+
+        corrective_payload = _extract_submit(corrective_tool_calls)
+
+        if corrective_payload is None:
+            raise BriefLoopError(
+                f"Model did not call submit_brief in corrective turn: {first_exc}",
+                status="parse_error",
+                turns=turns,
+                request_ids=request_ids,
+                last_submit_args=last_submit_args,
+            )
+
+        try:
+            validated = BriefSubmitSchema.model_validate(corrective_payload)
+        except ValidationError as second_exc:
+            raise BriefLoopError(
+                f"submit_brief still invalid after corrective turn: {second_exc}",
+                status="parse_error",
+                turns=turns,
+                request_ids=request_ids,
+                last_submit_args=last_submit_args,
+            ) from second_exc
+
+    return BriefRunResult(
+        seed_messages=seed_messages,
+        payload=validated,
+        turns=turns,
+        forced_submit=forced_submit_turn,
+        corrective_turn=corrective_turn,
+        request_ids=request_ids,
+    )
 
 
 def generate_brief(session: Session, brief: Brief, settings: BriefSettings) -> None:
