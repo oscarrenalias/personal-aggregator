@@ -10,6 +10,7 @@ from .articles import articles_app
 from .brief import brief_app
 from .categories import categories_app
 from .clusters import clusters_app
+from .llm_experiment import llm_experiment_report_cmd
 from .llm_stats import llm_stats_cmd
 from .ops import ops_app
 from .podcast import podcast_app
@@ -27,6 +28,7 @@ app.add_typer(brief_app, name="brief")
 app.add_typer(clusters_app, name="clusters")
 app.add_typer(podcast_app, name="podcast")
 app.command("llm-stats")(llm_stats_cmd)
+app.command("llm-experiment-report")(llm_experiment_report_cmd)
 
 
 @app.callback()

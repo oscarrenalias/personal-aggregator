@@ -925,47 +925,110 @@ class LlmStatResult:
     max_tool_calls: Optional[int]
 
 
-def llm_stats(session: Session, days: int) -> List[LlmStatResult]:
-    """Aggregate LLM call stats grouped by (service, model) over the last N days."""
-    sql = text("""
+@dataclass
+class LlmShadowStatResult:
+    experiment: str
+    arm: str
+    service: str
+    model: str
+    request_count: int
+    total_cost_usd: Optional[float]
+    avg_cost_usd: Optional[float]
+    avg_prompt_tokens: Optional[float]
+    p95_prompt_tokens: Optional[float]
+    avg_completion_tokens: Optional[float]
+    truncated_count: int
+    error_count: int
+    error_pct: Optional[float]
+    avg_tool_calls: Optional[float]
+    max_tool_calls: Optional[int]
+
+
+_LLM_STAT_COLS = """
+    COUNT(*) AS request_count,
+    SUM(cost_usd) AS total_cost_usd,
+    AVG(cost_usd) AS avg_cost_usd,
+    AVG(prompt_tokens) AS avg_prompt_tokens,
+    percentile_cont(0.95) WITHIN GROUP (ORDER BY prompt_tokens) AS p95_prompt_tokens,
+    AVG(completion_tokens) AS avg_completion_tokens,
+    COUNT(*) FILTER (WHERE finish_reason = 'length') AS truncated_count,
+    COUNT(*) FILTER (WHERE status = 'error') AS error_count,
+    ROUND(
+        100.0 * COUNT(*) FILTER (WHERE status = 'error') / COUNT(*),
+        2
+    ) AS error_pct,
+    AVG(num_tool_calls) AS avg_tool_calls,
+    MAX(num_tool_calls) AS max_tool_calls
+"""
+
+
+def _parse_stat_cols(row) -> dict:
+    return dict(
+        request_count=int(row["request_count"]),
+        total_cost_usd=float(row["total_cost_usd"]) if row["total_cost_usd"] is not None else None,
+        avg_cost_usd=float(row["avg_cost_usd"]) if row["avg_cost_usd"] is not None else None,
+        avg_prompt_tokens=float(row["avg_prompt_tokens"]) if row["avg_prompt_tokens"] is not None else None,
+        p95_prompt_tokens=float(row["p95_prompt_tokens"]) if row["p95_prompt_tokens"] is not None else None,
+        avg_completion_tokens=float(row["avg_completion_tokens"]) if row["avg_completion_tokens"] is not None else None,
+        truncated_count=int(row["truncated_count"]),
+        error_count=int(row["error_count"]),
+        error_pct=float(row["error_pct"]) if row["error_pct"] is not None else None,
+        avg_tool_calls=float(row["avg_tool_calls"]) if row["avg_tool_calls"] is not None else None,
+        max_tool_calls=int(row["max_tool_calls"]) if row["max_tool_calls"] is not None else None,
+    )
+
+
+def llm_stats(session: Session, days: int, *, include_shadow: bool = False) -> List[LlmStatResult]:
+    """Aggregate LLM call stats grouped by (service, model) over the last N days.
+
+    By default shadow arm rows (arm IS NOT NULL AND arm != 'control') are excluded so
+    production cost numbers are unchanged for all existing callers. Pass
+    include_shadow=True to include them in the aggregation.
+    """
+    shadow_clause = "" if include_shadow else "\n          AND (arm IS NULL OR arm = 'control')"
+    sql = text(f"""
         SELECT
             service,
             model,
-            COUNT(*) AS request_count,
-            SUM(cost_usd) AS total_cost_usd,
-            AVG(cost_usd) AS avg_cost_usd,
-            AVG(prompt_tokens) AS avg_prompt_tokens,
-            percentile_cont(0.95) WITHIN GROUP (ORDER BY prompt_tokens) AS p95_prompt_tokens,
-            AVG(completion_tokens) AS avg_completion_tokens,
-            COUNT(*) FILTER (WHERE finish_reason = 'length') AS truncated_count,
-            COUNT(*) FILTER (WHERE status = 'error') AS error_count,
-            ROUND(
-                100.0 * COUNT(*) FILTER (WHERE status = 'error') / COUNT(*),
-                2
-            ) AS error_pct,
-            AVG(num_tool_calls) AS avg_tool_calls,
-            MAX(num_tool_calls) AS max_tool_calls
+            {_LLM_STAT_COLS}
         FROM llm_calls
-        WHERE created_at >= NOW() - INTERVAL '1 day' * :days
+        WHERE created_at >= NOW() - INTERVAL '1 day' * :days{shadow_clause}
         GROUP BY service, model
         ORDER BY service, model
     """)
     rows = session.execute(sql, {"days": days}).mappings().all()
     return [
-        LlmStatResult(
+        LlmStatResult(service=row["service"], model=row["model"], **_parse_stat_cols(row))
+        for row in rows
+    ]
+
+
+def llm_shadow_stats(session: Session, days: int) -> List[LlmShadowStatResult]:
+    """Aggregate shadow-arm LLM call stats grouped by (experiment, arm, service, model).
+
+    Only rows where arm IS NOT NULL are included (both control-tagged and shadow arms).
+    """
+    sql = text(f"""
+        SELECT
+            COALESCE(experiment, '(untagged)') AS experiment,
+            arm,
+            service,
+            model,
+            {_LLM_STAT_COLS}
+        FROM llm_calls
+        WHERE created_at >= NOW() - INTERVAL '1 day' * :days
+          AND arm IS NOT NULL
+        GROUP BY experiment, arm, service, model
+        ORDER BY experiment, arm, service, model
+    """)
+    rows = session.execute(sql, {"days": days}).mappings().all()
+    return [
+        LlmShadowStatResult(
+            experiment=row["experiment"],
+            arm=row["arm"],
             service=row["service"],
             model=row["model"],
-            request_count=int(row["request_count"]),
-            total_cost_usd=float(row["total_cost_usd"]) if row["total_cost_usd"] is not None else None,
-            avg_cost_usd=float(row["avg_cost_usd"]) if row["avg_cost_usd"] is not None else None,
-            avg_prompt_tokens=float(row["avg_prompt_tokens"]) if row["avg_prompt_tokens"] is not None else None,
-            p95_prompt_tokens=float(row["p95_prompt_tokens"]) if row["p95_prompt_tokens"] is not None else None,
-            avg_completion_tokens=float(row["avg_completion_tokens"]) if row["avg_completion_tokens"] is not None else None,
-            truncated_count=int(row["truncated_count"]),
-            error_count=int(row["error_count"]),
-            error_pct=float(row["error_pct"]) if row["error_pct"] is not None else None,
-            avg_tool_calls=float(row["avg_tool_calls"]) if row["avg_tool_calls"] is not None else None,
-            max_tool_calls=int(row["max_tool_calls"]) if row["max_tool_calls"] is not None else None,
+            **_parse_stat_cols(row),
         )
         for row in rows
     ]
