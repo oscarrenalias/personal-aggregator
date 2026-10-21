@@ -5,7 +5,7 @@ description: "llm-experiment-report admin command (metrics, verdicts, JSONL samp
 dependencies: null
 priority: high
 complexity: null
-status: planned
+status: done
 tags:
 - llm
 - migration
