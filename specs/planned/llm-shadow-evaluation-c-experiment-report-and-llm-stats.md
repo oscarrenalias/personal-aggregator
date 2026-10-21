@@ -5,7 +5,7 @@ description: "llm-experiment-report admin command (metrics, verdicts, JSONL samp
 dependencies: null
 priority: high
 complexity: null
-status: draft
+status: planned
 tags:
 - llm
 - migration
@@ -14,7 +14,7 @@ tags:
 scope:
   in: null
   out: null
-feature_root_id: null
+feature_root_id: B-7341e1e9
 ---
 # LLM shadow evaluation C: experiment report and llm-stats
 
