@@ -15,7 +15,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import typer
 from rich.table import Table
-from sqlalchemy import text
+from sqlalchemy import bindparam, text
 from sqlalchemy.orm import Session
 
 from aggregator_common.db import get_session
@@ -44,6 +44,18 @@ _CONFIG_DEFAULTS: Dict[str, Any] = {
     "CLUSTERER_KNOWN_FACTS_KEEP_RECENT": 20,
     "CLUSTERER_FACTS_CONDENSED_TARGET_RATIO": 0.6,
 }
+
+# Labels that require a matching thread_id for assignment agreement.
+_ATTACHING_LABELS: frozenset = frozenset({
+    "same_thread_new_fact",
+    "same_thread_new_angle",
+    "same_thread_duplicate",
+    "same_thread_background_only",
+    "correction_or_clarification",
+})
+
+# Labels for which thread_title presence is tracked.
+_THREAD_TITLE_LABELS: frozenset = frozenset({"new_thread", "related_new_thread"})
 
 
 def _read_config() -> Dict[str, Any]:
@@ -207,6 +219,501 @@ def _pair_shadow_rows(
     return result
 
 
+# ---------------------------------------------------------------------------
+# Statistical helpers (no scipy/sklearn)
+# ---------------------------------------------------------------------------
+
+
+def _rank_avg_ties(vals: List[float]) -> List[float]:
+    """Return 1-indexed averaged-tie ranks for vals."""
+    n = len(vals)
+    sorted_idx = sorted(range(n), key=lambda i: vals[i])
+    ranks = [0.0] * n
+    i = 0
+    while i < n:
+        j = i + 1
+        while j < n and vals[sorted_idx[j]] == vals[sorted_idx[i]]:
+            j += 1
+        avg_rank = (i + 1 + j) / 2.0
+        for k in range(i, j):
+            ranks[sorted_idx[k]] = avg_rank
+        i = j
+    return ranks
+
+
+def _pearson(x: List[float], y: List[float]) -> Optional[float]:
+    n = len(x)
+    if n < 2:
+        return None
+    mx = sum(x) / n
+    my = sum(y) / n
+    num = sum((x[i] - mx) * (y[i] - my) for i in range(n))
+    dx = sum((xi - mx) ** 2 for xi in x)
+    dy = sum((yi - my) ** 2 for yi in y)
+    if dx == 0.0 or dy == 0.0:
+        return None
+    return num / (dx * dy) ** 0.5
+
+
+def _spearman(x: List[float], y: List[float]) -> Optional[float]:
+    """Spearman ρ with averaged-tie ranks (general formula via Pearson of ranks)."""
+    if len(x) != len(y) or len(x) < 2:
+        return None
+    return _pearson(_rank_avg_ties(x), _rank_avg_ties(y))
+
+
+def _roc_auc(scores: List[float], labels: List[int]) -> Optional[float]:
+    """ROC AUC via Mann-Whitney U (handles ties, O(n²) — fine for report sizes)."""
+    n = len(scores)
+    if n < 2 or len(labels) != n:
+        return None
+    pos_count = sum(labels)
+    neg_count = n - pos_count
+    if pos_count == 0 or neg_count == 0:
+        return None
+    pos_scores = [scores[i] for i in range(n) if labels[i] == 1]
+    neg_scores = [scores[i] for i in range(n) if labels[i] == 0]
+    total = 0.0
+    for ps in pos_scores:
+        for ns in neg_scores:
+            if ps > ns:
+                total += 1.0
+            elif ps == ns:
+                total += 0.5
+    return total / (pos_count * neg_count)
+
+
+def _jaccard(a: List[str], b: List[str]) -> float:
+    """Case-insensitive Jaccard similarity; both-empty returns 1.0."""
+    sa = {s.lower() for s in a}
+    sb = {s.lower() for s in b}
+    union = sa | sb
+    if not union:
+        return 1.0
+    return len(sa & sb) / len(union)
+
+
+def _row_created_at(row: Dict) -> Optional[datetime]:
+    """Return a timezone-aware datetime from a shadow row dict."""
+    val = row.get("created_at")
+    if val is None:
+        return None
+    if isinstance(val, datetime):
+        return val if val.tzinfo is not None else val.replace(tzinfo=timezone.utc)
+    try:
+        dt = datetime.fromisoformat(str(val))
+        return dt if dt.tzinfo is not None else dt.replace(tzinfo=timezone.utc)
+    except ValueError:
+        return None
+
+
+# ---------------------------------------------------------------------------
+# Per-operation content metrics
+# ---------------------------------------------------------------------------
+
+
+def _content_summarize_rank(
+    ok_pairs: List[Tuple[Dict, Dict]],
+    config: Dict[str, Any],
+    session: Session,
+    until_dt: datetime,
+) -> Dict[str, Any]:
+    if not ok_pairs:
+        return {}
+
+    threshold = float(config.get("WEB_IMPORTANT_THRESHOLD", 70))
+
+    ctrl_scores: List[float] = []
+    arm_scores: List[float] = []
+    signed_diffs: List[float] = []
+    flip_count = 0
+    topics_jaccard_vals: List[float] = []
+    cats_exact = 0
+    cats_jaccard_vals: List[float] = []
+    summary_length_ratios: List[float] = []
+
+    for ctrl_row, arm_row in ok_pairs:
+        ctrl_out = ctrl_row.get("output") or {}
+        arm_out = arm_row.get("output") or {}
+
+        cs = ctrl_out.get("importance_score")
+        as_ = arm_out.get("importance_score")
+        if cs is not None and as_ is not None:
+            cf, af = float(cs), float(as_)
+            ctrl_scores.append(cf)
+            arm_scores.append(af)
+            signed_diffs.append(af - cf)
+            if (cf >= threshold) != (af >= threshold):
+                flip_count += 1
+
+        topics_jaccard_vals.append(
+            _jaccard(ctrl_out.get("topics") or [], arm_out.get("topics") or [])
+        )
+
+        ctrl_cats = ctrl_out.get("categories") or []
+        arm_cats = arm_out.get("categories") or []
+        if {c.lower() for c in ctrl_cats} == {c.lower() for c in arm_cats}:
+            cats_exact += 1
+        cats_jaccard_vals.append(_jaccard(ctrl_cats, arm_cats))
+
+        ctrl_summary = ctrl_out.get("summary") or ""
+        arm_summary = arm_out.get("summary") or ""
+        if ctrl_summary:
+            summary_length_ratios.append(len(arm_summary) / len(ctrl_summary))
+
+    n = len(ok_pairs)
+    n_score = len(ctrl_scores)
+
+    result: Dict[str, Any] = {
+        "n_ok_pairs": n,
+        "spearman_rho": _spearman(ctrl_scores, arm_scores),
+        "mae": statistics.mean([abs(d) for d in signed_diffs]) if signed_diffs else None,
+        "mean_signed_diff": statistics.mean(signed_diffs) if signed_diffs else None,
+        "flip_rate": round(flip_count / n_score, 4) if n_score else None,
+        "topics_mean_jaccard": statistics.mean(topics_jaccard_vals) if topics_jaccard_vals else None,
+        "categories_exact_match_rate": round(cats_exact / n, 4) if n else None,
+        "categories_mean_jaccard": statistics.mean(cats_jaccard_vals) if cats_jaccard_vals else None,
+        "summary_length_ratio_median": _percentile(summary_length_ratios, 50),
+    }
+
+    # Engagement block: pairs old enough to have article-level engagement signals.
+    cutoff_dt = until_dt - timedelta(hours=48)
+    old_pairs = []
+    for c, a in ok_pairs:
+        ts = _row_created_at(c)
+        if ts is not None and ts <= cutoff_dt:
+            old_pairs.append((c, a))
+
+    if old_pairs:
+        ref_ids = [c["ref_id"] for c, _ in old_pairs]
+        try:
+            int_ids = [int(r) for r in ref_ids]
+        except (ValueError, TypeError):
+            int_ids = []
+
+        article_map: Dict[str, Dict] = {}
+        if int_ids:
+            art_sql = text(
+                "SELECT id, is_saved, is_read FROM articles WHERE id IN :ids"
+            ).bindparams(bindparam("ids", expanding=True))
+            for art_row in session.execute(art_sql, {"ids": int_ids}).fetchall():
+                article_map[str(art_row[0])] = {
+                    "is_saved": bool(art_row[1]),
+                    "is_read": bool(art_row[2]),
+                }
+
+        n_article_missing = sum(1 for r in ref_ids if r not in article_map)
+
+        ctrl_scores_eng: List[float] = []
+        arm_scores_eng: List[float] = []
+        saved_labels: List[int] = []
+        read_labels: List[int] = []
+
+        for ctrl_row, arm_row in old_pairs:
+            art = article_map.get(ctrl_row["ref_id"])
+            if art is None:
+                continue
+            ctrl_out = ctrl_row.get("output") or {}
+            arm_out = arm_row.get("output") or {}
+            cs2 = ctrl_out.get("importance_score")
+            as2 = arm_out.get("importance_score")
+            if cs2 is not None and as2 is not None:
+                ctrl_scores_eng.append(float(cs2))
+                arm_scores_eng.append(float(as2))
+                saved_labels.append(1 if art["is_saved"] else 0)
+                read_labels.append(1 if art["is_read"] else 0)
+
+        engagement: Dict[str, Any] = {
+            "n": len(ctrl_scores_eng),
+            "n_saved": sum(saved_labels),
+            "n_read": sum(read_labels),
+            "n_article_missing": n_article_missing,
+            "auc_saved_control": _roc_auc(ctrl_scores_eng, saved_labels),
+            "auc_saved_arm": _roc_auc(arm_scores_eng, saved_labels),
+            "auc_read_control": _roc_auc(ctrl_scores_eng, read_labels),
+            "auc_read_arm": _roc_auc(arm_scores_eng, read_labels),
+            "exposure_bias": "ranking shown to the user came from control scores",
+        }
+        try:
+            auto_read_val = int(config.get("WEB_AUTO_READ_SECONDS", 5))
+        except (TypeError, ValueError):
+            auto_read_val = 0
+        if auto_read_val > 0:
+            engagement["auto_read_inflation"] = (
+                "is_read is inflated by auto-read; prefer is_saved"
+            )
+        result["engagement"] = engagement
+
+    return result
+
+
+def _content_clusterer_classify(ok_pairs: List[Tuple[Dict, Dict]]) -> Dict[str, Any]:
+    if not ok_pairs:
+        return {}
+
+    n = len(ok_pairs)
+    label_agree = 0
+    assignment_agree = 0
+    conf_agree_ctrl: List[float] = []
+    conf_agree_arm: List[float] = []
+    conf_disagree_ctrl: List[float] = []
+    conf_disagree_arm: List[float] = []
+    facts_len_diffs: List[float] = []
+    thread_title_present = 0
+    thread_title_total = 0
+    label_confusion: Dict[str, Dict[str, int]] = defaultdict(lambda: defaultdict(int))
+
+    for ctrl_row, arm_row in ok_pairs:
+        ctrl_out = ctrl_row.get("output") or {}
+        arm_out = arm_row.get("output") or {}
+
+        cl = ctrl_out.get("label", "")
+        al = arm_out.get("label", "")
+        ct = ctrl_out.get("thread_id")
+        at = arm_out.get("thread_id")
+
+        label_confusion[cl][al] += 1
+        labels_match = cl == al
+        if labels_match:
+            label_agree += 1
+
+        # Attaching labels require same label AND same thread_id.
+        if cl in _ATTACHING_LABELS or al in _ATTACHING_LABELS:
+            assigns_match = cl == al and ct == at
+        else:
+            assigns_match = labels_match
+        if assigns_match:
+            assignment_agree += 1
+
+        cc = ctrl_out.get("confidence")
+        ac = arm_out.get("confidence")
+        if assigns_match:
+            if cc is not None:
+                conf_agree_ctrl.append(float(cc))
+            if ac is not None:
+                conf_agree_arm.append(float(ac))
+        else:
+            if cc is not None:
+                conf_disagree_ctrl.append(float(cc))
+            if ac is not None:
+                conf_disagree_arm.append(float(ac))
+
+        ctrl_facts = ctrl_out.get("new_facts") or []
+        arm_facts = arm_out.get("new_facts") or []
+        facts_len_diffs.append(float(len(arm_facts) - len(ctrl_facts)))
+
+        for out in (ctrl_out, arm_out):
+            if out.get("label", "") in _THREAD_TITLE_LABELS:
+                thread_title_total += 1
+                if out.get("thread_title"):
+                    thread_title_present += 1
+
+    return {
+        "n_ok_pairs": n,
+        "label_agreement": round(label_agree / n, 4) if n else None,
+        "assignment_agreement": round(assignment_agree / n, 4) if n else None,
+        "label_confusion": {k: dict(v) for k, v in label_confusion.items()},
+        "mean_confidence_agreeing_control": (
+            statistics.mean(conf_agree_ctrl) if conf_agree_ctrl else None
+        ),
+        "mean_confidence_agreeing_arm": (
+            statistics.mean(conf_agree_arm) if conf_agree_arm else None
+        ),
+        "mean_confidence_disagreeing_control": (
+            statistics.mean(conf_disagree_ctrl) if conf_disagree_ctrl else None
+        ),
+        "mean_confidence_disagreeing_arm": (
+            statistics.mean(conf_disagree_arm) if conf_disagree_arm else None
+        ),
+        "mean_new_facts_len_diff": (
+            statistics.mean(facts_len_diffs) if facts_len_diffs else None
+        ),
+        "thread_title_present_rate": (
+            round(thread_title_present / thread_title_total, 4) if thread_title_total else None
+        ),
+    }
+
+
+def _content_clusterer_merge(ok_pairs: List[Tuple[Dict, Dict]]) -> Dict[str, Any]:
+    if not ok_pairs:
+        return {}
+
+    n = len(ok_pairs)
+    agree_count = 0
+    ctrl_merge_count = 0
+    arm_merge_count = 0
+    arm_only_merge_count = 0
+    confusion: Dict[bool, Dict[bool, int]] = {
+        True: {True: 0, False: 0},
+        False: {True: 0, False: 0},
+    }
+
+    for ctrl_row, arm_row in ok_pairs:
+        ctrl_out = ctrl_row.get("output") or {}
+        arm_out = arm_row.get("output") or {}
+        cs = bool(ctrl_out.get("same_story", False))
+        as_ = bool(arm_out.get("same_story", False))
+        confusion[cs][as_] += 1
+        if cs == as_:
+            agree_count += 1
+        if cs:
+            ctrl_merge_count += 1
+        if as_:
+            arm_merge_count += 1
+        if as_ and not cs:
+            arm_only_merge_count += 1
+
+    return {
+        "n_ok_pairs": n,
+        "agreement": round(agree_count / n, 4) if n else None,
+        "confusion": {
+            "ctrl_true_arm_true": confusion[True][True],
+            "ctrl_true_arm_false": confusion[True][False],
+            "ctrl_false_arm_true": confusion[False][True],
+            "ctrl_false_arm_false": confusion[False][False],
+        },
+        "ctrl_merge_rate": round(ctrl_merge_count / n, 4) if n else None,
+        "arm_merge_rate": round(arm_merge_count / n, 4) if n else None,
+        "arm_only_merges": round(arm_only_merge_count / n, 4) if n else None,
+    }
+
+
+def _content_clusterer_consolidate_facts(
+    ok_pairs: List[Tuple[Dict, Dict]],
+    config: Dict[str, Any],
+) -> Dict[str, Any]:
+    if not ok_pairs:
+        return {}
+
+    max_facts = int(config.get("CLUSTERER_MAX_KNOWN_FACTS", 40))
+    keep_recent = int(config.get("CLUSTERER_KNOWN_FACTS_KEEP_RECENT", 20))
+    target_ratio = float(config.get("CLUSTERER_FACTS_CONDENSED_TARGET_RATIO", 0.6))
+    target_total = max(1, int(max_facts * target_ratio))
+    target = max(1, target_total - keep_recent)
+
+    n = len(ok_pairs)
+    bullet_counts: List[float] = []
+    over_target_count = 0
+    bullet_lengths: List[float] = []
+
+    for _, arm_row in ok_pairs:
+        arm_out = arm_row.get("output")
+        bullets = [str(b) for b in arm_out] if isinstance(arm_out, list) else []
+        count = len(bullets)
+        bullet_counts.append(float(count))
+        if count > target:
+            over_target_count += 1
+        for b in bullets:
+            bullet_lengths.append(float(len(b)))
+
+    return {
+        "n_ok_pairs": n,
+        "target": target,
+        "mean_output_bullet_count": (
+            statistics.mean(bullet_counts) if bullet_counts else None
+        ),
+        "over_target_rate": round(over_target_count / n, 4) if n else None,
+        "mean_bullet_length": (
+            statistics.mean(bullet_lengths) if bullet_lengths else None
+        ),
+    }
+
+
+def _content_brief_generate(
+    all_pairs: List[Tuple[Dict, Dict]],
+    session: Session,
+) -> Dict[str, Any]:
+    if not all_pairs:
+        return {}
+
+    n = len(all_pairs)
+    arm_ok_count = sum(1 for _, a in all_pairs if a.get("status") == "ok")
+    ok_pairs = [(c, a) for c, a in all_pairs if a.get("status") == "ok"]
+    n_ok = len(ok_pairs)
+
+    turns_list: List[float] = []
+    forced_submit_count = 0
+    corrective_turn_count = 0
+    topic_counts: List[float] = []
+    linked_ref_article_ids: List[int] = []
+    linked_refs_total = 0
+    unlinked_refs_total = 0
+
+    for _, arm_row in ok_pairs:
+        arm_out = arm_row.get("output") or {}
+        turns = arm_out.get("turns")
+        if turns is not None:
+            turns_list.append(float(turns))
+        if arm_out.get("forced_submit"):
+            forced_submit_count += 1
+        if arm_out.get("corrective_turn"):
+            corrective_turn_count += 1
+        payload = arm_out.get("payload") or {}
+        topics = payload.get("topics") or []
+        topic_counts.append(float(len(topics)))
+        for topic in topics:
+            for ref in topic.get("references") or []:
+                art_id = ref.get("article_id")
+                if art_id is not None:
+                    linked_refs_total += 1
+                    try:
+                        linked_ref_article_ids.append(int(art_id))
+                    except (TypeError, ValueError):
+                        pass
+                else:
+                    unlinked_refs_total += 1
+
+    existing_ids: set = set()
+    if linked_ref_article_ids:
+        unique_ids = list(set(linked_ref_article_ids))
+        art_sql = text(
+            "SELECT id FROM articles WHERE id IN :ids"
+        ).bindparams(bindparam("ids", expanding=True))
+        for art_row in session.execute(art_sql, {"ids": unique_ids}).fetchall():
+            existing_ids.add(art_row[0])
+    linked_ref_valid_count = sum(1 for aid in linked_ref_article_ids if aid in existing_ids)
+    all_refs_total = linked_refs_total + unlinked_refs_total
+
+    return {
+        "n_ok_pairs": n_ok,
+        "ok_rate": round(arm_ok_count / n, 4) if n else None,
+        "mean_turns": statistics.mean(turns_list) if turns_list else None,
+        "forced_submit_rate": round(forced_submit_count / n_ok, 4) if n_ok else None,
+        "corrective_turn_rate": round(corrective_turn_count / n_ok, 4) if n_ok else None,
+        "mean_topic_count": statistics.mean(topic_counts) if topic_counts else None,
+        "linked_ref_valid_share": (
+            round(linked_ref_valid_count / linked_refs_total, 4) if linked_refs_total else None
+        ),
+        "unlinked_ref_share": (
+            round(unlinked_refs_total / all_refs_total, 4) if all_refs_total else None
+        ),
+    }
+
+
+def _compute_content_metrics(
+    op_key: str,
+    all_pairs: List[Tuple[Dict, Dict]],
+    config: Dict[str, Any],
+    session: Session,
+    until_dt: datetime,
+) -> Dict[str, Any]:
+    ok_pairs = [
+        (c, a) for c, a in all_pairs
+        if c.get("status") == "ok" and a.get("status") == "ok"
+    ]
+    if op_key == "summarize_rank.rank":
+        return _content_summarize_rank(ok_pairs, config, session, until_dt)
+    if op_key == "clusterer.classify":
+        return _content_clusterer_classify(ok_pairs)
+    if op_key == "clusterer.merge":
+        return _content_clusterer_merge(ok_pairs)
+    if op_key == "clusterer.consolidate_facts":
+        return _content_clusterer_consolidate_facts(ok_pairs, config)
+    if op_key == "brief.generate":
+        return _content_brief_generate(all_pairs, session)
+    return {}
+
+
 def _compute_metrics(
     rows: List[Dict],
     arm_name: str,
@@ -361,13 +868,16 @@ def _build_report(
             arm_projected = (arm_mean_cost * ipd * 30) if arm_mean_cost is not None else None
             arm_cost["projected_monthly_usd"] = arm_projected
 
+            content = _compute_content_metrics(
+                op_key, pairs, config, session, until_dt
+            )
             arms_output[arm] = {
                 "pairs": len(pairs),
                 "unpaired": arm_unpaired.get(arm, 0),
                 "no_telemetry": arm_no_tel,
                 "reliability": arm_rel,
                 "cost": arm_cost,
-                "content": {},
+                "content": content,
                 "verdict": "insufficient_data",
                 "failed_criteria": [],
             }
