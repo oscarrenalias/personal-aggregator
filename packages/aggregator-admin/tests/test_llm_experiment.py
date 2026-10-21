@@ -815,6 +815,28 @@ class TestSamplesOutput:
         # All 3 pairs written
         assert len(lines) == 3
 
+    def test_json_samples_stdout_is_pure_json(self, runner, db_session, db_engine, tmp_path):
+        """--json --samples must not pollute stdout; json.loads(stdout) must succeed."""
+        _truncate_experiment_tables(db_session)
+        self._seed_rank_shadow(db_session, n_disagree=3, n_agree=3)
+
+        samples_dir = str(tmp_path / "purity_samples")
+        result = runner.invoke(
+            app,
+            [
+                "llm-experiment-report",
+                "--experiment", _EXP,
+                "--json",
+                "--samples", samples_dir,
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        # result.stdout is stdout-only; must be valid JSON with no trailing message
+        data = json.loads(result.stdout)
+        assert data["experiment"] == _EXP
+        # samples file must still be created
+        assert (tmp_path / "purity_samples" / "summarize_rank.rank.jsonl").exists()
+
 
 # ---------------------------------------------------------------------------
 # AC1 – _build_report projected cost with telemetry rows (DB test)

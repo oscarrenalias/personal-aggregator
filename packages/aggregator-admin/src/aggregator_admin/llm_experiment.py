@@ -21,7 +21,7 @@ from sqlalchemy.orm import Session
 
 from aggregator_common.db import get_session
 
-from .output import console, json_default
+from .output import console, json_default, _error_console
 
 SAMPLE_SEED = 20261021
 
@@ -1271,4 +1271,8 @@ def llm_experiment_report_cmd(
         _render_table(report)
 
     if samples_dir is not None:
-        console.print(f"[green]Samples written to {samples_dir}[/green]")
+        msg = f"[green]Samples written to {samples_dir}[/green]"
+        if as_json:
+            _error_console.print(msg)
+        else:
+            console.print(msg)
