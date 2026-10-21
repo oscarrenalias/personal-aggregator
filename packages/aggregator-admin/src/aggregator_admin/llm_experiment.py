@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import random
 import statistics
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
@@ -22,15 +23,27 @@ from aggregator_common.db import get_session
 
 from .output import console, json_default
 
+SAMPLE_SEED = 20261021
+
 # Thresholds live in one dict so later rounds can tune them.
 CRITERIA_THRESHOLDS: Dict[str, Any] = {
+    # Reliability ("all" operations)
     "max_error_plus_parse_rate_excess_pp": 1.0,
     "max_length_truncation_rate": 0.01,
+    # Minimum pairs before content criteria are evaluated
+    "min_pairs_default": 30,
+    "min_pairs_brief": 5,
+    "min_ok_pairs_default": 30,
+    "min_ok_pairs_brief": 5,
+    # Engagement AUC: skip if fewer saved articles than this
+    "min_saved_for_auc": 10,
     "summarize_rank.rank": {
         "min_spearman_rho": 0.80,
         "max_mae": 8,
         "max_flip_rate": 0.10,
         "min_is_saved_auc_delta": -0.03,
+        # Disagreement rule: |Δimportance_score| >= this triggers a disagreement
+        "max_score_delta_for_disagree": 15,
     },
     "clusterer.classify": {"min_assignment_agreement": 0.85},
     "clusterer.merge": {"min_agreement": 0.90, "max_arm_only_merges": 0.05},
@@ -56,6 +69,252 @@ _ATTACHING_LABELS: frozenset = frozenset({
 
 # Labels for which thread_title presence is tracked.
 _THREAD_TITLE_LABELS: frozenset = frozenset({"new_thread", "related_new_thread"})
+
+# Operations where the verdict is always "review" (no content pass/fail criteria).
+_REVIEW_OPERATIONS: frozenset = frozenset({"clusterer.consolidate_facts", "brief.generate"})
+
+
+# ---------------------------------------------------------------------------
+# Disagreement rules
+# ---------------------------------------------------------------------------
+
+
+def _is_pair_disagree(
+    op_key: str,
+    ctrl_row: Dict,
+    arm_row: Dict,
+    config: Dict[str, Any],
+) -> bool:
+    """Return True when an arm item disagrees with the control for this operation."""
+    # Status mismatch always disagrees.
+    if ctrl_row.get("status") != arm_row.get("status"):
+        return True
+
+    ctrl_out = ctrl_row.get("output") or {}
+    arm_out = arm_row.get("output") or {}
+
+    if op_key == "summarize_rank.rank":
+        threshold = float(config.get("WEB_IMPORTANT_THRESHOLD", 70))
+        max_delta = float(
+            CRITERIA_THRESHOLDS["summarize_rank.rank"]["max_score_delta_for_disagree"]
+        )
+        cs = ctrl_out.get("importance_score")
+        as_ = arm_out.get("importance_score")
+        if cs is not None and as_ is not None:
+            cf, af = float(cs), float(as_)
+            if (cf >= threshold) != (af >= threshold):
+                return True
+            if abs(af - cf) >= max_delta:
+                return True
+        ctrl_cats = {c.lower() for c in (ctrl_out.get("categories") or [])}
+        arm_cats = {c.lower() for c in (arm_out.get("categories") or [])}
+        if ctrl_cats != arm_cats:
+            return True
+        return False
+
+    if op_key == "clusterer.classify":
+        cl = ctrl_out.get("label", "")
+        al = arm_out.get("label", "")
+        if cl in _ATTACHING_LABELS or al in _ATTACHING_LABELS:
+            return not (cl == al and ctrl_out.get("thread_id") == arm_out.get("thread_id"))
+        return cl != al
+
+    if op_key == "clusterer.merge":
+        return bool(ctrl_out.get("same_story", False)) != bool(arm_out.get("same_story", False))
+
+    # consolidate_facts and brief.generate: no rule.
+    return False
+
+
+# ---------------------------------------------------------------------------
+# Verdict logic
+# ---------------------------------------------------------------------------
+
+
+def _compute_verdict(
+    op_key: str,
+    n_pairs: int,
+    arm_rel: Dict[str, Any],
+    ctrl_rel: Dict[str, Any],
+    content: Dict[str, Any],
+) -> tuple:
+    """Return (verdict_str, failed_criteria_list)."""
+    is_brief = op_key == "brief.generate"
+    min_pairs = CRITERIA_THRESHOLDS["min_pairs_brief" if is_brief else "min_pairs_default"]
+    min_ok = CRITERIA_THRESHOLDS["min_ok_pairs_brief" if is_brief else "min_ok_pairs_default"]
+
+    # Step 1: insufficient data
+    if n_pairs < min_pairs:
+        return "insufficient_data", []
+
+    failed: List[str] = []
+
+    # Step 2: reliability criteria (all operations)
+    ctrl_err = (ctrl_rel.get("error_rate") or 0.0) + (ctrl_rel.get("parse_failure_rate") or 0.0)
+    arm_err = (arm_rel.get("error_rate") or 0.0) + (arm_rel.get("parse_failure_rate") or 0.0)
+    excess_threshold = CRITERIA_THRESHOLDS["max_error_plus_parse_rate_excess_pp"] / 100.0
+    if arm_err > ctrl_err + excess_threshold:
+        failed.append("error_plus_parse_rate_exceeds_control")
+
+    arm_trunc = arm_rel.get("finish_reason_length_rate") or 0.0
+    if arm_trunc > CRITERIA_THRESHOLDS["max_length_truncation_rate"]:
+        failed.append("length_truncation_rate_exceeds_threshold")
+
+    if failed:
+        return "fail", failed
+
+    # Step 4 (early): review operations skip content criteria entirely.
+    if op_key in _REVIEW_OPERATIONS:
+        return "review", []
+
+    # Step 3: content criteria
+    n_ok_pairs = content.get("n_ok_pairs", 0) if content else 0
+    if n_ok_pairs < min_ok:
+        failed.append("insufficient_ok_pairs")
+        return "fail", failed
+
+    if op_key == "summarize_rank.rank":
+        t = CRITERIA_THRESHOLDS["summarize_rank.rank"]
+        rho = content.get("spearman_rho")
+        if rho is not None and rho < t["min_spearman_rho"]:
+            failed.append("spearman_rho_below_threshold")
+        mae = content.get("mae")
+        if mae is not None and mae > t["max_mae"]:
+            failed.append("mae_exceeds_threshold")
+        flip = content.get("flip_rate")
+        if flip is not None and flip > t["max_flip_rate"]:
+            failed.append("flip_rate_exceeds_threshold")
+        eng = content.get("engagement") or {}
+        n_saved = eng.get("n_saved", 0)
+        if n_saved >= CRITERIA_THRESHOLDS["min_saved_for_auc"]:
+            auc_ctrl = eng.get("auc_saved_control")
+            auc_arm = eng.get("auc_saved_arm")
+            if auc_ctrl is not None and auc_arm is not None:
+                if auc_arm < auc_ctrl + t["min_is_saved_auc_delta"]:
+                    failed.append("is_saved_auc_below_threshold")
+
+    elif op_key == "clusterer.classify":
+        t = CRITERIA_THRESHOLDS["clusterer.classify"]
+        agr = content.get("assignment_agreement")
+        if agr is not None and agr < t["min_assignment_agreement"]:
+            failed.append("assignment_agreement_below_threshold")
+
+    elif op_key == "clusterer.merge":
+        t = CRITERIA_THRESHOLDS["clusterer.merge"]
+        agr = content.get("agreement")
+        if agr is not None and agr < t["min_agreement"]:
+            failed.append("agreement_below_threshold")
+        arm_only = content.get("arm_only_merges")
+        if arm_only is not None and arm_only > t["max_arm_only_merges"]:
+            failed.append("arm_only_merges_exceeds_threshold")
+
+    if failed:
+        return "fail", failed
+
+    return "pass", []
+
+
+# ---------------------------------------------------------------------------
+# JSONL sample writing
+# ---------------------------------------------------------------------------
+
+
+def _write_op_samples(
+    out_path: str,
+    op_key: str,
+    op_data: Dict[str, Any],
+    config: Dict[str, Any],
+) -> None:
+    """Write one JSONL sample file for an operation."""
+    all_arms = op_data["all_arms"]
+    arm_pairs = op_data["arm_pairs"]
+    is_brief = op_key == "brief.generate"
+    is_consolidate = op_key == "clusterer.consolidate_facts"
+
+    # Build combined per-ref_id view across all arms.
+    ref_ctrl: Dict[str, Dict] = {}
+    ref_arms: Dict[str, Dict[str, Dict]] = defaultdict(dict)
+    for arm in all_arms:
+        for ctrl_row, arm_row in arm_pairs.get(arm, []):
+            rid = ctrl_row["ref_id"]
+            ref_ctrl[rid] = ctrl_row
+            ref_arms[rid][arm] = arm_row
+
+    def _make_item(rid: str) -> Dict:
+        ctrl = ref_ctrl[rid]
+        arm_rows = ref_arms[rid]
+        disagreements = []
+        if not is_brief and not is_consolidate:
+            for arm, arm_row in arm_rows.items():
+                if _is_pair_disagree(op_key, ctrl, arm_row, config):
+                    disagreements.append(arm)
+        return {
+            "ref_id": rid,
+            "prompt_hash": ctrl.get("prompt_hash"),
+            "control": {
+                "status": ctrl.get("status"),
+                "output": ctrl.get("output"),
+                "raw_output": ctrl.get("raw_output"),
+            },
+            "arms": {
+                arm: {
+                    "status": arm_row.get("status"),
+                    "output": arm_row.get("output"),
+                    "raw_output": arm_row.get("raw_output"),
+                }
+                for arm, arm_row in arm_rows.items()
+            },
+            "disagreements": disagreements,
+        }
+
+    os.makedirs(os.path.dirname(out_path), exist_ok=True) if os.path.dirname(out_path) else None
+
+    if is_brief:
+        with open(out_path, "w") as fh:
+            for rid in ref_ctrl:
+                fh.write(json.dumps(_make_item(rid), default=json_default) + "\n")
+        return
+
+    if is_consolidate:
+        pool = sorted(ref_ctrl.keys())
+        rng = random.Random(SAMPLE_SEED)
+        sample_rids = rng.sample(pool, min(100, len(pool)))
+        with open(out_path, "w") as fh:
+            for rid in sample_rids:
+                fh.write(json.dumps(_make_item(rid), default=json_default) + "\n")
+        return
+
+    # Disagreeing vs agreeing split.
+    disagreeing_rids = []
+    agreeing_rids = []
+    for rid, arm_rows in ref_arms.items():
+        ctrl = ref_ctrl[rid]
+        is_dis = any(
+            _is_pair_disagree(op_key, ctrl, arm_row, config)
+            for arm_row in arm_rows.values()
+        )
+        if is_dis:
+            disagreeing_rids.append(rid)
+        else:
+            agreeing_rids.append(rid)
+
+    # Disagreeing: up to 200, control created_at desc.
+    disagreeing_rids.sort(
+        key=lambda r: _row_created_at(ref_ctrl[r]) or datetime.min.replace(tzinfo=timezone.utc),
+        reverse=True,
+    )
+    dis_sample = disagreeing_rids[:200]
+
+    # Agreeing: up to 50, seeded random from ref_id-sorted pool.
+    agreeing_sorted = sorted(agreeing_rids)
+    rng = random.Random(SAMPLE_SEED)
+    agr_sample = rng.sample(agreeing_sorted, min(50, len(agreeing_sorted)))
+
+    with open(out_path, "w") as fh:
+        for rid in dis_sample:
+            fh.write(json.dumps(_make_item(rid), default=json_default) + "\n")
+        for rid in agr_sample:
+            fh.write(json.dumps(_make_item(rid), default=json_default) + "\n")
 
 
 def _read_config() -> Dict[str, Any]:
@@ -834,6 +1093,7 @@ def _build_report(
     since_dt: datetime,
     until_dt: datetime,
     config: Dict[str, Any],
+    samples_dir: Optional[str] = None,
 ) -> Dict[str, Any]:
     shadow_rows = _load_shadow_rows(session, experiment, since_dt, until_dt)
     call_rows = _load_call_rows(session, experiment, since_dt, until_dt)
@@ -871,6 +1131,9 @@ def _build_report(
             content = _compute_content_metrics(
                 op_key, pairs, config, session, until_dt
             )
+            verdict, failed_criteria = _compute_verdict(
+                op_key, len(pairs), arm_rel, ctrl_rel, content
+            )
             arms_output[arm] = {
                 "pairs": len(pairs),
                 "unpaired": arm_unpaired.get(arm, 0),
@@ -878,8 +1141,8 @@ def _build_report(
                 "reliability": arm_rel,
                 "cost": arm_cost,
                 "content": content,
-                "verdict": "insufficient_data",
-                "failed_criteria": [],
+                "verdict": verdict,
+                "failed_criteria": failed_criteria,
             }
 
         operations_output[op_key] = {
@@ -892,6 +1155,10 @@ def _build_report(
             },
             "arms": arms_output,
         }
+
+        if samples_dir is not None:
+            out_path = os.path.join(samples_dir, f"{op_key}.jsonl")
+            _write_op_samples(out_path, op_key, data, config)
 
     return {
         "experiment": experiment,
@@ -948,9 +1215,19 @@ def _render_table(report: Dict[str, Any]) -> None:
             "—",
         )
 
+        _VERDICT_STYLE = {
+            "pass": "green",
+            "fail": "red",
+            "review": "yellow",
+            "insufficient_data": "dim",
+        }
+
         for arm, arm_data in op_data["arms"].items():
             arm_rel = arm_data["reliability"]
             arm_cost = arm_data["cost"]
+            verdict = arm_data.get("verdict", "—")
+            style = _VERDICT_STYLE.get(verdict, "")
+            verdict_str = f"[{style}]{verdict}[/{style}]" if style else verdict
             table.add_row(
                 arm,
                 str(arm_data["pairs"]),
@@ -959,7 +1236,7 @@ def _render_table(report: Dict[str, Any]) -> None:
                 _ms(arm_rel.get("latency_per_item_p50_ms")),
                 _usd(arm_cost.get("mean_cost_per_item_usd")),
                 _usd2(arm_cost.get("projected_monthly_usd")),
-                arm_data.get("verdict", "—"),
+                verdict_str,
             )
 
         console.print(table)
@@ -986,7 +1263,7 @@ def llm_experiment_report_cmd(
 
     with get_session() as session:
         session.execute(text("SET TRANSACTION READ ONLY"))
-        report = _build_report(session, experiment, since_dt, until_dt, config)
+        report = _build_report(session, experiment, since_dt, until_dt, config, samples_dir)
 
     if as_json:
         typer.echo(json.dumps(report, default=json_default))
@@ -994,6 +1271,4 @@ def llm_experiment_report_cmd(
         _render_table(report)
 
     if samples_dir is not None:
-        console.print(
-            "[yellow]--samples is not yet implemented (content metrics bead).[/yellow]"
-        )
+        console.print(f"[green]Samples written to {samples_dir}[/green]")
