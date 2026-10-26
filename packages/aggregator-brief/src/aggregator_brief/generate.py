@@ -35,6 +35,7 @@ class BriefRunResult:
     corrective_turn: bool
     request_ids: list[str]
     model: str = ""
+    recovered_from_text_stop: bool = False
 
 
 class BriefLoopError(GenerationError):
@@ -192,6 +193,7 @@ def run_brief_loop(
     turns = 0
     forced_submit_turn = False
     corrective_turn = False
+    text_stop_recovery_attempted = False
     request_ids: list[str] = []
     last_submit_args: str | None = None
     last_model: str = settings.brief_llm_model
@@ -220,6 +222,61 @@ def run_brief_loop(
 
         tool_calls = assistant_message.tool_calls or []
         if not tool_calls:
+            # One-shot text-stop recovery: if the model wrote plain text instead of
+            # calling a tool, nudge it with a forced submit_brief call.  Only attempt
+            # once, only when submit_brief has not yet been received, and only when
+            # we are not already on a forced-submit iteration (which means the model
+            # ignored force_submit=True — a different failure mode).
+            if submit_payload is None and not force_submit and not text_stop_recovery_attempted:
+                text_stop_recovery_attempted = True
+                messages.append({
+                    "role": "user",
+                    "content": (
+                        "You stopped without calling any tools. "
+                        "Please call submit_brief now with the brief you just wrote."
+                    ),
+                })
+                if deadline is not None and clock() >= deadline:
+                    raise BriefLoopError(
+                        "deadline",
+                        status="timeout",
+                        turns=turns,
+                        request_ids=request_ids,
+                        last_submit_args=last_submit_args,
+                    )
+                recovery_response = call_fn(messages, True)
+                turns += 1
+                rec_req_id = getattr(recovery_response, "id", None)
+                if rec_req_id:
+                    request_ids.append(rec_req_id)
+                last_model = getattr(recovery_response, "model", None) or last_model
+                recovery_message = recovery_response.choices[0].message
+                messages.append(_to_assistant_dict(recovery_message))
+                for tc in recovery_message.tool_calls or []:
+                    if tc.function.name == "submit_brief":
+                        last_submit_args = tc.function.arguments
+                        try:
+                            submit_payload = json.loads(tc.function.arguments)
+                        except json.JSONDecodeError:
+                            submit_payload = None
+                        else:
+                            messages.append({
+                                "role": "tool",
+                                "tool_call_id": tc.id,
+                                "content": json.dumps({"status": "received"}),
+                            })
+                            forced_submit_turn = True
+                        break
+                if submit_payload is not None:
+                    break
+                raise BriefLoopError(
+                    f"model wrote plain text without submit_brief"
+                    f" (after {turns} turn(s), recovery attempted)",
+                    status="parse_error",
+                    turns=turns,
+                    request_ids=request_ids,
+                    last_submit_args=last_submit_args,
+                )
             break
 
         found_submit = False
@@ -337,6 +394,7 @@ def run_brief_loop(
         corrective_turn=corrective_turn,
         request_ids=request_ids,
         model=last_model,
+        recovered_from_text_stop=text_stop_recovery_attempted,
     )
 
 
