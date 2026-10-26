@@ -5,6 +5,13 @@ services:
       POSTGRES_USER: aggregator
       POSTGRES_PASSWORD: aggregator
       POSTGRES_DB: aggregator
+    ports:
+      # POSTGRES_PUBLISH_ADDR controls which host interface Postgres is published on.
+      # Default: 127.0.0.1 (Pi-local only, never 0.0.0.0).
+      # Set POSTGRES_PUBLISH_ADDR=<pi-lan-ip> (e.g. 192.168.68.52) in .env to expose
+      # it on the LAN for the metrics-review tunnel. Keep it LAN/Tailscale-only — the
+      # DB uses default credentials and has no app-level authentication.
+      - "${POSTGRES_PUBLISH_ADDR:-127.0.0.1}:5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
