@@ -8,7 +8,13 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from aggregator_brief.config import BriefSettings
-from aggregator_brief.generate import GenerationError, _reconcile_references, generate_brief
+from aggregator_brief.generate import (
+    BriefLoopError,
+    GenerationError,
+    _reconcile_references,
+    generate_brief,
+    run_brief_loop,
+)
 from aggregator_common.models import BriefTopic
 
 from conftest import make_article, make_brief, make_source
@@ -212,6 +218,132 @@ class TestForcedSubmitOnFinalIteration:
         # Forced exactly on the final iteration, and the brief was produced.
         assert seen_force == [False, False, True]
         assert brief.headline == _VALID_SUBMIT["headline"]
+
+
+class TestTextStopRecovery:
+    """Regression: model writes plain text instead of calling submit_brief mid-loop.
+
+    Without the fix the loop breaks immediately on no-tool-call turns and raises
+    'Tool loop exhausted … without submit_brief' even after only a handful of turns.
+    With the fix one forced recovery call is made; if it succeeds the brief is saved.
+    """
+
+    def test_recovery_succeeds_on_forced_call(self, db_session):
+        """[search, plain-text stop, submit_brief on forced recovery] -> brief saved."""
+        settings = _settings(brief_tool_max_calls=5)
+        messages = [{"role": "user", "content": "generate a brief"}]
+
+        call_sequence = [
+            _response(tool_calls=[_tool_call("search_articles", {"query": "x"}, "tc1")]),
+            _response(tool_calls=None, content="Here is the brief: ..."),  # text stop
+            _response(tool_calls=[_tool_call("submit_brief", _VALID_SUBMIT, "tc3")]),
+        ]
+        force_flags: list[bool] = []
+
+        def fake_call_fn(msgs, force):
+            force_flags.append(force)
+            return call_sequence.pop(0)
+
+        result = run_brief_loop(db_session, messages, fake_call_fn, settings)
+
+        assert result.payload.headline == _VALID_SUBMIT["headline"]
+        assert result.recovered_from_text_stop is True
+        assert result.forced_submit is True
+        # The recovery call (3rd) must have received force=True
+        assert force_flags == [False, False, True]
+
+    def test_recovery_fails_raises_with_recovery_message(self, db_session):
+        """Recovery call also returns plain text -> raise with 'recovery attempted' message."""
+        settings = _settings(brief_tool_max_calls=5)
+        messages = [{"role": "user", "content": "generate a brief"}]
+
+        # First call: text stop; recovery call: also text stop
+        call_sequence = [
+            _response(tool_calls=None, content="Here is a brief without a tool call."),
+            _response(tool_calls=None, content="Still no tool call."),
+        ]
+
+        def fake_call_fn(msgs, force):
+            return call_sequence.pop(0)
+
+        with pytest.raises(BriefLoopError, match="recovery attempted"):
+            run_brief_loop(db_session, messages, fake_call_fn, settings)
+
+    def test_recovery_only_attempted_once(self, db_session):
+        """A second text-stop after recovery has already been tried does not recurse."""
+        settings = _settings(brief_tool_max_calls=6)
+        messages = [{"role": "user", "content": "generate a brief"}]
+
+        # search → text stop → recovery returns search (not submit_brief) → text stop again
+        # The recovery should only process submit_brief; a non-submit tool_call in recovery
+        # still counts as "no submit" received, causing the raise.
+        call_sequence = [
+            _response(tool_calls=[_tool_call("search_articles", {"query": "x"}, "tc1")]),
+            _response(tool_calls=None, content="Thinking..."),  # text stop → recovery
+            _response(tool_calls=None, content="Still no submit."),  # recovery also fails
+        ]
+
+        def fake_call_fn(msgs, force):
+            return call_sequence.pop(0)
+
+        with pytest.raises(BriefLoopError, match="recovery attempted"):
+            run_brief_loop(db_session, messages, fake_call_fn, settings)
+
+    def test_no_tool_calls_on_forced_final_iteration_exhausts_loop(self, db_session):
+        """Plain-text stop on the forced final iteration is not retried (force already tried)."""
+        settings = _settings(brief_tool_max_calls=2)
+        messages = [{"role": "user", "content": "generate a brief"}]
+
+        # Iteration 0 (force=False): search tool call
+        # Iteration 1 (force=True, last): plain-text stop despite being forced
+        call_sequence = [
+            _response(tool_calls=[_tool_call("search_articles", {"query": "x"}, "tc1")]),
+            _response(tool_calls=None, content="Still writing..."),
+        ]
+        force_flags: list[bool] = []
+
+        def fake_call_fn(msgs, force):
+            force_flags.append(force)
+            return call_sequence.pop(0)
+
+        with pytest.raises(BriefLoopError, match="without submit_brief"):
+            run_brief_loop(db_session, messages, fake_call_fn, settings)
+
+        # No recovery call beyond the 2 loop iterations
+        assert force_flags == [False, True]
+
+    def test_text_stop_error_message_differs_from_exhaustion(self, db_session):
+        """Text-stop error message contains 'recovery attempted'; exhaustion does not."""
+        settings = _settings(brief_tool_max_calls=3)
+        messages = [{"role": "user", "content": "generate a brief"}]
+
+        # Text-stop path: first call text-stops, recovery also fails
+        text_stop_calls = [
+            _response(tool_calls=None),
+            _response(tool_calls=None),
+        ]
+
+        def fake_text_stop(msgs, force):
+            return text_stop_calls.pop(0)
+
+        with pytest.raises(BriefLoopError) as exc_info:
+            run_brief_loop(db_session, messages, fake_text_stop, settings)
+        assert "recovery attempted" in str(exc_info.value)
+        assert "without submit_brief" in str(exc_info.value)
+
+        # Exhaustion path: always returns search tool call, never submit_brief
+        exhaustion_calls = [
+            _response(tool_calls=[_tool_call("search_articles", {"query": "x"})]),
+        ] * 5
+
+        def fake_exhaustion(msgs, force):
+            return exhaustion_calls.pop(0)
+
+        with pytest.raises(BriefLoopError) as exc_info2:
+            run_brief_loop(db_session, messages, fake_exhaustion, settings)
+        assert "exhausted" in str(exc_info2.value)
+        assert "recovery attempted" not in str(exc_info2.value)
+        assert "without submit_brief" in str(exc_info2.value)
 
 
 class TestReconcileReferences:
