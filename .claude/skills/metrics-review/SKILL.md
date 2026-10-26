@@ -7,7 +7,7 @@ license: MIT
 
 # metrics-review
 
-A repeatable playbook to pull and analyze the **production** aggregator's health from this workstation. The prod stack runs on the Pi; its Postgres is **not** published to the Pi's LAN in the repo compose, but in practice the Pi exposes `5432` on its LAN interface and a **Docker container on this Mac can reach it** even though host CLI (`psql`/`curl`/`ssh`) cannot — the workstation's GlobalProtect/Zscaler filters drop host→LAN traffic, but a container's egress bypasses them.
+A repeatable playbook to pull and analyze the **production** aggregator's health from this workstation. The prod stack runs on the Pi; `docker-compose.prod.yml` publishes Postgres on `${POSTGRES_PUBLISH_ADDR:-127.0.0.1}:5432`, so the Pi's `/opt/personal-aggregator/.env` must set `POSTGRES_PUBLISH_ADDR=192.168.68.52` for LAN access (if `5432` is refused, check that first — the default binds Pi-local only). A **Docker container on this Mac can reach it** even though host CLI (`psql`/`curl`/`ssh`) cannot — the workstation's GlobalProtect/Zscaler filters drop host→LAN traffic, but a container's egress bypasses them.
 
 **READ-ONLY by default.** Only run `SELECT`/status/list commands. Never run mutations (`recluster`, `brief generate`, `ops reap`, thread dismiss, any `INSERT/UPDATE/DELETE`) unless the user explicitly asks. **Always tear down the tunnel container when done** (host/Pi hygiene — this deployment has hit disk-full before).
 
