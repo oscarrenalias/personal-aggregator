@@ -135,6 +135,8 @@ The full production stack (`postgres → migrate → retriever → processor →
 | `make version` | Print the current git-derived version |
 | `make openapi` | Regenerate `docs/openapi.json` from code — run this after any API route change and commit the result |
 
+**Postgres port exposure:** `POSTGRES_PUBLISH_ADDR` in `.env` controls which host interface the postgres service publishes `5432` on. Default is `127.0.0.1` (Pi-local only, never `0.0.0.0`). Set `POSTGRES_PUBLISH_ADDR=<pi-lan-ip>` (e.g. `192.168.68.52`) to enable the metrics-review Docker-container tunnel from a workstation. The DB uses default credentials — keep it LAN/Tailscale-only. This must be persisted in `/opt/personal-aggregator/.env`; `install.sh update` overwrites `docker-compose.prod.yml` but never touches `.env`.
+
 **Version scheme:** `APP_VERSION` is set by CI using `uv version --short` after bumping the workspace version with `uv version --bump <type>`. The resulting value (e.g. `v0.1.0`) is passed as a Docker `--build-arg APP_VERSION`, then baked into the image as `ENV AGGREGATOR_VERSION` (a **dedicated** name, distinct from the deploy-time `APP_VERSION` image-tag selector so that `env_file: .env` — which carries the deploy `APP_VERSION=<tag>` pin — cannot shadow the build version at runtime). `aggregator_common.version()` reads `AGGREGATOR_VERSION`, defaulting to `dev` when absent. It is surfaced at runtime via the web service's `/healthz` endpoint and logged at each daemon's startup.
 
 ## takt orchestration

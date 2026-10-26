@@ -136,6 +136,25 @@ This is controlled by **`WEB_BIND`** in `/opt/personal-aggregator/.env`:
 
 Change it and `sudo ./install.sh update` (or `docker compose -f docker-compose.prod.yml up -d`) to apply. There is no app-level authentication, so on `0.0.0.0` anyone on your LAN can reach it — keep the Pi on a trusted network. (The in-container bind, `WEB_HOST`, is fixed to `0.0.0.0` by the compose file and is unrelated to this.)
 
+### Exposing Postgres on the LAN (for the metrics-review tunnel)
+
+By default the `postgres` service is published on `127.0.0.1:5432` (Pi-local only). The **metrics-review** skill (`aggregator-admin llm-stats`, SQL health queries) queries prod Postgres from a workstation via a Docker-container tunnel; for that tunnel to reach the Pi's Postgres, the port must be published on the LAN interface.
+
+Set **`POSTGRES_PUBLISH_ADDR`** in `/opt/personal-aggregator/.env` to the Pi's LAN IP:
+
+```
+POSTGRES_PUBLISH_ADDR=192.168.68.52
+```
+
+| `POSTGRES_PUBLISH_ADDR` | Exposure |
+|---|---|
+| *(unset)* or `127.0.0.1` | Pi-local only (safe default) |
+| `<pi-lan-ip>` (e.g. `192.168.68.52`) | LAN + Tailscale — enables the metrics-review tunnel |
+
+**Security note:** Postgres uses the default `aggregator/aggregator` credentials. Keep this address reachable from your LAN or Tailscale only — never expose it on a public interface.
+
+Run `sudo ./install.sh update` (or restart the compose stack) after changing this value.
+
 ### Tailscale Serve (optional — HTTPS over your tailnet, reachable away from home)
 
 If you also want secure access from outside your home network, set `WEB_BIND=127.0.0.1` and put **Tailscale Serve** in front:
