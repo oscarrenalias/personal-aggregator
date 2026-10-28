@@ -86,3 +86,23 @@ class ClustererSettings(BaseSettings):
             "Combined with a hard truncate after condensation."
         ),
     )
+
+    # Prompt variant selectors — switch to 'v2' at cutover; default 'v1' = today's prompts
+    clusterer_classify_prompt_variant: str = Field("v1", description="Prompt variant for clusterer.classify; validated against PROMPT_VARIANTS at startup")
+    clusterer_merge_prompt_variant: str = Field("v1", description="Prompt variant for clusterer.merge; validated against PROMPT_VARIANTS at startup")
+
+    @field_validator("clusterer_classify_prompt_variant")
+    @classmethod
+    def validate_classify_prompt_variant(cls, v: str) -> str:
+        valid = PROMPT_VARIANTS["clusterer.classify"]
+        if v not in valid:
+            raise ValueError(f"CLUSTERER_CLASSIFY_PROMPT_VARIANT='{v}' is not valid; valid values: {sorted(valid)}")
+        return v
+
+    @field_validator("clusterer_merge_prompt_variant")
+    @classmethod
+    def validate_merge_prompt_variant(cls, v: str) -> str:
+        valid = PROMPT_VARIANTS["clusterer.merge"]
+        if v not in valid:
+            raise ValueError(f"CLUSTERER_MERGE_PROMPT_VARIANT='{v}' is not valid; valid values: {sorted(valid)}")
+        return v
