@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 
 _KNOWN_TOP = frozenset({"enabled", "name", "until", "max_daily_cost_usd", "operations"})
 _KNOWN_OP = frozenset({"sample_rate", "arms"})
-_KNOWN_ARM = frozenset({"name", "model", "params"})
+_KNOWN_ARM = frozenset({"name", "model", "params", "prompt"})
 _KNOWN_OPS = frozenset({
     "summarize_rank.rank",
     "clusterer.classify",
@@ -38,7 +38,15 @@ _KNOWN_OPS = frozenset({
     "clusterer.consolidate_facts",
     "brief.generate",
 })
-_FORBIDDEN_PARAMS = frozenset({"messages", "tools", "tool_choice", "response_format", "timeout", "metadata"})
+_FORBIDDEN_PARAMS = frozenset({"messages", "tools", "tool_choice", "response_format", "timeout", "metadata", "prompt"})
+
+PROMPT_VARIANTS: dict[str, frozenset] = {
+    "summarize_rank.rank":         frozenset({"v1", "v2"}),
+    "clusterer.classify":          frozenset({"v1", "v2"}),
+    "clusterer.merge":             frozenset({"v1", "v2"}),
+    "clusterer.consolidate_facts": frozenset({"v1"}),
+    "brief.generate":              frozenset({"v1", "v2"}),
+}
 
 _EXECUTOR_WORKERS = 2
 _QUEUE_MAXSIZE = 50
@@ -57,6 +65,7 @@ class Arm:
     name: str
     model: str
     params: dict
+    prompt: str = "v1"
 
 
 @dataclass
@@ -492,7 +501,21 @@ def _parse_config(raw: str) -> Optional[_Config]:
                     op_key, i, sorted(forbidden),
                 )
                 return None
-            arms.append(Arm(name=arm_name, model=arm_model, params=arm_params))
+            arm_prompt = arm_raw.get("prompt", "v1")
+            if not isinstance(arm_prompt, str) or not arm_prompt:
+                logger.error(
+                    "LLM_EXPERIMENT: operation %r arm[%d] 'prompt' must be a non-empty string — experiment disabled",
+                    op_key, i,
+                )
+                return None
+            allowed_prompts = PROMPT_VARIANTS.get(op_key, frozenset())
+            if arm_prompt not in allowed_prompts:
+                logger.error(
+                    "LLM_EXPERIMENT: operation %r arm[%d] 'prompt' %r is not a registered variant — experiment disabled",
+                    op_key, i, arm_prompt,
+                )
+                return None
+            arms.append(Arm(name=arm_name, model=arm_model, params=arm_params, prompt=arm_prompt))
         operations[op_key] = _OpConfig(sample_rate=float(sample_rate), arms=arms)
 
     return _Config(
