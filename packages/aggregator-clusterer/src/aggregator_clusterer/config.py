@@ -1,8 +1,9 @@
 from typing import List
 
-from pydantic import Field
+from pydantic import Field, field_validator
 
 from aggregator_common.config import Settings as BaseSettings
+from aggregator_common.experiment import PROMPT_VARIANTS
 
 
 class ClustererSettings(BaseSettings):

@@ -82,6 +82,10 @@ class Decision:
         md["arm"] = "control"
         return md
 
+    def prompt_variants(self, control_variant: str = "v1") -> set:
+        """Return the set of distinct non-control prompt variants across all arms."""
+        return {arm.prompt for arm in self.arms} - {control_variant}
+
 
 @dataclass
 class CallOutcome:
