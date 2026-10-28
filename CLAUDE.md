@@ -228,7 +228,7 @@ At process startup, every service calls `aggregator_common.load_env()` (python-d
 | `BRIEF_TOOL_MAX_CALLS` | `12` | Maximum LLM tool calls per brief generation run |
 | `BRIEF_POLL_INTERVAL_SECONDS` | `60` | Seconds between scheduler poll cycles |
 | `BRIEF_CLAIM_LEASE_SECONDS` | `600` | Work-claim lease duration for brief jobs in seconds |
-| `BRIEF_PROMPT_VARIANT` | `v1` | Prompt variant for `brief.generate`; must be a registered variant (`v1` or `v2`); invalid values fail at startup; set `v2` after validation to use the gpt-6-luna-calibrated prompt |
+| `BRIEF_PROMPT_VARIANT` | `v1` | Prompt variant for `brief.generate`; must be a registered variant (`v1` or `v2`); invalid values fail at startup; set `v2` after validation to use the gpt-6-luna-calibrated brief prompt |
 | `CLUSTERER_POLL_INTERVAL_SECONDS` | `60` | Seconds between clusterer poll cycles |
 | `CLUSTERER_CANDIDATE_WINDOW_HOURS_FAST` | `48` | Hours of history for fast-path candidate selection |
 | `CLUSTERER_CANDIDATE_WINDOW_DAYS_SLOW` | `7` | Days of history for slow-path candidate selection |
