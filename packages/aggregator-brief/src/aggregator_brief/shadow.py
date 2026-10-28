@@ -19,6 +19,7 @@ from aggregator_common.experiment import (
 
 from .config import BriefSettings
 from .generate import BriefLoopError, BriefRunResult, _build_llm_kwargs, run_brief_loop
+from .prompt import build_system_prompt
 
 logger = logging.getLogger(__name__)
 

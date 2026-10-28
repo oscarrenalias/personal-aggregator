@@ -103,8 +103,11 @@ def rank(
     enabled_categories: Sequence[_CategoryEntry] | None = None,
     article_id: int | None = None,
 ) -> tuple[RankResult, dict]:
-    messages = build_messages(article_input, interest_profile_text, settings, enabled_categories)
-    prompt_version = get_prompt_version()
+    control_variant = settings.summarize_rank_prompt_variant
+    messages = build_messages(
+        article_input, interest_profile_text, settings, enabled_categories, variant=control_variant
+    )
+    prompt_version = get_prompt_version(control_variant)
 
     ref_id = str(article_id) if article_id is not None else None
     decision = experiment.decide("summarize_rank.rank", ref_id)
@@ -150,6 +153,24 @@ def rank(
     if cost is not None:
         usage_dict["cost"] = cost
 
-    experiment.submit_shadow(decision, control_kwargs, control_outcome, attempt)
+    variant_messages: dict[str, list] | None = None
+    if decision is not None:
+        extra_variants = decision.prompt_variants(control_variant)
+        if extra_variants:
+            variant_messages = {
+                v: build_messages(
+                    article_input, interest_profile_text, settings, enabled_categories, variant=v
+                )
+                for v in extra_variants
+            }
+
+    experiment.submit_shadow(
+        decision,
+        control_kwargs,
+        control_outcome,
+        attempt,
+        control_variant=control_variant,
+        variant_messages=variant_messages,
+    )
 
     return result, usage_dict

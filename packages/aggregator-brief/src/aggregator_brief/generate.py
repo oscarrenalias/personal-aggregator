@@ -36,6 +36,7 @@ class BriefRunResult:
     request_ids: list[str]
     model: str = ""
     recovered_from_text_stop: bool = False
+    interest_profile_text: str = ""
 
 
 class BriefLoopError(GenerationError):
@@ -416,7 +417,7 @@ def generate_brief(
         profile_row.profile_text.strip() if profile_row and profile_row.profile_text else ""
     )
 
-    system_prompt = build_system_prompt(settings, interest_profile_text)
+    system_prompt = build_system_prompt(settings, interest_profile_text, variant=settings.brief_prompt_variant)
     seed_messages = build_seed_messages(session, settings, brief.period_start, brief.period_end)
 
     messages: list[dict] = [{"role": "system", "content": system_prompt}] + seed_messages
@@ -431,6 +432,7 @@ def generate_brief(
         result = run_brief_loop(session, messages, call_fn, settings)
     except BriefLoopError as exc:
         raise GenerationError(str(exc)) from exc
+    result.interest_profile_text = interest_profile_text
 
     validated = result.payload
 
