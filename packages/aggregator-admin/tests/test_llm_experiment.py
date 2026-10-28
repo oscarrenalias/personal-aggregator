@@ -235,7 +235,7 @@ class TestVerdictLogic:
                 "engagement": {"n_saved": 0},
             }
         if op_key == "clusterer.classify":
-            return {"n_ok_pairs": n, "assignment_agreement": 0.95}
+            return {"n_ok_pairs": n, "outcome_agreement": 0.95, "assignment_agreement": 0.90}
         if op_key == "clusterer.merge":
             return {"n_ok_pairs": n, "agreement": 0.95, "arm_only_merges": 0.02}
         return {"n_ok_pairs": n}
@@ -322,10 +322,10 @@ class TestVerdictLogic:
 
     def test_fail_classify_agreement_below_threshold(self) -> None:
         content = self._ok_content("clusterer.classify")
-        content["assignment_agreement"] = 0.70
+        content["outcome_agreement"] = 0.70  # below min_outcome_agreement: 0.92
         v, fc = _compute_verdict("clusterer.classify", 30, self._rel(), self._rel(), content)
         assert v == "fail"
-        assert "assignment_agreement_below_threshold" in fc
+        assert "outcome_agreement_below_threshold" in fc
 
     def test_pass_merge(self) -> None:
         v, fc = _compute_verdict(
