@@ -11,7 +11,7 @@ from aggregator_common.grades import (
 )
 
 from .config import SummarizeRankSettings
-from .schema import PROMPT_VERSION
+from .schema import PROMPT_VERSION, PROMPT_VERSION_V2
 
 INTEREST_PROFILE_MAX_CHARS = 2_000
 
@@ -78,6 +78,7 @@ def build_messages(
     interest_profile_text: str,
     settings: SummarizeRankSettings,
     enabled_categories: Sequence[_CategoryEntry] | None = None,
+    variant: str = "v1",
 ) -> list[dict[str, str]]:
     is_profiled = bool(interest_profile_text and interest_profile_text.strip())
     system_base = _SYSTEM_WITH_PROFILE if is_profiled else _SYSTEM_NEUTRAL
@@ -121,5 +122,5 @@ def build_messages(
     ]
 
 
-def get_prompt_version() -> str:
-    return PROMPT_VERSION
+def get_prompt_version(variant: str = "v1") -> str:
+    return PROMPT_VERSION_V2 if variant == "v2" else PROMPT_VERSION
