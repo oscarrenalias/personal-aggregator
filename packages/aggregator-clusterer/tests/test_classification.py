@@ -2,17 +2,27 @@
 from __future__ import annotations
 
 import json
+
+import pytest
 from unittest.mock import MagicMock, patch
 
 from aggregator_clusterer.candidates import CandidateMatch
 from aggregator_clusterer.classification import (
     ClassificationResult,
+    _SYSTEM_PROMPT,
+    _SYSTEM_PROMPT_V2,
     _TITLE_LIMIT,
+    _build_system_prompt,
     _truncate_title,
     classify_article,
     is_section_title_blocked,
 )
 from aggregator_clusterer.config import ClustererSettings
+from aggregator_clusterer.worker import (
+    _MERGE_SYSTEM_PROMPT_V1,
+    _MERGE_SYSTEM_PROMPT_V2,
+    _build_merge_messages,
+)
 from aggregator_common.models import ClassificationLabel
 
 from .conftest import make_article, make_source, make_thread
@@ -509,3 +519,193 @@ class TestClustererSettings:
         monkeypatch.setenv("CLUSTERER_MAX_CLASSIFIER_CANDIDATES", "3")
         settings = ClustererSettings()
         assert settings.clusterer_max_classifier_candidates == 3
+
+    # AC4: classify variant validation
+    def test_classify_variant_default_is_v1(self):
+        s = ClustererSettings()
+        assert s.clusterer_classify_prompt_variant == "v1"
+
+    def test_classify_variant_v2_accepted(self, monkeypatch):
+        monkeypatch.setenv("CLUSTERER_CLASSIFY_PROMPT_VARIANT", "v2")
+        s = ClustererSettings()
+        assert s.clusterer_classify_prompt_variant == "v2"
+
+    def test_classify_variant_invalid_raises(self, monkeypatch):
+        monkeypatch.setenv("CLUSTERER_CLASSIFY_PROMPT_VARIANT", "v99")
+        with pytest.raises(Exception) as exc_info:
+            ClustererSettings()
+        assert "CLUSTERER_CLASSIFY_PROMPT_VARIANT" in str(exc_info.value)
+
+    # AC4: merge variant validation
+    def test_merge_variant_default_is_v1(self):
+        s = ClustererSettings()
+        assert s.clusterer_merge_prompt_variant == "v1"
+
+    def test_merge_variant_v2_accepted(self, monkeypatch):
+        monkeypatch.setenv("CLUSTERER_MERGE_PROMPT_VARIANT", "v2")
+        s = ClustererSettings()
+        assert s.clusterer_merge_prompt_variant == "v2"
+
+    def test_merge_variant_invalid_raises(self, monkeypatch):
+        monkeypatch.setenv("CLUSTERER_MERGE_PROMPT_VARIANT", "v99")
+        with pytest.raises(Exception) as exc_info:
+            ClustererSettings()
+        assert "CLUSTERER_MERGE_PROMPT_VARIANT" in str(exc_info.value)
+
+
+# ---------------------------------------------------------------------------
+# AC1: v1 system prompt is byte-identical to default (no variant)
+# AC7: v2 classify prompt contains Thread scope and Examples
+# ---------------------------------------------------------------------------
+
+class TestBuildSystemPromptVariant:
+    def test_v1_returns_v1_constant(self):
+        assert _build_system_prompt("v1") == _SYSTEM_PROMPT
+
+    def test_v2_returns_v2_constant(self):
+        assert _build_system_prompt("v2") == _SYSTEM_PROMPT_V2
+
+    def test_v1_and_v2_differ(self):
+        assert _build_system_prompt("v1") != _build_system_prompt("v2")
+
+    def test_v2_contains_thread_scope(self):
+        prompt = _build_system_prompt("v2")
+        assert "Thread scope" in prompt
+
+    def test_v1_lacks_thread_scope(self):
+        prompt = _build_system_prompt("v1")
+        assert "Thread scope" not in prompt
+
+    def test_v2_contains_examples_section(self):
+        prompt = _build_system_prompt("v2")
+        assert "Examples:" in prompt
+
+    def test_v1_lacks_examples_section(self):
+        prompt = _build_system_prompt("v1")
+        assert "Examples:" not in prompt
+
+    def test_v2_contains_updated_label_semantics(self):
+        # v2 rewrites label semantics to be more specific
+        prompt = _build_system_prompt("v2")
+        assert "no candidate thread covers this story" in prompt
+
+    def test_v1_uses_original_label_semantics(self):
+        prompt = _build_system_prompt("v1")
+        assert "article starts a distinct new story" in prompt
+
+
+# ---------------------------------------------------------------------------
+# AC1: v1 merge messages are byte-identical to default
+# AC7: v2 merge prompt has more permissive same-story guidance
+# ---------------------------------------------------------------------------
+
+class TestBuildMergeMessagesVariant:
+    def _make_mock_thread(self, title="Thread A", summary="Summary A"):
+        from unittest.mock import MagicMock
+        t = MagicMock()
+        t.representative_title = title
+        t.rolling_summary = summary
+        return t
+
+    def test_v1_merge_messages_use_v1_system_prompt(self):
+        keep = self._make_mock_thread("T1", "S1")
+        absorb = self._make_mock_thread("T2", "S2")
+        msgs = _build_merge_messages(keep, absorb, variant="v1")
+        assert msgs[0]["content"] == _MERGE_SYSTEM_PROMPT_V1
+
+    def test_v2_merge_messages_use_v2_system_prompt(self):
+        keep = self._make_mock_thread("T1", "S1")
+        absorb = self._make_mock_thread("T2", "S2")
+        msgs = _build_merge_messages(keep, absorb, variant="v2")
+        assert msgs[0]["content"] == _MERGE_SYSTEM_PROMPT_V2
+
+    def test_default_variant_is_v1(self):
+        keep = self._make_mock_thread("T1", "S1")
+        absorb = self._make_mock_thread("T2", "S2")
+        msgs_default = _build_merge_messages(keep, absorb)
+        msgs_v1 = _build_merge_messages(keep, absorb, variant="v1")
+        assert msgs_default == msgs_v1
+
+    def test_v2_contains_ongoing_story_text(self):
+        assert "ongoing story" in _MERGE_SYSTEM_PROMPT_V2
+
+    def test_v1_uses_conservative_guidance(self):
+        assert "conservative" in _MERGE_SYSTEM_PROMPT_V1.lower()
+
+    def test_v2_and_v1_differ(self):
+        assert _MERGE_SYSTEM_PROMPT_V1 != _MERGE_SYSTEM_PROMPT_V2
+
+
+# ---------------------------------------------------------------------------
+# AC6a: classify_article passes v2 system prompt when configured
+# ---------------------------------------------------------------------------
+
+class TestClassifyWithV2Variant:
+    def test_classify_uses_v2_system_prompt_when_configured(self, db_session):
+        import pytest
+        from aggregator_clusterer.config import ClustererSettings as _CS
+
+        v2_settings = _CS(clusterer_classify_prompt_variant="v2")
+
+        src = make_source(db_session, url="https://v2-cls.test/feed.xml")
+        article = make_article(
+            db_session, source_id=src.id, dedup_key="v2-cls-k1",
+            clean_title="Some News Article",
+            summary="A news development.",
+        )
+        payload = {
+            "label": "new_thread",
+            "thread_id": None,
+            "confidence": 0.9,
+            "new_facts": [],
+            "reason": "New story",
+        }
+        captured_messages = []
+
+        def _capture_llm(**kwargs):
+            captured_messages.extend(kwargs.get("messages", []))
+            response = MagicMock()
+            response.choices = [MagicMock()]
+            response.choices[0].message.content = json.dumps(payload)
+            response.usage = None
+            return response
+
+        with patch("aggregator_clusterer.classification.litellm.completion", side_effect=_capture_llm):
+            result = classify_article(article, [], db_session, v2_settings)
+
+        assert result.is_error is False
+        system_msgs = [m for m in captured_messages if m.get("role") == "system"]
+        assert len(system_msgs) >= 1
+        assert "Thread scope" in system_msgs[0]["content"]
+
+    def test_classify_uses_v1_system_prompt_by_default(self, db_session):
+        src = make_source(db_session, url="https://v1-cls.test/feed.xml")
+        article = make_article(
+            db_session, source_id=src.id, dedup_key="v1-cls-k1",
+            clean_title="Some News Article V1",
+            summary="A news development.",
+        )
+        payload = {
+            "label": "new_thread",
+            "thread_id": None,
+            "confidence": 0.85,
+            "new_facts": [],
+            "reason": "New story",
+        }
+        captured_messages = []
+
+        def _capture_llm(**kwargs):
+            captured_messages.extend(kwargs.get("messages", []))
+            response = MagicMock()
+            response.choices = [MagicMock()]
+            response.choices[0].message.content = json.dumps(payload)
+            response.usage = None
+            return response
+
+        with patch("aggregator_clusterer.classification.litellm.completion", side_effect=_capture_llm):
+            result = classify_article(article, [], db_session, _SETTINGS)
+
+        assert result.is_error is False
+        system_msgs = [m for m in captured_messages if m.get("role") == "system"]
+        assert len(system_msgs) >= 1
+        assert "Thread scope" not in system_msgs[0]["content"]

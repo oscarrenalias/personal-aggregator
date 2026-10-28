@@ -7,11 +7,17 @@ import pytest
 from aggregator_summarize_rank.config import SummarizeRankSettings
 from aggregator_summarize_rank.prompt import (
     INTEREST_PROFILE_MAX_CHARS,
+    _CALIBRATION_NEUTRAL,
+    _CALIBRATION_WITH_PROFILE,
+    _SYSTEM_NEUTRAL,
+    _SYSTEM_NEUTRAL_V2,
+    _SYSTEM_WITH_PROFILE,
+    _SYSTEM_WITH_PROFILE_V2,
     _build_category_instruction,
     build_messages,
     get_prompt_version,
 )
-from aggregator_summarize_rank.schema import PROMPT_VERSION
+from aggregator_summarize_rank.schema import PROMPT_VERSION, PROMPT_VERSION_V2
 
 
 @pytest.fixture
@@ -149,6 +155,15 @@ class TestGetPromptVersion:
     def test_prompt_version_is_1_3_0(self):
         assert PROMPT_VERSION == "1.3.0"
 
+    def test_explicit_v1_returns_v1_version(self):
+        assert get_prompt_version("v1") == PROMPT_VERSION
+
+    def test_explicit_v2_returns_v2_version(self):
+        assert get_prompt_version("v2") == PROMPT_VERSION_V2
+
+    def test_v1_and_v2_versions_differ(self):
+        assert get_prompt_version("v1") != get_prompt_version("v2")
+
 
 class _Cat:
     """Minimal _CategoryEntry stand-in for tests."""
@@ -260,3 +275,81 @@ class TestCategoryInstructionStrengthened:
         cats = [_Cat("SoftwareEngineering", "Software engineering. EXCLUDES video games.")]
         text = _build_category_instruction(cats)
         assert "EXCLUDES video games" in text
+
+
+# ---------------------------------------------------------------------------
+# AC1: v1 messages are byte-identical to default (no variant arg)
+# ---------------------------------------------------------------------------
+
+class TestV1ByteIdentity:
+    def test_v1_messages_identical_to_default_no_profile(self, default_settings):
+        article = {"clean_text": "x" * 300}
+        msgs_default = build_messages(article, "", default_settings)
+        msgs_v1 = build_messages(article, "", default_settings, variant="v1")
+        assert msgs_v1 == msgs_default
+
+    def test_v1_messages_identical_to_default_with_profile(self, default_settings):
+        article = {"clean_text": "x" * 300}
+        msgs_default = build_messages(article, "I like tech", default_settings)
+        msgs_v1 = build_messages(article, "I like tech", default_settings, variant="v1")
+        assert msgs_v1 == msgs_default
+
+    def test_v1_system_prompt_is_v1_constant_no_profile(self):
+        assert _SYSTEM_NEUTRAL in _SYSTEM_NEUTRAL
+
+    def test_v1_system_prompt_is_v1_constant_with_profile(self):
+        assert _SYSTEM_WITH_PROFILE in _SYSTEM_WITH_PROFILE
+
+
+# ---------------------------------------------------------------------------
+# AC7: v2 prompts contain calibration blocks absent from v1
+# ---------------------------------------------------------------------------
+
+class TestV2PromptCalibrationBlocks:
+    def test_v2_neutral_contains_calibration_block(self):
+        assert _CALIBRATION_NEUTRAL in _SYSTEM_NEUTRAL_V2
+
+    def test_v1_neutral_lacks_calibration_block(self):
+        assert _CALIBRATION_NEUTRAL not in _SYSTEM_NEUTRAL
+
+    def test_v2_profiled_contains_calibration_block(self):
+        assert _CALIBRATION_WITH_PROFILE in _SYSTEM_WITH_PROFILE_V2
+
+    def test_v1_profiled_lacks_calibration_block(self):
+        assert _CALIBRATION_WITH_PROFILE not in _SYSTEM_WITH_PROFILE
+
+    def test_build_messages_v2_no_profile_has_calibration(self, default_settings):
+        msgs = build_messages({"clean_text": "x" * 300}, "", default_settings, variant="v2")
+        assert "Calibration" in msgs[0]["content"]
+
+    def test_build_messages_v1_no_profile_lacks_calibration(self, default_settings):
+        msgs = build_messages({"clean_text": "x" * 300}, "", default_settings, variant="v1")
+        assert "Calibration" not in msgs[0]["content"]
+
+    def test_build_messages_v2_with_profile_has_calibration(self, default_settings):
+        msgs = build_messages({"clean_text": "x" * 300}, "I like AI", default_settings, variant="v2")
+        assert "Calibration" in msgs[0]["content"]
+
+    def test_build_messages_v1_with_profile_lacks_calibration(self, default_settings):
+        msgs = build_messages({"clean_text": "x" * 300}, "I like AI", default_settings, variant="v1")
+        assert "Calibration" not in msgs[0]["content"]
+
+
+# ---------------------------------------------------------------------------
+# AC4: SummarizeRankSettings variant config validation
+# ---------------------------------------------------------------------------
+
+class TestSummarizeRankSettingsVariantValidation:
+    def test_default_is_v1(self, default_settings):
+        assert default_settings.summarize_rank_prompt_variant == "v1"
+
+    def test_v2_accepted(self, monkeypatch):
+        monkeypatch.setenv("SUMMARIZE_RANK_PROMPT_VARIANT", "v2")
+        s = SummarizeRankSettings()
+        assert s.summarize_rank_prompt_variant == "v2"
+
+    def test_invalid_value_raises_with_env_var_name(self, monkeypatch):
+        monkeypatch.setenv("SUMMARIZE_RANK_PROMPT_VARIANT", "v99")
+        with pytest.raises(Exception) as exc_info:
+            SummarizeRankSettings()
+        assert "SUMMARIZE_RANK_PROMPT_VARIANT" in str(exc_info.value)
