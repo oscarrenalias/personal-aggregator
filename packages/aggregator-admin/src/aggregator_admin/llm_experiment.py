@@ -45,7 +45,7 @@ CRITERIA_THRESHOLDS: Dict[str, Any] = {
         # Disagreement rule: |Δimportance_score| >= this triggers a disagreement
         "max_score_delta_for_disagree": 15,
     },
-    "clusterer.classify": {"min_assignment_agreement": 0.85},
+    "clusterer.classify": {"min_outcome_agreement": 0.92},
     "clusterer.merge": {"min_agreement": 0.90, "max_arm_only_merges": 0.05},
 }
 
@@ -72,6 +72,17 @@ _THREAD_TITLE_LABELS: frozenset = frozenset({"new_thread", "related_new_thread"}
 
 # Operations where the verdict is always "review" (no content pass/fail criteria).
 _REVIEW_OPERATIONS: frozenset = frozenset({"clusterer.consolidate_facts", "brief.generate"})
+
+
+def _classify_outcome(label: str, thread_id: Optional[str]) -> str:
+    """Map a classify label to a coarser outcome category for outcome_agreement."""
+    if label in _ATTACHING_LABELS:
+        return f"attach:{thread_id}"
+    if label == "irrelevant_or_low_value":
+        return "drop"
+    if label in _THREAD_TITLE_LABELS:
+        return "new"
+    return f"other:{label}"
 
 
 # ---------------------------------------------------------------------------
@@ -195,9 +206,9 @@ def _compute_verdict(
 
     elif op_key == "clusterer.classify":
         t = CRITERIA_THRESHOLDS["clusterer.classify"]
-        agr = content.get("assignment_agreement")
-        if agr is not None and agr < t["min_assignment_agreement"]:
-            failed.append("assignment_agreement_below_threshold")
+        agr = content.get("outcome_agreement")
+        if agr is not None and agr < t["min_outcome_agreement"]:
+            failed.append("outcome_agreement_below_threshold")
 
     elif op_key == "clusterer.merge":
         t = CRITERIA_THRESHOLDS["clusterer.merge"]
@@ -713,11 +724,16 @@ def _content_clusterer_classify(ok_pairs: List[Tuple[Dict, Dict]]) -> Dict[str, 
     n = len(ok_pairs)
     label_agree = 0
     assignment_agree = 0
+    outcome_agree = 0
+    ctrl_attach_arm_new_count = 0
+    ctrl_new_arm_attach_count = 0
+    both_attach_diff_thread_count = 0
     conf_agree_ctrl: List[float] = []
     conf_agree_arm: List[float] = []
     conf_disagree_ctrl: List[float] = []
     conf_disagree_arm: List[float] = []
-    facts_len_diffs: List[float] = []
+    new_facts_ctrl: List[float] = []
+    new_facts_arm: List[float] = []
     thread_title_present = 0
     thread_title_total = 0
     label_confusion: Dict[str, Dict[str, int]] = defaultdict(lambda: defaultdict(int))
@@ -744,6 +760,24 @@ def _content_clusterer_classify(ok_pairs: List[Tuple[Dict, Dict]]) -> Dict[str, 
         if assigns_match:
             assignment_agree += 1
 
+        # Outcome classification: coarser than label+thread_id.
+        ctrl_outcome = _classify_outcome(cl, ct)
+        arm_outcome = _classify_outcome(al, at)
+        if ctrl_outcome == arm_outcome:
+            outcome_agree += 1
+        else:
+            ctrl_is_attach = cl in _ATTACHING_LABELS
+            arm_is_attach = al in _ATTACHING_LABELS
+            ctrl_is_new = cl in _THREAD_TITLE_LABELS
+            arm_is_new = al in _THREAD_TITLE_LABELS
+            if ctrl_is_attach and arm_is_new:
+                ctrl_attach_arm_new_count += 1
+            elif ctrl_is_new and arm_is_attach:
+                ctrl_new_arm_attach_count += 1
+            elif ctrl_is_attach and arm_is_attach:
+                # Both attaching but to different thread IDs (otherwise outcomes would match).
+                both_attach_diff_thread_count += 1
+
         cc = ctrl_out.get("confidence")
         ac = arm_out.get("confidence")
         if assigns_match:
@@ -759,7 +793,8 @@ def _content_clusterer_classify(ok_pairs: List[Tuple[Dict, Dict]]) -> Dict[str, 
 
         ctrl_facts = ctrl_out.get("new_facts") or []
         arm_facts = arm_out.get("new_facts") or []
-        facts_len_diffs.append(float(len(arm_facts) - len(ctrl_facts)))
+        new_facts_ctrl.append(float(len(ctrl_facts)))
+        new_facts_arm.append(float(len(arm_facts)))
 
         for out in (ctrl_out, arm_out):
             if out.get("label", "") in _THREAD_TITLE_LABELS:
@@ -767,10 +802,21 @@ def _content_clusterer_classify(ok_pairs: List[Tuple[Dict, Dict]]) -> Dict[str, 
                 if out.get("thread_title"):
                     thread_title_present += 1
 
+    facts_len_diffs = [a - c for a, c in zip(new_facts_arm, new_facts_ctrl)]
+
     return {
         "n_ok_pairs": n,
         "label_agreement": round(label_agree / n, 4) if n else None,
         "assignment_agreement": round(assignment_agree / n, 4) if n else None,
+        "outcome_agreement": round(outcome_agree / n, 4) if n else None,
+        "ctrl_attach_arm_new": ctrl_attach_arm_new_count,
+        "ctrl_attach_arm_new_rate": round(ctrl_attach_arm_new_count / n, 4) if n else None,
+        "ctrl_new_arm_attach": ctrl_new_arm_attach_count,
+        "ctrl_new_arm_attach_rate": round(ctrl_new_arm_attach_count / n, 4) if n else None,
+        "both_attach_diff_thread": both_attach_diff_thread_count,
+        "both_attach_diff_thread_rate": round(both_attach_diff_thread_count / n, 4) if n else None,
+        "mean_new_facts_ctrl": statistics.mean(new_facts_ctrl) if new_facts_ctrl else None,
+        "mean_new_facts_arm": statistics.mean(new_facts_arm) if new_facts_arm else None,
         "label_confusion": {k: dict(v) for k, v in label_confusion.items()},
         "mean_confidence_agreeing_control": (
             statistics.mean(conf_agree_ctrl) if conf_agree_ctrl else None

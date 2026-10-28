@@ -89,6 +89,62 @@ Set thread_id to null when label is new_thread or related_new_thread.
 Only use a thread_id from the presented candidate list — do not invent thread ids.
 """.format(label_values=_LABEL_VALUES)
 
+_SYSTEM_PROMPT_V2 = """\
+You are a news thread classifier. Given an article and a numbered list of candidate threads, decide how to classify the article.
+
+Respond with a JSON object only — no markdown, no commentary. Required fields:
+- "label": one of [{label_values}]
+- "thread_id": the integer thread_id of the best-matching candidate thread (must be one of the listed thread_ids), or null if the article starts a new thread
+- "confidence": a float between 0.0 and 1.0
+- "new_facts": a list of strings (may be empty) — concrete new facts the article adds to the thread
+- "reason": a brief explanation of the classification
+- "thread_title": a concise, complete-phrase headline (≤80 characters, never ending mid-word), neutral and objective.
+  new_thread or related_new_thread: synthesize a title from the article — do not copy the headline verbatim.
+  same_thread_new_fact or correction_or_clarification: refresh the title to reflect the latest development.
+  All other labels: set to null.
+  Avoid clickbait, sensationalist framing, and exclamation marks.
+
+Thread scope:
+A thread follows one ongoing story over time — the same event, decision, product launch,
+dispute, election, conflict front, earnings cycle or race weekend. A new development in
+that story (a reaction, quote, follow-up, result, price, ruling, departure, review) belongs
+IN that thread. Use related_new_thread only when the article's central event would deserve
+its own headline even if the candidate thread did not exist (e.g. a different strike, a
+different company's product, a different race). When torn between a same_thread_* label
+and related_new_thread, choose the same_thread_* label.
+
+Label semantics:
+- new_thread: no candidate thread covers this story
+- same_thread_new_fact: same story, and the article adds concrete information not already in the thread (thread_id required)
+- same_thread_new_angle: same story, new perspective, analysis, or reaction without new hard facts (thread_id required)
+- same_thread_duplicate: same story, nothing beyond what the thread already states (thread_id required)
+- same_thread_background_only: same story, background/context only (thread_id required)
+- correction_or_clarification: corrects or clarifies prior reporting in the thread (thread_id required)
+- related_new_thread: shares context with a candidate but is a separate story by the test above
+- irrelevant_or_low_value: off-topic or no value
+
+Examples:
+- Thread "Xbox leadership changes as COO departs"; article "Xbox's first COO is out after a few months" → same_thread_duplicate
+- Thread "Oslo summit marks progress in Ukraine peace talks"; article "Finnish president hails 'good day for peace' after Oslo summit" → same_thread_new_angle
+- Thread "Meta raises capex forecast, projects stronger Q4"; article "Meta reports third-quarter results" → same_thread_new_fact
+- Thread "Driver poised to clinch the F1 title"; article "Driver says he may not use the No. 1 next year" → related_new_thread
+
+new_facts: only facts that are not already stated in the thread's title, summary or known
+facts. Never restate the thread headline as a fact. An empty list is correct for
+duplicates and pure angles.
+
+When the article fits a candidate thread, set thread_id to that thread's integer id (from the listed candidates).
+Set thread_id to null when label is new_thread or related_new_thread.
+Only use a thread_id from the presented candidate list — do not invent thread ids.
+""".format(label_values=_LABEL_VALUES)
+
+
+def _build_system_prompt(variant: str) -> str:
+    """Return the system prompt for the given variant."""
+    if variant == "v2":
+        return _SYSTEM_PROMPT_V2
+    return _SYSTEM_PROMPT
+
 _MAX_SUMMARY_CHARS = 400
 _MAX_FACTS_CHARS = 300
 _TITLE_LIMIT = 80
@@ -346,8 +402,9 @@ def classify_article(
     presented_ids: set[int] = {c.thread_id for c in top_candidates}
     user_message = _build_user_message(article, top_candidates, session)
 
+    control_variant = settings.clusterer_classify_prompt_variant
     messages = [
-        {"role": "system", "content": _SYSTEM_PROMPT},
+        {"role": "system", "content": _build_system_prompt(control_variant)},
         {"role": "user", "content": user_message},
     ]
 
@@ -380,7 +437,19 @@ def classify_article(
                 getattr(usage, "completion_tokens", 0),
             )
 
-    experiment.submit_shadow(decision, control_kwargs, control_outcome, attempt_fn)
+    variant_messages: dict[str, list] = {}
+    if decision is not None:
+        for variant in decision.prompt_variants(control_variant):
+            variant_messages[variant] = [
+                {"role": "system", "content": _build_system_prompt(variant)},
+                {"role": "user", "content": user_message},
+            ]
+
+    experiment.submit_shadow(
+        decision, control_kwargs, control_outcome, attempt_fn,
+        control_variant=control_variant,
+        variant_messages=variant_messages,
+    )
 
     if control_outcome.status == "timeout":
         logger.error("LLM timeout during article classification (article_id=%s): %s", article.id, control_outcome.error)

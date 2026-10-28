@@ -1,5 +1,7 @@
 """Tests for aggregator_brief.config — BriefSettings field defaults and env overrides."""
 
+import pytest
+
 from aggregator_brief.config import BriefSettings
 
 
@@ -52,3 +54,24 @@ class TestBriefSettingsEnvOverride:
         monkeypatch.setenv("BRIEF_PERIOD_HOURS", "48")
         s = BriefSettings()
         assert s.brief_period_hours == 48
+
+
+# ---------------------------------------------------------------------------
+# AC4: BriefSettings prompt variant validation
+# ---------------------------------------------------------------------------
+
+class TestBriefSettingsVariantValidation:
+    def test_default_prompt_variant_is_v1(self):
+        s = BriefSettings()
+        assert s.brief_prompt_variant == "v1"
+
+    def test_v2_prompt_variant_accepted(self, monkeypatch):
+        monkeypatch.setenv("BRIEF_PROMPT_VARIANT", "v2")
+        s = BriefSettings()
+        assert s.brief_prompt_variant == "v2"
+
+    def test_invalid_prompt_variant_raises_with_env_var_name(self, monkeypatch):
+        monkeypatch.setenv("BRIEF_PROMPT_VARIANT", "v99")
+        with pytest.raises(Exception) as exc_info:
+            BriefSettings()
+        assert "BRIEF_PROMPT_VARIANT" in str(exc_info.value)

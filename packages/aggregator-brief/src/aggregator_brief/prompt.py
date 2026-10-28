@@ -41,18 +41,32 @@ brief. The loop ends when you call it; do not call any tool after `submit_brief`
 Be selective: surface what matters to this user, not everything. Cap yourself at {max_topics} topics.\
 """
 
+_ACCURACY_AND_VOICE_V2 = (
+    "## Accuracy and voice\n\n"
+    "- State only facts that appear in the provided articles or in tool results. Never infer\n"
+    "  an outcome (a winner, a result, a vote count, a price) that no article states; if\n"
+    "  articles conflict, say so or leave the claim out.\n"
+    "- The intro summarises only topics that appear in the brief, using the same facts.\n"
+    "- Write for the reader. Never mention the candidate set, seed data, tools, your selection\n"
+    "  process or your confidence in the brief text."
+)
 
-def build_system_prompt(settings: BriefSettings, interest_profile: str) -> str:
+
+def build_system_prompt(settings: BriefSettings, interest_profile: str, variant: str = "v1") -> str:
     profile_text = (
         interest_profile.strip()
         if interest_profile and interest_profile.strip()
         else "(no interest profile configured — use general newsworthiness)"
     )
-    return _SYSTEM_TEMPLATE.format(
+    rendered = _SYSTEM_TEMPLATE.format(
         period_hours=settings.brief_period_hours,
         interest_profile=profile_text,
         max_topics=settings.brief_max_topics,
     )
+    if variant == "v2":
+        before, sep, after = rendered.partition("\n\nBe selective:")
+        rendered = before + "\n\n" + _ACCURACY_AND_VOICE_V2 + sep + after
+    return rendered
 
 
 def build_seed_messages(

@@ -29,6 +29,52 @@ logger = logging.getLogger(__name__)
 # Stable advisory lock key for the clusterer daemon ('CRLS' hex → 1129855059)
 _ADVISORY_LOCK_KEY = 1129855059
 
+# Merge system prompt: shared prefix + per-variant suffix
+_MERGE_SYSTEM_PROMPT_V1 = (
+    "You are a news editor deciding whether two thread summaries cover the "
+    "same story. Reply with a JSON object only — no markdown: "
+    '{"same_story": true|false, "reason": "..."}. '
+    "Be conservative: only answer true when both threads are unambiguously "
+    "about the same event or ongoing story."
+)
+
+_MERGE_SYSTEM_PROMPT_V2 = (
+    "You are a news editor deciding whether two thread summaries cover the "
+    "same story. Reply with a JSON object only — no markdown: "
+    '{"same_story": true|false, "reason": "..."}. '
+    "Answer true when both threads follow the same ongoing story, even if each focuses on a "
+    "different development or angle of it — e.g. qualifying and the race of the same grand "
+    "prix, polls and the result of the same election, the features and the security fixes of "
+    "the same software release. Answer false when they only share a domain, a company or a "
+    "person but cover separate stories — e.g. two different elections, two different products "
+    "from one company, a game's reviews and an unrelated patch, or a reaction piece about a "
+    "different event. If unsure, answer false."
+)
+
+_MERGE_SYSTEM_PROMPTS: dict[str, str] = {
+    "v1": _MERGE_SYSTEM_PROMPT_V1,
+    "v2": _MERGE_SYSTEM_PROMPT_V2,
+}
+
+
+def _build_merge_messages(keep: "Thread", absorb: "Thread", variant: str = "v1") -> list:
+    return [
+        {
+            "role": "system",
+            "content": _MERGE_SYSTEM_PROMPTS[variant],
+        },
+        {
+            "role": "user",
+            "content": (
+                f"Thread A:\nTitle: {keep.representative_title or '(no title)'}\n"
+                f"Summary: {keep.rolling_summary or '(no summary)'}\n\n"
+                f"Thread B:\nTitle: {absorb.representative_title or '(no title)'}\n"
+                f"Summary: {absorb.rolling_summary or '(no summary)'}\n\n"
+                "Are these the same story?"
+            ),
+        },
+    ]
+
 
 def _make_llm_facts_fn(settings: ClustererSettings) -> Callable[[int, list[str]], list[str] | None]:
     """Return a litellm-backed known_facts summariser for the facts consolidation pass.
@@ -106,31 +152,11 @@ def _make_llm_merge_fn(settings: ClustererSettings) -> Callable[[Thread, Thread]
     Fail-open: returns False (don't merge) on any LLM or parse error so a bad
     response never crashes the consolidation pass.
     """
+    control_variant = settings.clusterer_merge_prompt_variant
 
     def llm_merge_fn(keep: Thread, absorb: Thread) -> bool:
         ref_id = f"{min(keep.id, absorb.id)}:{max(keep.id, absorb.id)}"
-        messages = [
-            {
-                "role": "system",
-                "content": (
-                    "You are a news editor deciding whether two thread summaries cover the "
-                    "same story. Reply with a JSON object only — no markdown: "
-                    '{"same_story": true|false, "reason": "..."}. '
-                    "Be conservative: only answer true when both threads are unambiguously "
-                    "about the same event or ongoing story."
-                ),
-            },
-            {
-                "role": "user",
-                "content": (
-                    f"Thread A:\nTitle: {keep.representative_title or '(no title)'}\n"
-                    f"Summary: {keep.rolling_summary or '(no summary)'}\n\n"
-                    f"Thread B:\nTitle: {absorb.representative_title or '(no title)'}\n"
-                    f"Summary: {absorb.rolling_summary or '(no summary)'}\n\n"
-                    "Are these the same story?"
-                ),
-            },
-        ]
+        messages = _build_merge_messages(keep, absorb, variant=control_variant)
         base_metadata: dict = {"service": "clusterer", "operation": "merge", "ref_id": ref_id}
         decision = experiment.decide("clusterer.merge", ref_id)
 
@@ -169,7 +195,23 @@ def _make_llm_merge_fn(settings: ClustererSettings) -> Callable[[Thread, Thread]
             )
             return False
 
-        experiment.submit_shadow(decision, control_kwargs, control_outcome, attempt)
+        variant_messages: dict | None = None
+        if decision is not None:
+            needed = decision.prompt_variants(control_variant)
+            if needed:
+                variant_messages = {
+                    v: _build_merge_messages(keep, absorb, variant=v)
+                    for v in needed
+                }
+
+        experiment.submit_shadow(
+            decision,
+            control_kwargs,
+            control_outcome,
+            attempt,
+            control_variant=control_variant,
+            variant_messages=variant_messages,
+        )
         return bool(control_outcome.value)
 
     return llm_merge_fn

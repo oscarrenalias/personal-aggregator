@@ -11,7 +11,7 @@ from aggregator_common.grades import (
 )
 
 from .config import SummarizeRankSettings
-from .schema import PROMPT_VERSION
+from .schema import PROMPT_VERSION, PROMPT_VERSION_V2
 
 INTEREST_PROFILE_MAX_CHARS = 2_000
 
@@ -52,6 +52,33 @@ You are an article analyst. For the article provided:
    Consider: newsworthiness, novelty, practical value, and breadth of potential interest.
 4. Give a one-sentence reason for the score."""
 
+_CALIBRATION_WITH_PROFILE = """\
+   Calibration:
+   - Use specific values across the whole range; do not default to round numbers such as 70 or 75.
+   - When the profile names something as highest priority (for example live race-weekend
+     coverage: practice, qualifying, race results, penalties that change results), score
+     matching articles 70 or higher unless they are trivial.
+   - Flagship releases from leading AI labs (new frontier models, major agentic-coding tools)
+     score 70 or higher for a profile with AI as a high-priority interest.
+   - Funding rounds, valuations and company launches stay at most good-to-know unless the
+     profile explicitly prioritises them, regardless of the subject area."""
+
+_CALIBRATION_NEUTRAL = """\
+   Calibration:
+   - Use specific values across the whole range; do not default to round numbers such as 70 or 75."""
+
+_STEP4 = "\n4. Give a one-sentence reason for the score."
+
+_SYSTEM_WITH_PROFILE_V2 = _SYSTEM_WITH_PROFILE.replace(
+    _STEP4,
+    "\n" + _CALIBRATION_WITH_PROFILE + _STEP4,
+)
+
+_SYSTEM_NEUTRAL_V2 = _SYSTEM_NEUTRAL.replace(
+    _STEP4,
+    "\n" + _CALIBRATION_NEUTRAL + _STEP4,
+)
+
 _SYSTEM_SUFFIX = "\n\nRespond with valid JSON matching the RankResult schema."
 
 
@@ -78,9 +105,13 @@ def build_messages(
     interest_profile_text: str,
     settings: SummarizeRankSettings,
     enabled_categories: Sequence[_CategoryEntry] | None = None,
+    variant: str = "v1",
 ) -> list[dict[str, str]]:
     is_profiled = bool(interest_profile_text and interest_profile_text.strip())
-    system_base = _SYSTEM_WITH_PROFILE if is_profiled else _SYSTEM_NEUTRAL
+    if variant == "v2":
+        system_base = _SYSTEM_WITH_PROFILE_V2 if is_profiled else _SYSTEM_NEUTRAL_V2
+    else:
+        system_base = _SYSTEM_WITH_PROFILE if is_profiled else _SYSTEM_NEUTRAL
 
     if enabled_categories:
         system_content = (
@@ -121,5 +152,5 @@ def build_messages(
     ]
 
 
-def get_prompt_version() -> str:
-    return PROMPT_VERSION
+def get_prompt_version(variant: str = "v1") -> str:
+    return PROMPT_VERSION_V2 if variant == "v2" else PROMPT_VERSION

@@ -643,6 +643,275 @@ class TestQueueFull:
 
 
 # ---------------------------------------------------------------------------
+# AC2 (prompt variant): unregistered or empty prompt disables experiment
+# ---------------------------------------------------------------------------
+
+class TestPromptVariantValidation:
+    def _count_errors(self, caplog, fn):
+        with caplog.at_level(logging.ERROR, logger="aggregator_common.experiment"):
+            fn()
+        return sum(1 for r in caplog.records if r.levelno == logging.ERROR)
+
+    def _cfg_with_prompt(self, prompt_val):
+        return json.dumps({
+            "enabled": True,
+            "name": "test-exp",
+            "until": _UNTIL_FUTURE,
+            "max_daily_cost_usd": 100.0,
+            "operations": {
+                "summarize_rank.rank": {
+                    "sample_rate": 1.0,
+                    "arms": [{"name": "a", "model": "m", "params": {}, "prompt": prompt_val}],
+                }
+            },
+        })
+
+    def test_unregistered_prompt_logs_one_error(self, caplog):
+        count = self._count_errors(
+            caplog,
+            lambda: _exp_module.init(_make_settings(self._cfg_with_prompt("v3"))),
+        )
+        assert count == 1
+        assert _exp_module._config is None
+
+    def test_empty_string_prompt_logs_one_error(self, caplog):
+        count = self._count_errors(
+            caplog,
+            lambda: _exp_module.init(_make_settings(self._cfg_with_prompt(""))),
+        )
+        assert count == 1
+        assert _exp_module._config is None
+
+    def test_valid_v1_prompt_accepted(self, caplog):
+        count = self._count_errors(
+            caplog,
+            lambda: _exp_module.init(_make_settings(self._cfg_with_prompt("v1"))),
+        )
+        assert count == 0
+        assert _exp_module._config is not None
+
+    def test_valid_v2_prompt_accepted(self, caplog):
+        count = self._count_errors(
+            caplog,
+            lambda: _exp_module.init(_make_settings(self._cfg_with_prompt("v2"))),
+        )
+        assert count == 0
+        assert _exp_module._config is not None
+
+
+# ---------------------------------------------------------------------------
+# AC3 (prompt_variants): Decision.prompt_variants returns non-control variants
+# ---------------------------------------------------------------------------
+
+class TestDecisionPromptVariants:
+    def test_returns_non_control_variants(self):
+        decision = _exp_module.Decision(
+            name="x", key="summarize_rank.rank", ref_id="1",
+            arms=[
+                _exp_module.Arm(name="ctrl", model="m", params={}, prompt="v1"),
+                _exp_module.Arm(name="exp", model="m2", params={}, prompt="v2"),
+            ],
+        )
+        assert decision.prompt_variants("v1") == {"v2"}
+
+    def test_excludes_control_variant(self):
+        decision = _exp_module.Decision(
+            name="x", key="summarize_rank.rank", ref_id="1",
+            arms=[
+                _exp_module.Arm(name="a", model="m", params={}, prompt="v1"),
+            ],
+        )
+        assert decision.prompt_variants("v1") == set()
+
+    def test_multiple_arms_same_extra_variant(self):
+        decision = _exp_module.Decision(
+            name="x", key="summarize_rank.rank", ref_id="1",
+            arms=[
+                _exp_module.Arm(name="a", model="m1", params={}, prompt="v2"),
+                _exp_module.Arm(name="b", model="m2", params={}, prompt="v2"),
+            ],
+        )
+        assert decision.prompt_variants("v1") == {"v2"}
+
+    def test_all_arms_on_control_variant_returns_empty(self):
+        decision = _exp_module.Decision(
+            name="x", key="summarize_rank.rank", ref_id="1",
+            arms=[
+                _exp_module.Arm(name="a", model="m1", params={}, prompt="v2"),
+                _exp_module.Arm(name="b", model="m2", params={}, prompt="v2"),
+            ],
+        )
+        assert decision.prompt_variants("v2") == set()
+
+
+# ---------------------------------------------------------------------------
+# AC3 (three-row write): submit_shadow with v1+v2 arms writes 3 rows with
+# correct prompt hashes and params.prompt keys
+# ---------------------------------------------------------------------------
+
+class TestProcessItemWithVariantMessages:
+    def test_three_rows_written_with_correct_params(self, db_session_factory):
+        """v1-arm (control) and v2-arm produce three rows; v2 has different prompt_hash."""
+        import aggregator_common.db as db_mod
+        db_mod.SessionFactory = db_session_factory
+
+        cfg = json.dumps({
+            "enabled": True,
+            "name": "variant-exp",
+            "until": _UNTIL_FUTURE,
+            "max_daily_cost_usd": 100.0,
+            "operations": {
+                "summarize_rank.rank": {
+                    "sample_rate": 1.0,
+                    "arms": [
+                        {"name": "v1-arm", "model": "m1", "params": {}, "prompt": "v1"},
+                        {"name": "v2-arm", "model": "m2", "params": {}, "prompt": "v2"},
+                    ],
+                }
+            },
+        })
+        _exp_module.init(_make_settings(cfg))
+
+        v1_msgs = [{"role": "system", "content": "v1 prompt"}]
+        v2_msgs = [{"role": "system", "content": "v2 prompt different"}]
+        ref = "variant-three-rows-ref-42"
+
+        decision = _exp_module.Decision(
+            name="variant-exp", key="summarize_rank.rank", ref_id=ref,
+            arms=[
+                _exp_module.Arm(name="v1-arm", model="m1", params={}, prompt="v1"),
+                _exp_module.Arm(name="v2-arm", model="m2", params={}, prompt="v2"),
+            ],
+        )
+        control_outcome = _exp_module.CallOutcome(
+            status="ok", value=None, output=None,
+            raw_output=None, attempts=1, request_ids=[], error=None,
+        )
+
+        def fake_attempt(kw):
+            return _exp_module.CallOutcome(
+                status="ok", value=None, output=None,
+                raw_output=None, attempts=1, request_ids=[], error=None,
+            )
+
+        _exp_module.submit_shadow(
+            decision,
+            {"model": "ctrl-model", "messages": v1_msgs},
+            control_outcome,
+            fake_attempt,
+            control_variant="v1",
+            variant_messages={"v2": v2_msgs},
+        )
+
+        # Give executor time to process
+        time.sleep(0.5)
+
+        sess = db_session_factory()
+        try:
+            from aggregator_common.models import LlmShadowResult
+            from sqlalchemy import select as sa_select
+            rows = sess.execute(
+                sa_select(LlmShadowResult).where(LlmShadowResult.ref_id == ref)
+            ).scalars().all()
+            assert len(rows) == 3
+
+            by_arm = {r.arm: r for r in rows}
+            assert "control" in by_arm
+            assert "v1-arm" in by_arm
+            assert "v2-arm" in by_arm
+
+            # v2-arm must have a different prompt_hash from control/v1-arm
+            ctrl_hash = by_arm["control"].prompt_hash
+            v2_hash = by_arm["v2-arm"].prompt_hash
+            assert ctrl_hash != v2_hash
+
+            # v2-arm must record params.prompt = "v2"
+            assert by_arm["v2-arm"].params.get("prompt") == "v2"
+
+            # v1-arm control row must have no prompt key in params (v1 is control)
+            assert "prompt" not in by_arm["control"].params
+        finally:
+            sess.close()
+
+
+# ---------------------------------------------------------------------------
+# AC6b: MissingPromptVariant in _process_item → api_error row for that arm
+# ---------------------------------------------------------------------------
+
+class TestMissingPromptVariantProducesApiError:
+    def test_missing_variant_writes_api_error_row(self, db_session_factory):
+        """Empty variant_messages={} causes v2 arm to get api_error; v1 arm still gets ok."""
+        import aggregator_common.db as db_mod
+        db_mod.SessionFactory = db_session_factory
+
+        cfg = json.dumps({
+            "enabled": True,
+            "name": "miss-exp",
+            "until": _UNTIL_FUTURE,
+            "max_daily_cost_usd": 100.0,
+            "operations": {
+                "summarize_rank.rank": {
+                    "sample_rate": 1.0,
+                    "arms": [
+                        {"name": "ok-arm", "model": "m1", "params": {}, "prompt": "v1"},
+                        {"name": "miss-arm", "model": "m2", "params": {}, "prompt": "v2"},
+                    ],
+                }
+            },
+        })
+        _exp_module.init(_make_settings(cfg))
+
+        ref = "missing-variant-ref-77"
+        decision = _exp_module.Decision(
+            name="miss-exp", key="summarize_rank.rank", ref_id=ref,
+            arms=[
+                _exp_module.Arm(name="ok-arm", model="m1", params={}, prompt="v1"),
+                _exp_module.Arm(name="miss-arm", model="m2", params={}, prompt="v2"),
+            ],
+        )
+        control_outcome = _exp_module.CallOutcome(
+            status="ok", value=None, output=None,
+            raw_output=None, attempts=1, request_ids=[], error=None,
+        )
+
+        def fake_attempt(kw):
+            return _exp_module.CallOutcome(
+                status="ok", value=None, output=None,
+                raw_output=None, attempts=1, request_ids=[], error=None,
+            )
+
+        # Pass empty variant_messages — v2 variant is missing, must produce api_error
+        _exp_module.submit_shadow(
+            decision,
+            {"model": "ctrl-model", "messages": [{"role": "system", "content": "ctrl"}]},
+            control_outcome,
+            fake_attempt,
+            control_variant="v1",
+            variant_messages={},
+        )
+
+        time.sleep(0.5)
+
+        sess = db_session_factory()
+        try:
+            from aggregator_common.models import LlmShadowResult
+            from sqlalchemy import select as sa_select
+            rows = sess.execute(
+                sa_select(LlmShadowResult).where(LlmShadowResult.ref_id == ref)
+            ).scalars().all()
+            assert len(rows) == 3
+
+            by_arm = {r.arm: r for r in rows}
+            # ok-arm (v1 = control_variant) → no variant swap needed → ok
+            assert by_arm["ok-arm"].status == "ok"
+            # miss-arm needs v2 messages which are absent → api_error
+            assert by_arm["miss-arm"].status == "api_error"
+            assert "missing prompt variant v2" in (by_arm["miss-arm"].error or "")
+        finally:
+            sess.close()
+
+
+# ---------------------------------------------------------------------------
 # AC-13: crash between arm calls and write_item leaves no rows
 # ---------------------------------------------------------------------------
 

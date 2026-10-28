@@ -488,6 +488,137 @@ class TestLoopShadowWiring:
 # ──────────────────────────────────────────────────────────────────────────────
 
 
+# ──────────────────────────────────────────────────────────────────────────────
+# AC6a: Brief shadow variant prompt hash differs when arm.prompt != control variant
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+class TestBriefShadowVariantPromptHash:
+    def test_v2_arm_gets_different_prompt_hash(self):
+        """When arm.prompt='v2' differs from control, arm row prompt_hash must differ."""
+        from aggregator_brief.shadow import _run_shadow
+        from aggregator_common.experiment import prompt_hash as _phash
+
+        settings = _settings(brief_prompt_variant="v1")
+        v1_msgs = [{"role": "system", "content": "v1 system prompt"}]
+        result = _make_result(seed_messages=v1_msgs)
+        result.interest_profile_text = "I like tech"
+
+        v2_arm = Arm(name="v2-arm", model="gpt-shadow-v2", params={}, prompt="v2")
+        decision = _make_decision(arms=[v2_arm])
+        factory, _ = _mock_arm_session()
+        captured: list = []
+
+        with patch("aggregator_brief.shadow.run_brief_loop", return_value=_make_result(turns=1)), \
+             patch("aggregator_brief.shadow.build_system_prompt") as mock_bsp, \
+             patch("aggregator_brief.shadow.write_item", side_effect=lambda rows, **kw: captured.extend(rows)):
+            mock_bsp.return_value = "v2 system prompt DIFFERENT"
+            _run_shadow(result, decision, settings, factory)
+
+        assert len(captured) == 2
+        ctrl = next(r for r in captured if r.arm == "control")
+        arm = next(r for r in captured if r.arm == "v2-arm")
+        assert ctrl.prompt_hash != arm.prompt_hash
+
+    def test_control_row_records_prompt_variant_in_params(self):
+        """Control row params must include 'prompt' key with the control variant."""
+        from aggregator_brief.shadow import _run_shadow
+
+        settings = _settings(brief_prompt_variant="v1")
+        v2_arm = Arm(name="v2-arm", model="gpt-shadow-v2", params={}, prompt="v2")
+        decision = _make_decision(arms=[v2_arm])
+        factory, _ = _mock_arm_session()
+        captured: list = []
+
+        with patch("aggregator_brief.shadow.run_brief_loop", return_value=_make_result(turns=1)), \
+             patch("aggregator_brief.shadow.build_system_prompt", return_value="v2 prompt"), \
+             patch("aggregator_brief.shadow.write_item", side_effect=lambda rows, **kw: captured.extend(rows)):
+            _run_shadow(_make_result(), decision, settings, factory)
+
+        ctrl = next(r for r in captured if r.arm == "control")
+        assert ctrl.params.get("prompt") == "v1"
+
+    def test_arm_row_records_arm_prompt_in_params(self):
+        """Arm row params must include 'prompt' key with arm.prompt value."""
+        from aggregator_brief.shadow import _run_shadow
+
+        settings = _settings(brief_prompt_variant="v1")
+        v2_arm = Arm(name="v2-arm", model="gpt-shadow-v2", params={}, prompt="v2")
+        decision = _make_decision(arms=[v2_arm])
+        factory, _ = _mock_arm_session()
+        captured: list = []
+
+        with patch("aggregator_brief.shadow.run_brief_loop", return_value=_make_result(turns=1)), \
+             patch("aggregator_brief.shadow.build_system_prompt", return_value="v2 prompt"), \
+             patch("aggregator_brief.shadow.write_item", side_effect=lambda rows, **kw: captured.extend(rows)):
+            _run_shadow(_make_result(), decision, settings, factory)
+
+        arm = next(r for r in captured if r.arm == "v2-arm")
+        assert arm.params.get("prompt") == "v2"
+
+    def test_same_variant_arm_reuses_control_prompt_hash(self):
+        """When arm.prompt == control variant, build_system_prompt must not be called and hashes equal."""
+        from aggregator_brief.shadow import _run_shadow
+
+        settings = _settings(brief_prompt_variant="v1")
+        v1_arm = Arm(name="v1-arm", model="gpt-shadow-v1", params={}, prompt="v1")
+        decision = _make_decision(arms=[v1_arm])
+        factory, _ = _mock_arm_session()
+        captured: list = []
+
+        with patch("aggregator_brief.shadow.run_brief_loop", return_value=_make_result(turns=1)), \
+             patch("aggregator_brief.shadow.build_system_prompt") as mock_bsp, \
+             patch("aggregator_brief.shadow.write_item", side_effect=lambda rows, **kw: captured.extend(rows)):
+            _run_shadow(_make_result(), decision, settings, factory)
+            mock_bsp.assert_not_called()
+
+        ctrl = next(r for r in captured if r.arm == "control")
+        arm = next(r for r in captured if r.arm == "v1-arm")
+        assert ctrl.prompt_hash == arm.prompt_hash
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# AC7: build_system_prompt v2 contains Accuracy and voice section
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+class TestBriefBuildSystemPromptVariant:
+    def test_v2_contains_accuracy_and_voice_section(self):
+        from aggregator_brief.prompt import build_system_prompt, _ACCURACY_AND_VOICE_V2
+
+        settings = _settings()
+        prompt = build_system_prompt(settings, "I like tech", variant="v2")
+        assert "Accuracy and voice" in prompt
+
+    def test_v1_lacks_accuracy_and_voice_section(self):
+        from aggregator_brief.prompt import build_system_prompt
+
+        settings = _settings()
+        prompt = build_system_prompt(settings, "I like tech", variant="v1")
+        assert "Accuracy and voice" not in prompt
+
+    def test_v2_accuracy_block_factual_accuracy_content(self):
+        from aggregator_brief.prompt import build_system_prompt
+
+        settings = _settings()
+        prompt = build_system_prompt(settings, "", variant="v2")
+        assert "facts that appear in the provided articles" in prompt
+
+    def test_v1_default_and_v1_explicit_identical(self):
+        from aggregator_brief.prompt import build_system_prompt
+
+        settings = _settings()
+        assert build_system_prompt(settings, "I like AI", variant="v1") == \
+               build_system_prompt(settings, "I like AI")
+
+    def test_v1_and_v2_differ(self):
+        from aggregator_brief.prompt import build_system_prompt
+
+        settings = _settings()
+        assert build_system_prompt(settings, "I like AI", variant="v1") != \
+               build_system_prompt(settings, "I like AI", variant="v2")
+
+
 class TestReadOnlyArmSessionReal:
     """Proves that the SET TRANSACTION READ ONLY statement applied to the arm
     session actually prevents writes, using a real testcontainers Postgres DB."""

@@ -5,10 +5,12 @@ Public API::
     init(settings)                    – parse + validate LLM_EXPERIMENT once; idempotent
     shutdown()                        – drop queued items, log final counters; idempotent
     decide(key, ref_id)               – 6-step decision gate; returns Decision | None
-    build_arm_kwargs(kwargs, d, arm)  – build per-arm kwargs with model/param/metadata overrides
+    build_arm_kwargs(kwargs, d, arm)  – build per-arm kwargs; replaces messages for non-control
+                                        prompt variants; raises MissingPromptVariant when needed
     prompt_hash(messages)             – sha256 hex of json.dumps(messages, sort_keys=True)
     write_item(rows, ...)             – persist rows in one transaction; never raises
     submit_shadow(decision, ...)      – enqueue onto executor; no-op if decision is None
+    MissingPromptVariant              – raised when a required prompt variant is absent
 """
 from __future__ import annotations
 
@@ -30,7 +32,7 @@ logger = logging.getLogger(__name__)
 
 _KNOWN_TOP = frozenset({"enabled", "name", "until", "max_daily_cost_usd", "operations"})
 _KNOWN_OP = frozenset({"sample_rate", "arms"})
-_KNOWN_ARM = frozenset({"name", "model", "params"})
+_KNOWN_ARM = frozenset({"name", "model", "params", "prompt"})
 _KNOWN_OPS = frozenset({
     "summarize_rank.rank",
     "clusterer.classify",
@@ -38,7 +40,15 @@ _KNOWN_OPS = frozenset({
     "clusterer.consolidate_facts",
     "brief.generate",
 })
-_FORBIDDEN_PARAMS = frozenset({"messages", "tools", "tool_choice", "response_format", "timeout", "metadata"})
+_FORBIDDEN_PARAMS = frozenset({"messages", "tools", "tool_choice", "response_format", "timeout", "metadata", "prompt"})
+
+PROMPT_VARIANTS: dict[str, frozenset] = {
+    "summarize_rank.rank":         frozenset({"v1", "v2"}),
+    "clusterer.classify":          frozenset({"v1", "v2"}),
+    "clusterer.merge":             frozenset({"v1", "v2"}),
+    "clusterer.consolidate_facts": frozenset({"v1"}),
+    "brief.generate":              frozenset({"v1", "v2"}),
+}
 
 _EXECUTOR_WORKERS = 2
 _QUEUE_MAXSIZE = 50
@@ -57,6 +67,7 @@ class Arm:
     name: str
     model: str
     params: dict
+    prompt: str = "v1"
 
 
 @dataclass
@@ -73,6 +84,10 @@ class Decision:
         md["arm"] = "control"
         return md
 
+    def prompt_variants(self, control_variant: str = "v1") -> set:
+        """Return the set of distinct non-control prompt variants across all arms."""
+        return {arm.prompt for arm in self.arms} - {control_variant}
+
 
 @dataclass
 class CallOutcome:
@@ -85,6 +100,13 @@ class CallOutcome:
     error: Optional[str]
     exception: Optional[BaseException] = None  # never stored; lets callers re-raise unchanged
     response: Any = None                       # never stored; lets rank() build its usage dict
+
+
+class MissingPromptVariant(Exception):
+    """Raised by build_arm_kwargs when variant_messages lacks a required prompt variant."""
+    def __init__(self, variant: str) -> None:
+        self.variant = variant
+        super().__init__(f"missing prompt variant {variant}")
 
 
 @dataclass
@@ -299,6 +321,11 @@ def _process_item(item: dict) -> None:
     control_outcome: CallOutcome = item["control_outcome"]
     attempt_fn: Callable = item["attempt_fn"]
     p_hash: str = item["phash"]
+    control_variant: str = item.get("control_variant", "v1")
+    # Convert None → {} so build_arm_kwargs raises MissingPromptVariant when a variant is needed
+    # but was not supplied (executor path). Direct callers like brief pass None to build_arm_kwargs
+    # on each turn, bypassing this conversion.
+    variant_messages: dict = item.get("variant_messages") or {}
 
     cfg = _config
     if cfg is None:
@@ -311,6 +338,10 @@ def _process_item(item: dict) -> None:
     service = parts[0] if len(parts) == 2 else decision.key
     operation = parts[1] if len(parts) == 2 else ""
 
+    ctrl_params: dict = {}
+    if control_variant != "v1":
+        ctrl_params = {"prompt": control_variant}
+
     rows: list[ShadowRow] = [
         ShadowRow(
             experiment=decision.name,
@@ -322,7 +353,7 @@ def _process_item(item: dict) -> None:
             prompt_hash=p_hash,
             status=control_outcome.status,
             attempts=control_outcome.attempts,
-            params={},
+            params=ctrl_params,
             output=control_outcome.output,
             raw_output=control_outcome.raw_output,
             error=control_outcome.error,
@@ -331,9 +362,41 @@ def _process_item(item: dict) -> None:
     ]
 
     for arm in decision.arms:
-        arm_kwargs = build_arm_kwargs(control_kwargs, decision, arm)
+        # Build row params: copy of arm.params plus 'prompt' key per spec §1 rules.
+        # arm.params itself must never be mutated (it is iterated into litellm kwargs).
+        arm_params_for_row = dict(arm.params)
+        if arm.prompt != "v1" or control_variant != "v1":
+            arm_params_for_row["prompt"] = arm.prompt
+
+        # Default to control's hash; updated after build_arm_kwargs succeeds.
+        arm_phash = p_hash
         try:
+            arm_kwargs = build_arm_kwargs(
+                control_kwargs, decision, arm,
+                control_variant=control_variant,
+                variant_messages=variant_messages,
+            )
+            arm_phash = prompt_hash(arm_kwargs.get("messages") or [])
             arm_outcome = attempt_fn(arm_kwargs)
+        except MissingPromptVariant as exc:
+            # That arm's row is api_error with control's prompt_hash; other arms still written.
+            rows.append(ShadowRow(
+                experiment=decision.name,
+                service=service,
+                operation=operation,
+                ref_id=decision.ref_id,
+                arm=arm.name,
+                model=arm.model,
+                prompt_hash=p_hash,
+                status="api_error",
+                attempts=1,
+                params=arm_params_for_row,
+                output=None,
+                raw_output=None,
+                error=str(exc),
+                request_ids=None,
+            ))
+            continue
         except Exception as exc:
             arm_outcome = CallOutcome(
                 status="api_error",
@@ -352,10 +415,10 @@ def _process_item(item: dict) -> None:
             ref_id=decision.ref_id,
             arm=arm.name,
             model=arm.model,
-            prompt_hash=p_hash,
+            prompt_hash=arm_phash,
             status=arm_outcome.status,
             attempts=arm_outcome.attempts,
-            params=arm.params,
+            params=arm_params_for_row,
             output=arm_outcome.output,
             raw_output=arm_outcome.raw_output,
             error=arm_outcome.error,
@@ -492,7 +555,21 @@ def _parse_config(raw: str) -> Optional[_Config]:
                     op_key, i, sorted(forbidden),
                 )
                 return None
-            arms.append(Arm(name=arm_name, model=arm_model, params=arm_params))
+            arm_prompt = arm_raw.get("prompt", "v1")
+            if not isinstance(arm_prompt, str) or not arm_prompt:
+                logger.error(
+                    "LLM_EXPERIMENT: operation %r arm[%d] 'prompt' must be a non-empty string — experiment disabled",
+                    op_key, i,
+                )
+                return None
+            allowed_prompts = PROMPT_VARIANTS.get(op_key, frozenset())
+            if arm_prompt not in allowed_prompts:
+                logger.error(
+                    "LLM_EXPERIMENT: operation %r arm[%d] 'prompt' %r is not a registered variant — experiment disabled",
+                    op_key, i, arm_prompt,
+                )
+                return None
+            arms.append(Arm(name=arm_name, model=arm_model, params=arm_params, prompt=arm_prompt))
         operations[op_key] = _OpConfig(sample_rate=float(sample_rate), arms=arms)
 
     return _Config(
@@ -579,8 +656,21 @@ def decide(key: str, ref_id: Optional[str]) -> Optional[Decision]:
     return Decision(name=cfg.name, key=key, ref_id=ref_id, arms=op_cfg.arms)
 
 
-def build_arm_kwargs(control_kwargs: dict, decision: Decision, arm: Arm) -> dict:
+def build_arm_kwargs(
+    control_kwargs: dict,
+    decision: Decision,
+    arm: Arm,
+    *,
+    control_variant: str = "v1",
+    variant_messages: "dict[str, list] | None" = None,
+) -> dict:
     """Build kwargs for one arm: replace model, apply params (null removes key), set arm metadata.
+
+    When variant_messages is not None and arm.prompt != control_variant, replaces kw['messages']
+    with variant_messages[arm.prompt]. Raises MissingPromptVariant when that key is absent.
+
+    With defaults (control_variant='v1', variant_messages=None) behaviour is byte-identical
+    to before this change, so existing callers (e.g. aggregator_brief/shadow.py) are unaffected.
 
     Automatically adds allowed_openai_params=["reasoning_effort"] when reasoning_effort
     is present in the effective kwargs (Phase 0 finding 1).
@@ -593,6 +683,11 @@ def build_arm_kwargs(control_kwargs: dict, decision: Decision, arm: Arm) -> dict
             kw.pop(param_key, None)
         else:
             kw[param_key] = param_val
+
+    if variant_messages is not None and arm.prompt != control_variant:
+        if arm.prompt not in variant_messages:
+            raise MissingPromptVariant(arm.prompt)
+        kw["messages"] = variant_messages[arm.prompt]
 
     base_meta = kw.get("metadata") or {}
     arm_meta = dict(base_meta)
@@ -676,8 +771,18 @@ def submit_shadow(
     control_kwargs: dict,
     control_outcome: CallOutcome,
     attempt: Callable,
+    *,
+    control_variant: str = "v1",
+    variant_messages: "dict[str, list] | None" = None,
 ) -> None:
-    """Enqueue shadow work onto the background executor. No-op if decision is None."""
+    """Enqueue shadow work onto the background executor. No-op if decision is None.
+
+    control_variant: the production prompt variant used for the control call.
+    variant_messages: mapping from variant name to messages list, built by the caller on the
+        caller thread for each variant in decision.prompt_variants(control_variant). Pass None
+        (the default) when no prompt-variant switching is needed; the executor then uses the
+        control messages unchanged for all arms.
+    """
     if decision is None:
         return
     ex = _executor
@@ -691,6 +796,8 @@ def submit_shadow(
         "control_outcome": control_outcome,
         "attempt_fn": attempt,
         "phash": phash,
+        "control_variant": control_variant,
+        "variant_messages": variant_messages,
     }
     if ex.submit(item):
         _counters.inc("enqueued")

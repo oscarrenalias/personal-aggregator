@@ -214,6 +214,7 @@ At process startup, every service calls `aggregator_common.load_env()` (python-d
 | `WEB_AUTO_READ_SECONDS` | `5` | Seconds of visible dwell before auto-marking an open article read; `0` disables the feature entirely |
 | `API_CORS_ALLOW_ORIGINS` | `*` | Comma-separated allowed CORS origins for `/api/v1`; default `*` is acceptable only behind the network perimeter — restrict before any public exposure |
 | `AGGREGATOR_API_URL` | `http://localhost:8000/api/v1` | Base URL for the aggregator JSON API used by `aggregator-tui`; overridden by `--api-url` CLI flag |
+| `SUMMARIZE_RANK_PROMPT_VARIANT` | `v1` | Prompt variant for `summarize_rank.rank`; must be a registered variant (`v1` or `v2`); invalid values fail at startup; set `v2` after validation to use the gpt-6-luna-calibrated prompt |
 | `BRIEF_LLM_MODEL` | `gpt-4.1` | LLM model used for brief generation |
 | `BRIEF_LLM_MAX_OUTPUT_TOKENS` | `4096` | Maximum output tokens for LLM calls |
 | `BRIEF_LLM_TEMPERATURE` | `0.3` | LLM sampling temperature |
@@ -227,6 +228,7 @@ At process startup, every service calls `aggregator_common.load_env()` (python-d
 | `BRIEF_TOOL_MAX_CALLS` | `12` | Maximum LLM tool calls per brief generation run |
 | `BRIEF_POLL_INTERVAL_SECONDS` | `60` | Seconds between scheduler poll cycles |
 | `BRIEF_CLAIM_LEASE_SECONDS` | `600` | Work-claim lease duration for brief jobs in seconds |
+| `BRIEF_PROMPT_VARIANT` | `v1` | Prompt variant for `brief.generate`; must be a registered variant (`v1` or `v2`); invalid values fail at startup; set `v2` after validation to use the gpt-6-luna-calibrated brief prompt |
 | `CLUSTERER_POLL_INTERVAL_SECONDS` | `60` | Seconds between clusterer poll cycles |
 | `CLUSTERER_CANDIDATE_WINDOW_HOURS_FAST` | `48` | Hours of history for fast-path candidate selection |
 | `CLUSTERER_CANDIDATE_WINDOW_DAYS_SLOW` | `7` | Days of history for slow-path candidate selection |
@@ -259,6 +261,8 @@ At process startup, every service calls `aggregator_common.load_env()` (python-d
 | `CLUSTERER_SECTION_TITLE_BLOCKLIST` | `["top stories","home",…]` | JSON array of RSS section/category titles too generic to use as thread titles |
 | `CLUSTERER_CONSOLIDATION_MIN_INTERVAL_MINUTES` | `10` | Minimum minutes between consolidation passes; explicit recluster bypasses this floor |
 | `CLUSTERER_MAX_CLASSIFIER_CANDIDATES` | `5` | Maximum candidate threads passed to the LLM classifier per article |
+| `CLUSTERER_CLASSIFY_PROMPT_VARIANT` | `v1` | Prompt variant for `clusterer.classify`; must be a registered variant (`v1` or `v2`); invalid values fail at startup; set `v2` after validation to use the gpt-6-luna-calibrated classify prompt |
+| `CLUSTERER_MERGE_PROMPT_VARIANT` | `v1` | Prompt variant for `clusterer.merge`; must be a registered variant (`v1` or `v2`); invalid values fail at startup; set `v2` after validation to use the gpt-6-luna-calibrated merge prompt |
 | `JANITOR_ARTICLE_RETENTION_DAYS` | `14` | Days to retain articles before purging (unsaved, not in a live thread) |
 | `JANITOR_THREAD_RETENTION_DAYS` | `30` | Days to retain archived threads before permanent deletion (replaces `CLUSTERER_THREAD_RETENTION_DAYS`) |
 | `JANITOR_BRIEF_RETENTION_DAYS` | `30` | Days to retain completed briefs before pruning (replaces `BRIEF_RETENTION_DAYS`) |
@@ -302,7 +306,7 @@ Set `LLM_EXPERIMENT` to a JSON object (see `.env.example` for the full experimen
 | `max_daily_cost_usd` | float | Daily cost cap for shadow arms (evaluated against `llm_calls` where `arm != "control"`) |
 | `operations` | object | Per-operation config keyed by operation name |
 
-Valid operation keys: `summarize_rank.rank`, `clusterer.classify`, `clusterer.merge`, `clusterer.consolidate_facts`, `brief.generate`. Each operation accepts `sample_rate` (0.0–1.0) and `arms` (list of `{name, model, params}`). A `null` value in `params` removes that key from the control kwargs. `messages`, `tools`, `tool_choice`, `response_format`, `timeout`, and `metadata` cannot be overridden in `params` — a config error disables the experiment.
+Valid operation keys: `summarize_rank.rank`, `clusterer.classify`, `clusterer.merge`, `clusterer.consolidate_facts`, `brief.generate`. Each operation accepts `sample_rate` (0.0–1.0) and `arms` (list of `{name, model, params, prompt}`). A `null` value in `params` removes that key from the control kwargs. `messages`, `tools`, `tool_choice`, `response_format`, `timeout`, and `metadata` cannot be overridden in `params` — a config error disables the experiment. `prompt` is an optional top-level arm key (not a `params` key) specifying the prompt variant for that arm (e.g. `"v2"`); omitting it defaults to `"v1"`. Valid values are registered per-operation in `PROMPT_VARIANTS` in `experiment.py`; an unregistered value disables the experiment with one ERROR log.
 
 Unset, empty, or `"enabled": false` → no sampling and no shadow work; the production call path behaves exactly as without the variable.
 

@@ -1,6 +1,7 @@
-from pydantic import Field
+from pydantic import Field, field_validator
 
 from aggregator_common.config import Settings as BaseSettings
+from aggregator_common.experiment import PROMPT_VARIANTS
 
 
 class SummarizeRankSettings(BaseSettings):
@@ -20,3 +21,18 @@ class SummarizeRankSettings(BaseSettings):
         200,
         description="Minimum content length before skipping LLM summarization",
     )
+    summarize_rank_prompt_variant: str = Field(
+        "v1",
+        description="Prompt variant for summarize_rank.rank; must be one of PROMPT_VARIANTS['summarize_rank.rank']",
+    )
+
+    @field_validator("summarize_rank_prompt_variant")
+    @classmethod
+    def _validate_prompt_variant(cls, v: str) -> str:
+        valid = PROMPT_VARIANTS.get("summarize_rank.rank", frozenset())
+        if v not in valid:
+            raise ValueError(
+                f"SUMMARIZE_RANK_PROMPT_VARIANT={v!r} is not valid; "
+                f"must be one of {sorted(valid)}"
+            )
+        return v
