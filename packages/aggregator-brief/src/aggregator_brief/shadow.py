@@ -96,7 +96,7 @@ def _run_shadow(
         prompt_hash=phash,
         status="ok",
         attempts=result.turns,
-        params={},
+        params={"prompt": settings.brief_prompt_variant},
         output=control_output,
         raw_output=json.dumps(control_output["payload"]),
         error=None,
@@ -199,12 +199,20 @@ def _run_arm(
     error = None
     attempts = 0
     request_ids_out: list[str] = []
+    arm_phash = phash
 
     try:
         arm_session = session_factory()
         arm_session.execute(text("SET TRANSACTION READ ONLY"))
 
         arm_messages = copy.deepcopy(result.seed_messages)
+
+        if arm.prompt != settings.brief_prompt_variant:
+            new_system_prompt = build_system_prompt(
+                settings, result.interest_profile_text, variant=arm.prompt
+            )
+            arm_messages[0] = {"role": "system", "content": new_system_prompt}
+            arm_phash = prompt_hash(arm_messages)
 
         arm_result = run_brief_loop(
             arm_session,
@@ -271,10 +279,10 @@ def _run_arm(
         ref_id=decision.ref_id,
         arm=arm.name,
         model=arm.model,
-        prompt_hash=phash,
+        prompt_hash=arm_phash,
         status=status,
         attempts=attempts,
-        params=arm.params,
+        params={**arm.params, "prompt": arm.prompt},
         output=output,
         raw_output=raw_output,
         error=error,
