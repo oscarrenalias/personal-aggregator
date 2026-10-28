@@ -5,10 +5,12 @@ Public API::
     init(settings)                    – parse + validate LLM_EXPERIMENT once; idempotent
     shutdown()                        – drop queued items, log final counters; idempotent
     decide(key, ref_id)               – 6-step decision gate; returns Decision | None
-    build_arm_kwargs(kwargs, d, arm)  – build per-arm kwargs with model/param/metadata overrides
+    build_arm_kwargs(kwargs, d, arm)  – build per-arm kwargs; replaces messages for non-control
+                                        prompt variants; raises MissingPromptVariant when needed
     prompt_hash(messages)             – sha256 hex of json.dumps(messages, sort_keys=True)
     write_item(rows, ...)             – persist rows in one transaction; never raises
     submit_shadow(decision, ...)      – enqueue onto executor; no-op if decision is None
+    MissingPromptVariant              – raised when a required prompt variant is absent
 """
 from __future__ import annotations
 
@@ -98,6 +100,13 @@ class CallOutcome:
     error: Optional[str]
     exception: Optional[BaseException] = None  # never stored; lets callers re-raise unchanged
     response: Any = None                       # never stored; lets rank() build its usage dict
+
+
+class MissingPromptVariant(Exception):
+    """Raised by build_arm_kwargs when variant_messages lacks a required prompt variant."""
+    def __init__(self, variant: str) -> None:
+        self.variant = variant
+        super().__init__(f"missing prompt variant {variant}")
 
 
 @dataclass

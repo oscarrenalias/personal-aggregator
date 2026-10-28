@@ -45,7 +45,7 @@ CRITERIA_THRESHOLDS: Dict[str, Any] = {
         # Disagreement rule: |Δimportance_score| >= this triggers a disagreement
         "max_score_delta_for_disagree": 15,
     },
-    "clusterer.classify": {"min_assignment_agreement": 0.85},
+    "clusterer.classify": {"min_outcome_agreement": 0.92},
     "clusterer.merge": {"min_agreement": 0.90, "max_arm_only_merges": 0.05},
 }
 
@@ -72,6 +72,17 @@ _THREAD_TITLE_LABELS: frozenset = frozenset({"new_thread", "related_new_thread"}
 
 # Operations where the verdict is always "review" (no content pass/fail criteria).
 _REVIEW_OPERATIONS: frozenset = frozenset({"clusterer.consolidate_facts", "brief.generate"})
+
+
+def _classify_outcome(label: str, thread_id: Optional[str]) -> str:
+    """Map a classify label to a coarser outcome category for outcome_agreement."""
+    if label in _ATTACHING_LABELS:
+        return f"attach:{thread_id}"
+    if label == "irrelevant_or_low_value":
+        return "drop"
+    if label in _THREAD_TITLE_LABELS:
+        return "new"
+    return f"other:{label}"
 
 
 # ---------------------------------------------------------------------------
