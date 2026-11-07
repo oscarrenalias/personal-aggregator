@@ -230,6 +230,24 @@ On completion, exactly one `-review` bead is auto-created. No `-test` or `-docs`
 
 ---
 
+## Architecture Decision Records
+
+ADRs are backward-looking records of cross-cutting architectural decisions; specs are forward-looking feature work. Lifecycle: `draft` -> `approved` or `rejected`; `approved` -> `superseded`.
+
+```bash
+uv run takt adr new "Title" [--related-spec ID] [--tag X]
+uv run takt adr list
+uv run takt adr show <id>
+uv run takt adr approve <id>
+uv run takt adr reject <id>
+uv run takt adr supersede OLD --by NEW
+uv run takt adr validate
+```
+
+When a spec settles a cross-cutting architectural choice or reverses an earlier one, create an ADR linked with --related-spec.
+
+---
+
 ## Moving a Spec to Done
 
 Conditions that must ALL be true:
@@ -244,6 +262,8 @@ python3 <spec-py> set status done spec-a3f19c2b
 git add specs/
 git commit -m "Move my-spec to done/ after merge"
 ```
+
+If the spec has a `## Requirements` section, `set status done` validates and merges its requirement deltas into `specs/current/<capability>.md` before moving the spec. If any delta is invalid, the command exits 1 and the spec stays where it is — fix the errors (run `python3 <spec-py> validate <spec>` to see them) and retry. `git add specs/` picks up both the moved spec and any updated capability files under `specs/current/` in the same commit.
 
 ---
 

@@ -84,6 +84,25 @@ $TAKT_CMD memory add "<concise fact>" --namespace global               # project
 $TAKT_CMD memory add "<discovery>" --namespace feature:<feature_root_id>  # feature-scoped
 ```
 
+## Assumptions
+
+**Assumptions.** Record in `assumptions` every point where the bead, spec or linked docs did not say what to do and you chose. This differs from `design_decisions`: a design decision is a choice between implementation options you evaluated, while an assumption is something you took as given about *intended behaviour, inputs, environment or contracts* because nobody specified it. Record only assumptions that would change observable behaviour if they were wrong; don't record trivia.
+
+Classify each one as `structural` if a wrong guess would affect any of:
+- a public contract: CLI flags, arguments, exit codes, output formats, config keys, a public Python API;
+- a persisted format: bead JSON fields, files written to disk, data other tools read;
+- security: authentication, permissions, secrets, handling untrusted input;
+- something hard to reverse after merge: migrations, deletions, renames of persisted things;
+- an interface between modules owned by different beads or features.
+
+Otherwise classify it as `local`. When unsure, use `structural`.
+
+Keep going after recording an assumption. Do not block just because something was unspecified. Block only when no reasonable assumption lets you complete the bead.
+
+**Acceptance criteria accounting.** Return one `criteria_status` entry for every item in the bead's `acceptance_criteria`, using its 0-based `index`. Use `met` only when you can point to where it is satisfied, and put that location in `evidence`. Use `descoped` when the criterion is owned by another bead or agent type, or was deliberately left out, and give the reason. Use `unmet` otherwise. A criterion you don't report is recorded as unmet.
+
+A criterion that can only be satisfied by running tests (e.g. "existing tests pass", "suite is green") must be reported `descoped` with evidence "verification owned by the tester bead". Never report it `unmet`.
+
 ## Structured Output Fields
 
 Every defect bead **must** populate the following fields. Reviewers rely on them to scope their work without additional back-and-forth turns. Use `"N/A"` only when a field is genuinely inapplicable; do not leave fields blank.
