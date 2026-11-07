@@ -108,7 +108,9 @@ def _is_pair_disagree(
     arm_out = arm_row.get("output") or {}
 
     if op_key == "summarize_rank.rank":
-        threshold = float(config.get("WEB_IMPORTANT_THRESHOLD", 70))
+        ctrl_threshold = float(config.get("WEB_IMPORTANT_THRESHOLD", 70))
+        arm_threshold_cfg = config.get("ARM_IMPORTANT_THRESHOLD")
+        arm_threshold_val = float(arm_threshold_cfg) if arm_threshold_cfg is not None else ctrl_threshold
         max_delta = float(
             CRITERIA_THRESHOLDS["summarize_rank.rank"]["max_score_delta_for_disagree"]
         )
@@ -116,7 +118,7 @@ def _is_pair_disagree(
         as_ = arm_out.get("importance_score")
         if cs is not None and as_ is not None:
             cf, af = float(cs), float(as_)
-            if (cf >= threshold) != (af >= threshold):
+            if (cf >= ctrl_threshold) != (af >= arm_threshold_val):
                 return True
             if abs(af - cf) >= max_delta:
                 return True
@@ -608,12 +610,18 @@ def _content_summarize_rank(
     if not ok_pairs:
         return {}
 
-    threshold = float(config.get("WEB_IMPORTANT_THRESHOLD", 70))
+    ctrl_threshold = float(config.get("WEB_IMPORTANT_THRESHOLD", 70))
+    arm_threshold_cfg = config.get("ARM_IMPORTANT_THRESHOLD")
+    arm_threshold_val = float(arm_threshold_cfg) if arm_threshold_cfg is not None else ctrl_threshold
 
     ctrl_scores: List[float] = []
     arm_scores: List[float] = []
     signed_diffs: List[float] = []
     flip_count = 0
+    ge_threshold_ctrl_count = 0
+    ge_threshold_arm_count = 0
+    round_70_75_ctrl_count = 0
+    round_70_75_arm_count = 0
     topics_jaccard_vals: List[float] = []
     cats_exact = 0
     cats_jaccard_vals: List[float] = []
@@ -630,8 +638,16 @@ def _content_summarize_rank(
             ctrl_scores.append(cf)
             arm_scores.append(af)
             signed_diffs.append(af - cf)
-            if (cf >= threshold) != (af >= threshold):
+            if (cf >= ctrl_threshold) != (af >= arm_threshold_val):
                 flip_count += 1
+            if cf >= ctrl_threshold:
+                ge_threshold_ctrl_count += 1
+            if af >= arm_threshold_val:
+                ge_threshold_arm_count += 1
+            if 70 <= cf <= 75:
+                round_70_75_ctrl_count += 1
+            if 70 <= af <= 75:
+                round_70_75_arm_count += 1
 
         topics_jaccard_vals.append(
             _jaccard(ctrl_out.get("topics") or [], arm_out.get("topics") or [])
@@ -657,6 +673,11 @@ def _content_summarize_rank(
         "mae": statistics.mean([abs(d) for d in signed_diffs]) if signed_diffs else None,
         "mean_signed_diff": statistics.mean(signed_diffs) if signed_diffs else None,
         "flip_rate": round(flip_count / n_score, 4) if n_score else None,
+        "share_ge_threshold_ctrl": round(ge_threshold_ctrl_count / n_score, 4) if n_score else None,
+        "share_ge_threshold_arm": round(ge_threshold_arm_count / n_score, 4) if n_score else None,
+        "share_round_70_75_ctrl": round(round_70_75_ctrl_count / n_score, 4) if n_score else None,
+        "share_round_70_75_arm": round(round_70_75_arm_count / n_score, 4) if n_score else None,
+        "arm_threshold": arm_threshold_val,
         "topics_mean_jaccard": statistics.mean(topics_jaccard_vals) if topics_jaccard_vals else None,
         "categories_exact_match_rate": round(cats_exact / n, 4) if n else None,
         "categories_mean_jaccard": statistics.mean(cats_jaccard_vals) if cats_jaccard_vals else None,
