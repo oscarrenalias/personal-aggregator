@@ -912,6 +912,72 @@ class TestMissingPromptVariantProducesApiError:
 
 
 # ---------------------------------------------------------------------------
+# AC1 (spec classify-v3): PROMPT_VARIANTS includes v3 for classify; v3 arm parses;
+# v3 on merge disables experiment
+# ---------------------------------------------------------------------------
+
+class TestPromptVariantsRegistryV3:
+    def _count_errors(self, caplog, fn):
+        with caplog.at_level(logging.ERROR, logger="aggregator_common.experiment"):
+            fn()
+        return sum(1 for r in caplog.records if r.levelno == logging.ERROR)
+
+    def test_classify_has_v3_in_registry(self):
+        """AC1: PROMPT_VARIANTS['clusterer.classify'] must include v3."""
+        from aggregator_common.experiment import PROMPT_VARIANTS
+        assert PROMPT_VARIANTS["clusterer.classify"] == frozenset({"v1", "v2", "v3"})
+
+    def test_other_operations_unchanged(self):
+        from aggregator_common.experiment import PROMPT_VARIANTS
+        assert PROMPT_VARIANTS["summarize_rank.rank"] == frozenset({"v1", "v2"})
+        assert PROMPT_VARIANTS["clusterer.merge"] == frozenset({"v1", "v2"})
+        assert PROMPT_VARIANTS["clusterer.consolidate_facts"] == frozenset({"v1"})
+        assert PROMPT_VARIANTS["brief.generate"] == frozenset({"v1", "v2"})
+
+    def test_classify_v3_arm_parses_ok(self, caplog):
+        """AC2: LLM_EXPERIMENT with classify arm 'prompt': 'v3' parses without error."""
+        cfg = json.dumps({
+            "enabled": True,
+            "name": "cls-v3-test",
+            "until": _UNTIL_FUTURE,
+            "max_daily_cost_usd": 1.0,
+            "operations": {
+                "clusterer.classify": {
+                    "sample_rate": 0.5,
+                    "arms": [
+                        {"name": "luna-none-v3", "model": "gpt-6-luna", "prompt": "v3",
+                         "params": {"reasoning_effort": "none", "max_tokens": None, "max_completion_tokens": 512}},
+                    ],
+                }
+            },
+        })
+        count = self._count_errors(caplog, lambda: _exp_module.init(_make_settings(cfg)))
+        assert count == 0
+        assert _exp_module._config is not None
+        assert _exp_module._config.name == "cls-v3-test"
+
+    def test_merge_v3_arm_disables_experiment(self, caplog):
+        """AC2: 'v3' on clusterer.merge (not registered) logs one ERROR and disables experiment."""
+        cfg = json.dumps({
+            "enabled": True,
+            "name": "merge-v3-bad",
+            "until": _UNTIL_FUTURE,
+            "max_daily_cost_usd": 1.0,
+            "operations": {
+                "clusterer.merge": {
+                    "sample_rate": 1.0,
+                    "arms": [
+                        {"name": "luna-none-v3", "model": "gpt-6-luna", "prompt": "v3", "params": {}},
+                    ],
+                }
+            },
+        })
+        count = self._count_errors(caplog, lambda: _exp_module.init(_make_settings(cfg)))
+        assert count == 1
+        assert _exp_module._config is None
+
+
+# ---------------------------------------------------------------------------
 # AC-13: crash between arm calls and write_item leaves no rows
 # ---------------------------------------------------------------------------
 

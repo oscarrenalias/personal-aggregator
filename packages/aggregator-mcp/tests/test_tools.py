@@ -1190,3 +1190,38 @@ class TestRefreshPodcastTool:
         result = srv.refresh_podcast()
 
         assert result["status"] == "already_pending"
+
+
+# ---------------------------------------------------------------------------
+# AC10: WEB_IMPORTANT_THRESHOLD pass-through via module-level _settings (MCP)
+# ---------------------------------------------------------------------------
+
+
+class TestImportantViewThresholdMcp:
+    def test_important_view_honours_threshold_66(self, session: Session, monkeypatch):
+        """With web_important_threshold=66, an article scored 67 appears in list_articles(view='important')."""
+        import aggregator_mcp.server as srv
+
+        monkeypatch.setattr(srv._settings, "web_important_threshold", 66)
+
+        src = _make_source(session, "-thresh66")
+        _make_ready_article(session, src.id, "mcp-thresh-67-incl", importance_score=67)
+        session.commit()
+
+        results = srv.list_articles(view="important")
+        scores = [r["importance_score"] for r in results]
+        assert 67 in scores, f"Expected score 67 in important view at threshold 66; got {scores}"
+
+    def test_important_view_excludes_at_default_threshold_70(self, session: Session, monkeypatch):
+        """With web_important_threshold=70, an article scored 67 is not in list_articles(view='important')."""
+        import aggregator_mcp.server as srv
+
+        monkeypatch.setattr(srv._settings, "web_important_threshold", 70)
+
+        src = _make_source(session, "-thresh70")
+        _make_ready_article(session, src.id, "mcp-thresh-67-excl", importance_score=67)
+        session.commit()
+
+        results = srv.list_articles(view="important")
+        scores = [r["importance_score"] for r in results]
+        assert 67 not in scores, f"Expected score 67 absent from important view at threshold 70; got {scores}"

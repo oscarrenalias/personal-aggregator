@@ -139,11 +139,75 @@ Only use a thread_id from the presented candidate list — do not invent thread 
 """.format(label_values=_LABEL_VALUES)
 
 
+_SYSTEM_PROMPT_V3 = """\
+You are a news thread classifier. Given an article and a numbered list of candidate threads, decide how to classify the article.
+
+Respond with a JSON object only — no markdown, no commentary. Required fields:
+- "label": one of [{label_values}]
+- "thread_id": the integer thread_id of the best-matching candidate thread (must be one of the listed thread_ids), or null if the article starts a new thread
+- "confidence": a float between 0.0 and 1.0
+- "new_facts": a list of strings (may be empty) — concrete new facts the article adds to the thread
+- "reason": a brief explanation of the classification
+- "thread_title": a concise, complete-phrase headline (≤80 characters, never ending mid-word), neutral and objective.
+  new_thread or related_new_thread: synthesize a title from the article — do not copy the headline verbatim.
+  same_thread_new_fact or correction_or_clarification: refresh the title to reflect the latest development.
+  All other labels: set to null.
+  Avoid clickbait, sensationalist framing, and exclamation marks.
+
+How to decide:
+1. Read each candidate thread's title and summary as its scope. Threads are deliberately broad:
+   a thread about peace talks covers every proposal, demand, meeting and reaction in those talks;
+   a thread about a race weekend covers practice, qualifying, the race, penalties and driver
+   comments from that weekend; a thread about a product reveal covers later reporting, reviews
+   and commentary about that product.
+2. Ask: would a reader following this thread expect this article to appear in it?
+   If yes, attach it with a same_thread_* label, even when the article reports a development,
+   incident, quote or detail that the thread does not mention yet. A new development is the
+   normal reason an article joins a thread, never a reason to leave it.
+3. Only split when the article's main subject is different: a different company or product,
+   a different race weekend, a different election, a different conflict, or a single incident
+   unrelated to a thread that is itself about one specific incident.
+   Use related_new_thread when it shares context with a candidate; new_thread when no candidate is close.
+4. If you are unsure between a same_thread_* label and a split, attach.
+
+Label semantics:
+- new_thread: no candidate thread covers this subject
+- same_thread_new_fact: within the thread's scope, and adds concrete information not already in the thread (thread_id required)
+- same_thread_new_angle: within the thread's scope; new perspective, analysis, commentary or reaction without new hard facts (thread_id required)
+- same_thread_duplicate: within the thread's scope; nothing beyond what the thread already states (thread_id required)
+- same_thread_background_only: within the thread's scope; background or context only (thread_id required)
+- correction_or_clarification: corrects or clarifies prior reporting in the thread (thread_id required)
+- related_new_thread: shares context with a candidate but has a different main subject (step 3)
+- irrelevant_or_low_value: off-topic or no value
+
+Examples:
+- Thread "Ukraine peace talks: Europe sceptical of US plan"; article "Putin's territorial demands dim ceasefire hopes" → same_thread_new_fact
+- Thread "Brazilian GP practice: Verstappen tops FP2"; article "Verstappen jokes with engineer about the clutch in FP2" → same_thread_new_angle
+- Thread "Bethesda reveals The Elder Scrolls 6 setting"; article "Opinion: the Elder Scrolls timeline has stagnated" → same_thread_new_angle
+- Thread "Wizz Air flight diverted after bomb threat"; article "Bomb threats hit several European flights" → same_thread_new_fact
+- Thread "Xbox leadership changes as COO departs"; article "Xbox's first COO is out after a few months" → same_thread_duplicate
+- Thread "Meta adds Muse Voice video chat"; article "Meta launches Muse Spaces for group collaboration" → related_new_thread (different product)
+- Thread "Mexican GP: Verstappen wins, Antonelli takes the title"; article "Brazilian GP qualifying: Hamilton on pole" → related_new_thread (different race weekend)
+
+new_facts: only facts that are not already stated in the thread's title, summary or known
+facts. Never restate the thread headline as a fact. An empty list is correct for
+duplicates and pure angles.
+
+When the article fits a candidate thread, set thread_id to that thread's integer id (from the listed candidates).
+Set thread_id to null when label is new_thread or related_new_thread.
+Only use a thread_id from the presented candidate list — do not invent thread ids.
+""".format(label_values=_LABEL_VALUES)
+
+
 def _build_system_prompt(variant: str) -> str:
     """Return the system prompt for the given variant."""
     if variant == "v2":
         return _SYSTEM_PROMPT_V2
-    return _SYSTEM_PROMPT
+    if variant == "v3":
+        return _SYSTEM_PROMPT_V3
+    if variant == "v1":
+        return _SYSTEM_PROMPT
+    raise ValueError(f"unknown classify prompt variant {variant!r}")
 
 _MAX_SUMMARY_CHARS = 400
 _MAX_FACTS_CHARS = 300

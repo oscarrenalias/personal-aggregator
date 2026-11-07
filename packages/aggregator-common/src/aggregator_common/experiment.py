@@ -44,7 +44,7 @@ _FORBIDDEN_PARAMS = frozenset({"messages", "tools", "tool_choice", "response_for
 
 PROMPT_VARIANTS: dict[str, frozenset] = {
     "summarize_rank.rank":         frozenset({"v1", "v2"}),
-    "clusterer.classify":          frozenset({"v1", "v2"}),
+    "clusterer.classify":          frozenset({"v1", "v2", "v3"}),
     "clusterer.merge":             frozenset({"v1", "v2"}),
     "clusterer.consolidate_facts": frozenset({"v1"}),
     "brief.generate":              frozenset({"v1", "v2"}),

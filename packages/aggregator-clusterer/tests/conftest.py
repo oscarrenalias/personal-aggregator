@@ -92,6 +92,12 @@ def db_session(db_engine, clean_db) -> Generator[Session, None, None]:
         s.close()
 
 
+@pytest.fixture(scope="session")
+def db_session_factory(db_engine):
+    """Session-scoped factory used by shadow-experiment tests that patch db_mod.SessionFactory."""
+    return sessionmaker(bind=db_engine, autocommit=False, autoflush=False)
+
+
 from aggregator_common.models import Article, Source, Thread  # noqa: E402
 from aggregator_common.state import ArticleStatus  # noqa: E402
 
