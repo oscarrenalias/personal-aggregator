@@ -342,6 +342,20 @@ def _read_config() -> Dict[str, Any]:
                 config[key] = default
         else:
             config[key] = default
+    # ARM_IMPORTANT_THRESHOLD: optional int override for arm evaluation threshold.
+    # Unset, empty, or non-integer values yield None; non-integer also logs a WARNING.
+    arm_raw = os.environ.get("ARM_IMPORTANT_THRESHOLD")
+    if arm_raw is not None and arm_raw.strip():
+        try:
+            config["ARM_IMPORTANT_THRESHOLD"] = int(arm_raw)
+        except (ValueError, TypeError):
+            logger.warning(
+                "ARM_IMPORTANT_THRESHOLD=%r is not a valid integer; ignoring",
+                arm_raw,
+            )
+            config["ARM_IMPORTANT_THRESHOLD"] = None
+    else:
+        config["ARM_IMPORTANT_THRESHOLD"] = None
     return config
 
 
