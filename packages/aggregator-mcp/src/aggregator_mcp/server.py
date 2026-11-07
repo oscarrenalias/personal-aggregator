@@ -47,7 +47,8 @@ def list_articles(
     limit = min(limit, _settings.mcp_max_limit)
     with get_session() as session:
         results, _ = queries.list_articles(
-            session, view, category=category, source_id=source_id, unread_only=unread_only, limit=limit
+            session, view, category=category, source_id=source_id, unread_only=unread_only, limit=limit,
+            important_threshold=_settings.web_important_threshold,
         )
     return [asdict(r) for r in results]
 
@@ -171,7 +172,7 @@ def article_resource(id: int) -> dict:
 @mcp.resource("feed://{view}")
 def feed_resource(view: str) -> list:
     with get_session() as session:
-        results, _ = queries.list_articles(session, view)
+        results, _ = queries.list_articles(session, view, important_threshold=_settings.web_important_threshold)
     return [asdict(r) for r in results]
 
 

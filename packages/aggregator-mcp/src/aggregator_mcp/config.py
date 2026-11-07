@@ -9,3 +9,4 @@ class McpSettings(BaseSettings):
     mcp_path: str = Field("/mcp", description="URL path for the MCP endpoint (MCP_PATH)")
     mcp_default_limit: int = Field(20, description="Default result limit for list/search tools (MCP_DEFAULT_LIMIT)")
     mcp_max_limit: int = Field(100, description="Maximum allowed result limit (MCP_MAX_LIMIT)")
+    web_important_threshold: int = Field(70, description="Minimum importance_score for the 'important' view (WEB_IMPORTANT_THRESHOLD)")

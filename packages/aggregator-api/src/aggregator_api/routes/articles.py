@@ -7,6 +7,9 @@ from aggregator_common import queries
 
 from aggregator_api.dependencies import get_db
 from aggregator_api.models import ArticleResponse, PaginatedResponse
+from aggregator_api.settings import ApiSettings
+
+_settings = ApiSettings()
 
 _UNAUTHENTICATED_NOTE = (
     "Unauthenticated state-changing endpoint — must remain behind the network perimeter until the auth phase lands."
@@ -42,6 +45,7 @@ def list_articles(
             source_id=source_id,
             unread_only=unread_only,
             limit=limit,
+            important_threshold=_settings.web_important_threshold,
             cursor=cursor,
         )
     except ValueError as exc:
