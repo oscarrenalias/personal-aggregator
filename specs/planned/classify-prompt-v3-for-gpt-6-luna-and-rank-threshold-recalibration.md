@@ -5,7 +5,7 @@ description: Classify v3 prompt (attach-by-default) + shadow validation vs v2; a
 dependencies: null
 priority: high
 complexity: null
-status: draft
+status: planned
 tags:
 - llm
 - experiment
@@ -13,7 +13,7 @@ tags:
 scope:
   in: null
   out: null
-feature_root_id: null
+feature_root_id: B-f5e61cce
 ---
 # Classify prompt v3 for gpt-6-luna and rank threshold recalibration
 
