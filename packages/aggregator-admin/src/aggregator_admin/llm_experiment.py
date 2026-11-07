@@ -644,9 +644,9 @@ def _content_summarize_rank(
                 ge_threshold_ctrl_count += 1
             if af >= arm_threshold_val:
                 ge_threshold_arm_count += 1
-            if 70 <= cf <= 75:
+            if cf in {70, 75}:
                 round_70_75_ctrl_count += 1
-            if 70 <= af <= 75:
+            if af in {70, 75}:
                 round_70_75_arm_count += 1
 
         topics_jaccard_vals.append(

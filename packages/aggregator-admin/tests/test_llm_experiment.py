@@ -1062,6 +1062,30 @@ class TestRankContentNewKeys:
         # 2 out of 3 ctrl scores are exactly 70 or 75
         assert result["share_round_70_75_ctrl"] == pytest.approx(2 / 3, abs=1e-4)
 
+    def test_share_round_70_75_excludes_72(self):
+        """score 72 must NOT be counted; 70 and 75 must be."""
+        from unittest.mock import MagicMock
+        from datetime import datetime, timezone
+
+        ok_pairs = [
+            (
+                {"ref_id": "1", "created_at": None, "output": {"importance_score": 72, "categories": []}},
+                {"ref_id": "1", "created_at": None, "output": {"importance_score": 72, "categories": []}},
+            ),
+            (
+                {"ref_id": "2", "created_at": None, "output": {"importance_score": 70, "categories": []}},
+                {"ref_id": "2", "created_at": None, "output": {"importance_score": 75, "categories": []}},
+            ),
+        ]
+        config = {"WEB_IMPORTANT_THRESHOLD": 70, "ARM_IMPORTANT_THRESHOLD": None}
+        mock_session = MagicMock()
+        until_dt = datetime.now(timezone.utc)
+        result = _content_summarize_rank(ok_pairs, config, mock_session, until_dt)
+        # ctrl scores: 72 (not counted), 70 (counted) → 1/2
+        assert result["share_round_70_75_ctrl"] == pytest.approx(0.5, abs=1e-4)
+        # arm scores: 72 (not counted), 75 (counted) → 1/2
+        assert result["share_round_70_75_arm"] == pytest.approx(0.5, abs=1e-4)
+
     def test_arm_threshold_defaults_to_ctrl_threshold(self):
         """With ARM_IMPORTANT_THRESHOLD=None, arm_threshold equals WEB_IMPORTANT_THRESHOLD."""
         from unittest.mock import MagicMock
