@@ -5,7 +5,7 @@ description: Classify v3 prompt (attach-by-default) + shadow validation vs v2; a
 dependencies: null
 priority: high
 complexity: null
-status: planned
+status: done
 tags:
 - llm
 - experiment
