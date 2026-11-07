@@ -11,6 +11,7 @@ from aggregator_clusterer.classification import (
     ClassificationResult,
     _SYSTEM_PROMPT,
     _SYSTEM_PROMPT_V2,
+    _SYSTEM_PROMPT_V3,
     _TITLE_LIMIT,
     _build_system_prompt,
     _truncate_title,
@@ -530,8 +531,19 @@ class TestClustererSettings:
         s = ClustererSettings()
         assert s.clusterer_classify_prompt_variant == "v2"
 
+    def test_classify_variant_v3_accepted(self, monkeypatch):
+        monkeypatch.setenv("CLUSTERER_CLASSIFY_PROMPT_VARIANT", "v3")
+        s = ClustererSettings()
+        assert s.clusterer_classify_prompt_variant == "v3"
+
     def test_classify_variant_invalid_raises(self, monkeypatch):
         monkeypatch.setenv("CLUSTERER_CLASSIFY_PROMPT_VARIANT", "v99")
+        with pytest.raises(Exception) as exc_info:
+            ClustererSettings()
+        assert "CLUSTERER_CLASSIFY_PROMPT_VARIANT" in str(exc_info.value)
+
+    def test_classify_variant_v4_raises(self, monkeypatch):
+        monkeypatch.setenv("CLUSTERER_CLASSIFY_PROMPT_VARIANT", "v4")
         with pytest.raises(Exception) as exc_info:
             ClustererSettings()
         assert "CLUSTERER_CLASSIFY_PROMPT_VARIANT" in str(exc_info.value)
@@ -592,6 +604,41 @@ class TestBuildSystemPromptVariant:
     def test_v1_uses_original_label_semantics(self):
         prompt = _build_system_prompt("v1")
         assert "article starts a distinct new story" in prompt
+
+    # --- v3 tests (AC4) ---
+
+    def test_v3_returns_v3_constant(self):
+        assert _build_system_prompt("v3") is _SYSTEM_PROMPT_V3
+
+    def test_v3_contains_how_to_decide_section(self):
+        prompt = _build_system_prompt("v3")
+        assert "How to decide:" in prompt
+
+    def test_v3_contains_all_seven_examples(self):
+        prompt = _build_system_prompt("v3")
+        assert "Putin's territorial demands dim ceasefire hopes" in prompt
+        assert "Verstappen jokes with engineer about the clutch in FP2" in prompt
+        assert "Opinion: the Elder Scrolls timeline has stagnated" in prompt
+        assert "Bomb threats hit several European flights" in prompt
+        assert "Xbox's first COO is out after a few months" in prompt
+        assert "Meta launches Muse Spaces for group collaboration" in prompt
+        assert "Brazilian GP qualifying: Hamilton on pole" in prompt
+
+    def test_v3_differs_from_v1(self):
+        assert _build_system_prompt("v3") != _build_system_prompt("v1")
+
+    def test_v3_differs_from_v2(self):
+        assert _build_system_prompt("v3") != _build_system_prompt("v2")
+
+    def test_v1_byte_identical_to_constant(self):
+        assert _build_system_prompt("v1") == _SYSTEM_PROMPT
+
+    def test_v2_byte_identical_to_constant(self):
+        assert _build_system_prompt("v2") == _SYSTEM_PROMPT_V2
+
+    def test_bogus_raises_value_error(self):
+        with pytest.raises(ValueError, match="unknown classify prompt variant"):
+            _build_system_prompt("bogus")
 
 
 # ---------------------------------------------------------------------------
@@ -709,3 +756,124 @@ class TestClassifyWithV2Variant:
         system_msgs = [m for m in captured_messages if m.get("role") == "system"]
         assert len(system_msgs) >= 1
         assert "Thread scope" not in system_msgs[0]["content"]
+
+
+# ---------------------------------------------------------------------------
+# AC5: three-row shadow output with v2 and v3 classify arms
+# ---------------------------------------------------------------------------
+
+class TestClassifyThreeRowShadow:
+    """With control=v1 and arms v2+v3, three rows are written with distinct prompt_hash values."""
+
+    def test_three_rows_v2_v3_distinct_hashes(self, db_session_factory):
+        import time
+        from types import SimpleNamespace
+
+        import aggregator_common.db as db_mod
+        import aggregator_common.experiment as _exp_module
+        from aggregator_common.models import LlmShadowResult
+        from sqlalchemy import select as sa_select
+
+        # Capture original factory to restore after test
+        original_factory = db_mod.SessionFactory
+
+        # Reset experiment state before test
+        with _exp_module._lock:
+            orig_config = _exp_module._config
+            orig_initialized = _exp_module._initialized
+            orig_executor = _exp_module._executor
+            _exp_module._config = None
+            _exp_module._initialized = False
+            _exp_module._executor = None
+        orig_counters = _exp_module._counters
+        orig_budget = _exp_module._budget
+        _exp_module._counters = _exp_module._Counters()
+        _exp_module._budget = _exp_module._BudgetCache()
+
+        db_mod.SessionFactory = db_session_factory
+
+        try:
+            cfg = json.dumps({
+                "enabled": True,
+                "name": "cls-v3-exp",
+                "until": "2030-01-01T00:00:00Z",
+                "max_daily_cost_usd": 100.0,
+                "operations": {
+                    "clusterer.classify": {
+                        "sample_rate": 1.0,
+                        "arms": [
+                            {"name": "v2-arm", "model": "gpt-6-luna", "params": {}, "prompt": "v2"},
+                            {"name": "v3-arm", "model": "gpt-6-luna", "params": {}, "prompt": "v3"},
+                        ],
+                    }
+                },
+            })
+            settings = SimpleNamespace(llm_experiment=cfg)
+            _exp_module.init(settings)
+
+            v1_msgs = [{"role": "system", "content": _SYSTEM_PROMPT}]
+            v2_msgs = [{"role": "system", "content": _SYSTEM_PROMPT_V2}]
+            v3_msgs = [{"role": "system", "content": _SYSTEM_PROMPT_V3}]
+            ref = "cls-shadow-three-rows-ref-7"
+
+            decision = _exp_module.Decision(
+                name="cls-v3-exp", key="clusterer.classify", ref_id=ref,
+                arms=[
+                    _exp_module.Arm(name="v2-arm", model="gpt-6-luna", params={}, prompt="v2"),
+                    _exp_module.Arm(name="v3-arm", model="gpt-6-luna", params={}, prompt="v3"),
+                ],
+            )
+            control_outcome = _exp_module.CallOutcome(
+                status="ok", value=None, output=None,
+                raw_output=None, attempts=1, request_ids=[], error=None,
+            )
+
+            def fake_attempt(kw):
+                return _exp_module.CallOutcome(
+                    status="ok", value=None, output=None,
+                    raw_output=None, attempts=1, request_ids=[], error=None,
+                )
+
+            _exp_module.submit_shadow(
+                decision,
+                {"model": "ctrl-model", "messages": v1_msgs},
+                control_outcome,
+                fake_attempt,
+                control_variant="v1",
+                variant_messages={"v2": v2_msgs, "v3": v3_msgs},
+            )
+
+            time.sleep(0.5)
+
+            sess = db_session_factory()
+            try:
+                rows = sess.execute(
+                    sa_select(LlmShadowResult).where(LlmShadowResult.ref_id == ref)
+                ).scalars().all()
+                assert len(rows) == 3
+
+                by_arm = {r.arm: r for r in rows}
+                assert "control" in by_arm
+                assert "v2-arm" in by_arm
+                assert "v3-arm" in by_arm
+
+                hashes = {r.prompt_hash for r in rows}
+                assert len(hashes) == 3, "All three rows must have distinct prompt_hash values"
+
+                assert by_arm["v2-arm"].params.get("prompt") == "v2"
+                assert by_arm["v3-arm"].params.get("prompt") == "v3"
+            finally:
+                sess.close()
+
+        finally:
+            # Restore experiment state
+            with _exp_module._lock:
+                executor = _exp_module._executor
+                _exp_module._config = orig_config
+                _exp_module._initialized = orig_initialized
+                _exp_module._executor = orig_executor
+            if executor is not None:
+                executor.shutdown()
+            _exp_module._counters = orig_counters
+            _exp_module._budget = orig_budget
+            db_mod.SessionFactory = original_factory

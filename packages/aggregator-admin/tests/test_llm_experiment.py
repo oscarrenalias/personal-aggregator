@@ -29,6 +29,7 @@ from aggregator_admin.llm_experiment import (
     CRITERIA_THRESHOLDS,
     SAMPLE_SEED,
     _compute_verdict,
+    _content_summarize_rank,
     _is_pair_disagree,
     _pair_shadow_rows,
     _percentile,
@@ -877,3 +878,241 @@ class TestBuildReportCost:
         proj = arm_data.get("cost", {}).get("projected_monthly_usd")
         assert proj is not None
         assert proj > 0
+
+
+# ---------------------------------------------------------------------------
+# AC6/AC9: _read_config ARM_IMPORTANT_THRESHOLD resolution
+# ---------------------------------------------------------------------------
+
+
+class TestReadConfigArmThreshold:
+    def test_env_66_no_cli_gives_66(self, monkeypatch):
+        """With ARM_IMPORTANT_THRESHOLD=66 in env, _read_config returns 66."""
+        monkeypatch.setenv("ARM_IMPORTANT_THRESHOLD", "66")
+        monkeypatch.delenv("WEB_IMPORTANT_THRESHOLD", raising=False)
+        config = _read_config()
+        assert config["ARM_IMPORTANT_THRESHOLD"] == 66
+
+    def test_no_env_gives_none(self, monkeypatch):
+        """Without ARM_IMPORTANT_THRESHOLD in env, _read_config returns None."""
+        monkeypatch.delenv("ARM_IMPORTANT_THRESHOLD", raising=False)
+        config = _read_config()
+        assert config["ARM_IMPORTANT_THRESHOLD"] is None
+
+    def test_no_env_no_cli_gives_web_threshold(self, monkeypatch):
+        """Without ARM_IMPORTANT_THRESHOLD, falls back to WEB_IMPORTANT_THRESHOLD in CLI."""
+        monkeypatch.delenv("ARM_IMPORTANT_THRESHOLD", raising=False)
+        monkeypatch.setenv("WEB_IMPORTANT_THRESHOLD", "70")
+        config = _read_config()
+        assert config["ARM_IMPORTANT_THRESHOLD"] is None
+        assert config["WEB_IMPORTANT_THRESHOLD"] == 70
+
+    def test_env_abc_logs_warning_and_gives_none(self, monkeypatch, caplog):
+        """Non-integer ARM_IMPORTANT_THRESHOLD logs one WARNING and returns None."""
+        import logging
+        monkeypatch.setenv("ARM_IMPORTANT_THRESHOLD", "abc")
+        with caplog.at_level(logging.WARNING, logger="aggregator_admin.llm_experiment"):
+            config = _read_config()
+        assert config["ARM_IMPORTANT_THRESHOLD"] is None
+        warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+        assert len(warnings) >= 1
+        assert "ARM_IMPORTANT_THRESHOLD" in warnings[0].message
+
+    def test_arm_threshold_in_help_text(self, runner):
+        """--arm-threshold flag appears in llm-experiment-report help."""
+        result = runner.invoke(app, ["llm-experiment-report", "--help"])
+        assert result.exit_code == 0
+        assert "--arm-threshold" in result.output
+
+    def test_cli_60_overrides_env_66(self, runner, db_session, db_engine, monkeypatch):
+        """CLI --arm-threshold 60 overrides ARM_IMPORTANT_THRESHOLD=66 in env."""
+        monkeypatch.setenv("ARM_IMPORTANT_THRESHOLD", "66")
+        with db_engine.connect() as conn:
+            conn.execute(text("TRUNCATE TABLE llm_shadow_results RESTART IDENTITY CASCADE"))
+            conn.commit()
+        result = runner.invoke(
+            app,
+            [
+                "llm-experiment-report",
+                "--experiment", _EXP,
+                "--json",
+                "--arm-threshold", "60",
+                "--since", "2020-01-01",
+                "--until", "2020-01-02",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        data = json.loads(result.output)
+        assert data["config"]["ARM_IMPORTANT_THRESHOLD"] == 60
+
+
+# ---------------------------------------------------------------------------
+# AC7: flip and disagreement boundary with arm_threshold=66
+# ---------------------------------------------------------------------------
+
+
+class TestArmThresholdFlipBoundary:
+    def _rank_row(self, score: int, status: str = "ok") -> dict:
+        return {"status": status, "output": {"importance_score": score, "categories": ["Tech"]}}
+
+    def test_ctrl_70_arm_66_at_threshold_66_not_flip(self):
+        """With arm_threshold=66: ctrl=70 (>=70), arm=66 (>=66) — same side, not a flip."""
+        ctrl = self._rank_row(70)
+        arm = self._rank_row(66)
+        config = {"WEB_IMPORTANT_THRESHOLD": 70, "ARM_IMPORTANT_THRESHOLD": 66}
+        assert _is_pair_disagree("summarize_rank.rank", ctrl, arm, config) is False
+
+    def test_ctrl_70_arm_65_at_threshold_66_is_flip(self):
+        """With arm_threshold=66: ctrl=70 (>=70), arm=65 (<66) — different sides, is a flip."""
+        ctrl = self._rank_row(70)
+        arm = self._rank_row(65)
+        config = {"WEB_IMPORTANT_THRESHOLD": 70, "ARM_IMPORTANT_THRESHOLD": 66}
+        assert _is_pair_disagree("summarize_rank.rank", ctrl, arm, config) is True
+
+    def test_ctrl_69_arm_66_at_threshold_66_not_flip(self):
+        """ctrl=69 (<70), arm=66 (>=66) — ctrl below ctrl-threshold, arm above arm-threshold."""
+        ctrl = self._rank_row(69)
+        arm = self._rank_row(66)
+        config = {"WEB_IMPORTANT_THRESHOLD": 70, "ARM_IMPORTANT_THRESHOLD": 66}
+        assert _is_pair_disagree("summarize_rank.rank", ctrl, arm, config) is True
+
+    def test_no_arm_threshold_uses_ctrl_threshold(self):
+        """Without ARM_IMPORTANT_THRESHOLD, arm uses WEB_IMPORTANT_THRESHOLD."""
+        ctrl = self._rank_row(70)
+        arm = self._rank_row(70)
+        config = {"WEB_IMPORTANT_THRESHOLD": 70, "ARM_IMPORTANT_THRESHOLD": None}
+        assert _is_pair_disagree("summarize_rank.rank", ctrl, arm, config) is False
+
+    def test_share_ge_threshold_arm_uses_arm_threshold(self):
+        """share_ge_threshold_arm counts scores >= arm_threshold (66), not >= ctrl_threshold (70)."""
+        from unittest.mock import MagicMock
+        from datetime import datetime, timezone
+        # Both pairs: ctrl=70, arm=67 — above arm_threshold=66, below ctrl_threshold=70
+        ok_pairs = [
+            (
+                {"ref_id": "1", "created_at": None, "output": {"importance_score": 70, "categories": ["Tech"]}},
+                {"ref_id": "1", "created_at": None, "output": {"importance_score": 67, "categories": ["Tech"]}},
+            ),
+        ]
+        config = {"WEB_IMPORTANT_THRESHOLD": 70, "ARM_IMPORTANT_THRESHOLD": 66}
+        mock_session = MagicMock()
+        until_dt = datetime.now(timezone.utc)  # recent → old_pairs is empty, session not used
+        result = _content_summarize_rank(ok_pairs, config, mock_session, until_dt)
+        assert result["share_ge_threshold_arm"] == 1.0
+        assert result["share_ge_threshold_ctrl"] == 1.0
+        assert result["arm_threshold"] == 66.0
+
+
+# ---------------------------------------------------------------------------
+# AC8: five new keys present in rank content block
+# ---------------------------------------------------------------------------
+
+
+class TestRankContentNewKeys:
+    def test_new_keys_present(self):
+        """share_ge_threshold_ctrl, share_ge_threshold_arm, share_round_70_75_ctrl,
+        share_round_70_75_arm, arm_threshold are present in _content_summarize_rank output."""
+        from unittest.mock import MagicMock
+        from datetime import datetime, timezone
+
+        ok_pairs = [
+            (
+                {"ref_id": "1", "created_at": None, "output": {"importance_score": 72, "categories": ["Tech"]}},
+                {"ref_id": "1", "created_at": None, "output": {"importance_score": 68, "categories": ["Tech"]}},
+            ),
+        ]
+        config = {"WEB_IMPORTANT_THRESHOLD": 70, "ARM_IMPORTANT_THRESHOLD": None}
+        mock_session = MagicMock()
+        until_dt = datetime.now(timezone.utc)
+        result = _content_summarize_rank(ok_pairs, config, mock_session, until_dt)
+
+        required_keys = {
+            "share_ge_threshold_ctrl",
+            "share_ge_threshold_arm",
+            "share_round_70_75_ctrl",
+            "share_round_70_75_arm",
+            "arm_threshold",
+        }
+        for key in required_keys:
+            assert key in result, f"Expected key {key!r} in rank content block"
+
+    def test_share_round_70_75_counts_exactly_70_or_75(self):
+        """share_round_70_75_ctrl counts ctrl scores that are exactly 70 or 75."""
+        from unittest.mock import MagicMock
+        from datetime import datetime, timezone
+
+        ok_pairs = [
+            (
+                {"ref_id": "1", "created_at": None, "output": {"importance_score": 70, "categories": []}},
+                {"ref_id": "1", "created_at": None, "output": {"importance_score": 60, "categories": []}},
+            ),
+            (
+                {"ref_id": "2", "created_at": None, "output": {"importance_score": 75, "categories": []}},
+                {"ref_id": "2", "created_at": None, "output": {"importance_score": 60, "categories": []}},
+            ),
+            (
+                {"ref_id": "3", "created_at": None, "output": {"importance_score": 80, "categories": []}},
+                {"ref_id": "3", "created_at": None, "output": {"importance_score": 60, "categories": []}},
+            ),
+        ]
+        config = {"WEB_IMPORTANT_THRESHOLD": 70, "ARM_IMPORTANT_THRESHOLD": None}
+        mock_session = MagicMock()
+        until_dt = datetime.now(timezone.utc)
+        result = _content_summarize_rank(ok_pairs, config, mock_session, until_dt)
+        # 2 out of 3 ctrl scores are exactly 70 or 75
+        assert result["share_round_70_75_ctrl"] == pytest.approx(2 / 3, abs=1e-4)
+
+    def test_arm_threshold_defaults_to_ctrl_threshold(self):
+        """With ARM_IMPORTANT_THRESHOLD=None, arm_threshold equals WEB_IMPORTANT_THRESHOLD."""
+        from unittest.mock import MagicMock
+        from datetime import datetime, timezone
+
+        ok_pairs = [
+            (
+                {"ref_id": "1", "created_at": None, "output": {"importance_score": 50, "categories": []}},
+                {"ref_id": "1", "created_at": None, "output": {"importance_score": 50, "categories": []}},
+            ),
+        ]
+        config = {"WEB_IMPORTANT_THRESHOLD": 70, "ARM_IMPORTANT_THRESHOLD": None}
+        mock_session = MagicMock()
+        until_dt = datetime.now(timezone.utc)
+        result = _content_summarize_rank(ok_pairs, config, mock_session, until_dt)
+        assert result["arm_threshold"] == 70.0
+
+
+# ---------------------------------------------------------------------------
+# AC11: .env.example has luna-prompts-v3-2026-11 with classify arms v2 and v3
+# ---------------------------------------------------------------------------
+
+
+class TestEnvExampleExperimentConfig:
+    def test_env_example_has_v3_config(self):
+        """The .env.example file has exactly one # LLM_EXPERIMENT= line naming luna-prompts-v3-2026-11
+        with classify arms luna-none-v2 and luna-none-v3."""
+        import aggregator_common.experiment as _exp_module
+        from pathlib import Path
+
+        # Locate .env.example relative to this test file (repo root)
+        repo_root = Path(__file__).parent.parent.parent.parent
+        env_example = repo_root / ".env.example"
+        assert env_example.exists(), f".env.example not found at {env_example}"
+
+        lines = env_example.read_text().splitlines()
+        prefix = "# LLM_EXPERIMENT="
+        matching = [line for line in lines if line.startswith(prefix)]
+        assert len(matching) == 1, f"Expected exactly one '# LLM_EXPERIMENT=' line, got {len(matching)}"
+
+        raw_json = matching[0][len(prefix):]
+        cfg = _exp_module._parse_config(raw_json)
+        assert cfg is not None, "LLM_EXPERIMENT config in .env.example failed to parse"
+        assert cfg.name == "luna-prompts-v3-2026-11"
+
+        classify_op = cfg.operations.get("clusterer.classify")
+        assert classify_op is not None, "clusterer.classify operation missing"
+        arm_names = {arm.name for arm in classify_op.arms}
+        assert "luna-none-v2" in arm_names
+        assert "luna-none-v3" in arm_names
+        # Check prompt variants
+        arm_prompts = {arm.name: arm.prompt for arm in classify_op.arms}
+        assert arm_prompts["luna-none-v2"] == "v2"
+        assert arm_prompts["luna-none-v3"] == "v3"

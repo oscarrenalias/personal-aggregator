@@ -346,3 +346,43 @@ class TestUnsaveArticle:
     def test_unsave_unknown_article_returns_404(self, client, db_session):
         response = client.post("/articles/999999/unsave")
         assert response.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# AC10: WEB_IMPORTANT_THRESHOLD pass-through via module-level _settings
+# ---------------------------------------------------------------------------
+
+
+class TestImportantViewThresholdPassthrough:
+    def test_settings_is_module_level_instance(self):
+        """_settings must be a module-level ApiSettings instance (not constructed per-request)."""
+        import aggregator_api.routes.articles as articles_mod
+        from aggregator_api.settings import ApiSettings
+        assert isinstance(articles_mod._settings, ApiSettings)
+
+    def test_article_scored_67_included_when_threshold_66(self, client, db_session, monkeypatch):
+        """With web_important_threshold=66, an article scored 67 appears in ?view=important."""
+        import aggregator_api.routes.articles as articles_mod
+        monkeypatch.setattr(articles_mod._settings, "web_important_threshold", 66)
+
+        src = make_source(db_session)
+        make_article(db_session, source_id=src.id, dedup_key="thresh-67-incl", importance_score=67)
+
+        response = client.get("/articles?view=important")
+        assert response.status_code == 200
+        ids_and_scores = [(item["id"], item["importance_score"]) for item in response.json()["items"]]
+        scores = [s for _, s in ids_and_scores]
+        assert 67 in scores, f"Expected score 67 in important view at threshold 66; got {scores}"
+
+    def test_article_scored_67_excluded_with_default_threshold_70(self, client, db_session, monkeypatch):
+        """With web_important_threshold=70 (default), an article scored 67 is not in ?view=important."""
+        import aggregator_api.routes.articles as articles_mod
+        monkeypatch.setattr(articles_mod._settings, "web_important_threshold", 70)
+
+        src = make_source(db_session)
+        make_article(db_session, source_id=src.id, dedup_key="thresh-67-excl", importance_score=67)
+
+        response = client.get("/articles?view=important")
+        assert response.status_code == 200
+        scores = [item["importance_score"] for item in response.json()["items"]]
+        assert 67 not in scores, f"Expected score 67 absent from important view at threshold 70; got {scores}"
