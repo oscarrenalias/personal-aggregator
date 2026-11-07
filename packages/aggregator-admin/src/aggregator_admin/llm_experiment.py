@@ -7,6 +7,7 @@ Content metrics, verdicts, disagreement rules, and --samples are added by later 
 from __future__ import annotations
 
 import json
+import logging
 import os
 import random
 import statistics
@@ -22,6 +23,8 @@ from sqlalchemy.orm import Session
 from aggregator_common.db import get_session
 
 from .output import console, json_default, _error_console
+
+logger = logging.getLogger(__name__)
 
 SAMPLE_SEED = 20261021
 
