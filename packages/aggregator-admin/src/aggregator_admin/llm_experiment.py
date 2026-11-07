@@ -1317,12 +1317,28 @@ def llm_experiment_report_cmd(
     samples_dir: Optional[str] = typer.Option(
         None, "--samples", help="Directory to write per-operation JSONL sample files."
     ),
+    arm_threshold: Optional[int] = typer.Option(
+        None,
+        "--arm-threshold",
+        help=(
+            "Important score threshold for arm evaluation. "
+            "Overrides ARM_IMPORTANT_THRESHOLD env and WEB_IMPORTANT_THRESHOLD."
+        ),
+    ),
 ) -> None:
     """Report reliability and cost metrics for an LLM shadow experiment."""
     now = datetime.now(tz=timezone.utc)
     since_dt = _parse_date_arg(since, now - timedelta(days=30))
     until_dt = _parse_date_arg(until, now)
     config = _read_config()
+    # Resolve ARM_IMPORTANT_THRESHOLD: CLI option > env var > WEB_IMPORTANT_THRESHOLD.
+    if arm_threshold is not None:
+        resolved_threshold = arm_threshold
+    elif config.get("ARM_IMPORTANT_THRESHOLD") is not None:
+        resolved_threshold = config["ARM_IMPORTANT_THRESHOLD"]
+    else:
+        resolved_threshold = config["WEB_IMPORTANT_THRESHOLD"]
+    config["ARM_IMPORTANT_THRESHOLD"] = resolved_threshold
 
     with get_session() as session:
         session.execute(text("SET TRANSACTION READ ONLY"))
