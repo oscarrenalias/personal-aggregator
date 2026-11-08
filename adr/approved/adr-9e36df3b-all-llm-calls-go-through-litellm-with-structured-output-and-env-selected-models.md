@@ -1,15 +1,25 @@
 ---
 id: ADR-9e36df3b
-title: "All LLM calls go through litellm with structured output and env-selected models"
-status: draft
-created_at: 2026-11-08T21:40:18.022943+00:00
-authors: ['Renalias, Oscar']
-description: "Any service may call an LLM, but only via litellm with telemetry, response_format and a per-service model setting"
-tags: [llm]
-related_specs: [spec-5d47fa68, spec-5452e3b1]
-related_beads: 
-supersedes: 
+title: All LLM calls go through litellm with structured output and env-selected models
+status: approved
+created_at: '2026-11-08T21:40:18.022943+00:00'
+authors:
+- Renalias, Oscar
+description: Any service may call an LLM, but only via litellm with telemetry, response_format
+  and a per-service model setting
+accepted_at: '2026-11-08T21:44:22.149854+00:00'
+superseded_at: null
+superseded_by: null
+supersedes: []
+tags:
+- llm
+related_specs:
+- spec-5d47fa68
+- spec-5452e3b1
+related_beads: []
+review_after: null
 ---
+
 # All LLM calls go through litellm with structured output and env-selected models
 
 ## Summary
