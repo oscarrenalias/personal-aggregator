@@ -1,7 +1,7 @@
 {
-  "takt_version": "0.1.64",
+  "takt_version": "0.1.70",
   "installed_at": "2026-06-09T16:52:22.004281+00:00",
-  "upgraded_at": "2026-11-07T21:57:46.219713+00:00",
+  "upgraded_at": "2026-11-08T21:23:00.861772+00:00",
   "assets": {
     "templates/agents/merge-conflict.md": {
       "sha256": "37b9d67c3e4d10fe2fac0f86cb7ab170c5dec2a0f018264052cc4aa891a99d0f",
@@ -74,7 +74,7 @@
       "user_owned": false
     },
     "templates/skills/task/spec-intake/SKILL.md": {
-      "sha256": "52e4bb1552aa5980e3b555c18dc01dc1780346b8aec73a6cb94bbdc257f0d129",
+      "sha256": "642d79051d282c2a9b4509134e2f3d69fd79abf6bfeff9d87de3fd896f67b8af",
       "source": "bundled",
       "user_owned": false
     },
@@ -209,17 +209,12 @@
       "user_owned": false
     },
     ".agents/skills/memory/SKILL.md": {
-      "sha256": "17e54f7d91bbdec6680a7b6d3fd54e6fe911da36bdc80400f4878c670e867252",
-      "source": "bundled",
-      "user_owned": false
-    },
-    ".agents/skills/task/spec-management/spec.py": {
-      "sha256": "1d9bcfe9a842af66a7f1edb6fbed60e16e78fb9f32895a7ecc4256dc3769ab57",
+      "sha256": "9e30ce615483b96c63f615e52be9a55408e1481ab2fa99d9862a0250c36d68bc",
       "source": "bundled",
       "user_owned": false
     },
     ".agents/skills/task/spec-management/SKILL.md": {
-      "sha256": "230b29e06ab3d53489bdd8f5a175aca9ad459ad2dd1b1cc32a1d52391ef3941f",
+      "sha256": "2f148b1e776ea28f47736d82e212b802f7e1f72635ad4d587fc4914adbd34cd4",
       "source": "bundled",
       "user_owned": false
     },
@@ -229,27 +224,22 @@
       "user_owned": false
     },
     ".claude/skills/takt/SKILL.md": {
-      "sha256": "5c5257fd7538cdd862c44244197efa06932c22062b8ca725354aadbbadaf121a",
+      "sha256": "09110b0ea1e5fc81b408942504d54af331aa44f874a847e8b71b069f442ae904",
       "source": "bundled",
       "user_owned": false
     },
     ".claude/skills/memory/SKILL.md": {
-      "sha256": "17e54f7d91bbdec6680a7b6d3fd54e6fe911da36bdc80400f4878c670e867252",
-      "source": "bundled",
-      "user_owned": false
-    },
-    ".claude/skills/skill-spec-management/spec.py": {
-      "sha256": "1d9bcfe9a842af66a7f1edb6fbed60e16e78fb9f32895a7ecc4256dc3769ab57",
+      "sha256": "9e30ce615483b96c63f615e52be9a55408e1481ab2fa99d9862a0250c36d68bc",
       "source": "bundled",
       "user_owned": false
     },
     ".claude/skills/skill-spec-management/SKILL.md": {
-      "sha256": "110381bef8e75dad1db4b6d71b71b39a88f220fa02bba57a8c5cf871aa0a4341",
+      "sha256": "37aec09315ad8df99e68a619256d8087eb7ac5c30c7148b4a2e5fc0e5145112a",
       "source": "bundled",
       "user_owned": false
     },
     ".claude/agents/spec-reviewer.md": {
-      "sha256": "31b2c98f6385f9089800fd6c14f9f254e442087fde47bff549df316b292b4867",
+      "sha256": "35739ec452277f54bcd73700869dc27ca4b62b34225178ea44f3a7ac77c51be5",
       "source": "bundled",
       "user_owned": false
     },
@@ -258,18 +248,13 @@
       "source": "bundled",
       "user_owned": false
     },
-    ".claude/skills/metrics-review/SKILL.md": {
-      "sha256": "f02805662bff13bfff6c4a0434d466c2444737505952a5ec46379c211012f10e",
-      "source": "user",
-      "user_owned": true
-    },
     "templates/adr/template.md": {
       "sha256": "5d834eb0babb23d3b6b440cd3f131717b556adb4d85eb71ac753f41a11a91bb2",
       "source": "bundled",
       "user_owned": false
     },
     "templates/agents/defect.md": {
-      "sha256": "8f0157ff80ebd6b7e6ec8e13484b0b3cd10b086e6bff28a5694a2fb2ef91d7f7",
+      "sha256": "b51f409e3950deec250b3ea3f8d213995efad96767bb8217404485e770e8054b",
       "source": "bundled",
       "user_owned": false
     },
@@ -280,6 +265,21 @@
     },
     "templates/skills/role/defect-fix/SKILL.md": {
       "sha256": "2214da03446bf4d6e8ef988279aa0917dc875c1ccd129e8a81e2aa5ab3245442",
+      "source": "bundled",
+      "user_owned": false
+    },
+    ".agents/skills/task/adr-management/SKILL.md": {
+      "sha256": "75ff5fce19fbe4549a58548ebd3b7b0167d6aff6e5641157964e69e115feae94",
+      "source": "bundled",
+      "user_owned": false
+    },
+    ".agents/skills/task/adr-management/agents/openai.yaml": {
+      "sha256": "a1499d95abd8447558c535fe5554adcc3c9b988a0a39264a6283d430effe1e94",
+      "source": "bundled",
+      "user_owned": false
+    },
+    ".claude/skills/skill-adr-management/SKILL.md": {
+      "sha256": "237e13a64769a41f960bb6a8cfc082fe4f00b312646c155065ca6b205aa42ca9",
       "source": "bundled",
       "user_owned": false
     }

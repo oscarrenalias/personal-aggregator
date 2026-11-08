@@ -38,3 +38,6 @@ personal_key.pub
 podcast_*.mp3
 podcast_output/
 podcast_script.json
+
+# takt
+.takt/runs/
