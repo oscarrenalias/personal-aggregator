@@ -920,9 +920,11 @@ class TestReadConfigArmThreshold:
 
     def test_arm_threshold_in_help_text(self, runner):
         """--arm-threshold flag appears in llm-experiment-report help."""
+        import re
         result = runner.invoke(app, ["llm-experiment-report", "--help"])
         assert result.exit_code == 0
-        assert "--arm-threshold" in result.output
+        plain = re.sub(r"\x1b\[[0-9;]*m", "", result.output)
+        assert "--arm-threshold" in plain
 
     def test_cli_60_overrides_env_66(self, runner, db_session, db_engine, monkeypatch):
         """CLI --arm-threshold 60 overrides ARM_IMPORTANT_THRESHOLD=66 in env."""
