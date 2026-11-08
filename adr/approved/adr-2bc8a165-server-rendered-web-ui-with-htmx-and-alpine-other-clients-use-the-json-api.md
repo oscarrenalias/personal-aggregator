@@ -1,15 +1,27 @@
 ---
 id: ADR-2bc8a165
-title: "Server-rendered web UI with HTMX and Alpine; other clients use the JSON API"
-status: draft
-created_at: 2026-11-08T21:40:19.862559+00:00
-authors: ['Renalias, Oscar']
-description: "FastAPI + Jinja + HTMX + Alpine, no SPA framework or JS build step; TUI/mobile are pure HTTP clients of /api/v1"
-tags: [frontend, architecture]
-related_specs: [spec-b85ac9a3, spec-0a1c22b3, spec-41c4d8de]
-related_beads: 
-supersedes: 
+title: Server-rendered web UI with HTMX and Alpine; other clients use the JSON API
+status: approved
+created_at: '2026-11-08T21:40:19.862559+00:00'
+authors:
+- Renalias, Oscar
+description: FastAPI + Jinja + HTMX + Alpine, no SPA framework or JS build step; TUI/mobile
+  are pure HTTP clients of /api/v1
+accepted_at: '2026-11-08T21:44:24.018430+00:00'
+superseded_at: null
+superseded_by: null
+supersedes: []
+tags:
+- frontend
+- architecture
+related_specs:
+- spec-b85ac9a3
+- spec-0a1c22b3
+- spec-41c4d8de
+related_beads: []
+review_after: null
 ---
+
 # Server-rendered web UI with HTMX and Alpine; other clients use the JSON API
 
 ## Summary
