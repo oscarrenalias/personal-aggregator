@@ -1,15 +1,25 @@
 ---
 id: ADR-afcd042d
-title: "Single wide articles table with identity PK separate from dedup key"
-status: draft
-created_at: 2026-11-08T21:40:17.299133+00:00
-authors: ['Renalias, Oscar']
-description: "One row per article across all pipeline stages; bigint identity PK; dedup_key is a separate unique column"
-tags: [database]
-related_specs: [spec-9e974b88, spec-ee787452]
-related_beads: 
-supersedes: 
+title: Single wide articles table with identity PK separate from dedup key
+status: approved
+created_at: '2026-11-08T21:40:17.299133+00:00'
+authors:
+- Renalias, Oscar
+description: One row per article across all pipeline stages; bigint identity PK; dedup_key
+  is a separate unique column
+accepted_at: '2026-11-08T21:44:21.177620+00:00'
+superseded_at: null
+superseded_by: null
+supersedes: []
+tags:
+- database
+related_specs:
+- spec-9e974b88
+- spec-ee787452
+related_beads: []
+review_after: null
 ---
+
 # Single wide articles table with identity PK separate from dedup key
 
 ## Summary
