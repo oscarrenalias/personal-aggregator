@@ -1,15 +1,27 @@
 ---
 id: ADR-b073f408
-title: "Network perimeter is the only security boundary (Tailscale, no app auth)"
-status: draft
-created_at: 2026-11-08T21:40:19.422934+00:00
-authors: ['Renalias, Oscar']
-description: "Services bind 127.0.0.1 and are reached over Tailscale; API/MCP writes are unauthenticated; public exposure requires an auth phase first"
-tags: [security, deployment]
-related_specs: [spec-b85ac9a3, spec-0a1c22b3, spec-b5d86383]
-related_beads: 
-supersedes: 
+title: Network perimeter is the only security boundary (Tailscale, no app auth)
+status: approved
+created_at: '2026-11-08T21:40:19.422934+00:00'
+authors:
+- Renalias, Oscar
+description: Services bind 127.0.0.1 and are reached over Tailscale; API/MCP writes
+  are unauthenticated; public exposure requires an auth phase first
+accepted_at: '2026-11-08T21:44:23.517717+00:00'
+superseded_at: null
+superseded_by: null
+supersedes: []
+tags:
+- security
+- deployment
+related_specs:
+- spec-b85ac9a3
+- spec-0a1c22b3
+- spec-b5d86383
+related_beads: []
+review_after: null
 ---
+
 # Network perimeter is the only security boundary (Tailscale, no app auth)
 
 ## Summary
