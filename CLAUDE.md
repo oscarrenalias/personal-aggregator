@@ -144,7 +144,7 @@ The full production stack (`postgres → migrate → retriever → processor →
 This is a takt repo. Work is broken into **beads** executed by worker agents in git worktrees. **Read the `takt` skill before any takt action.** Non-negotiable rules:
 
 - Always prefix takt/python with `uv run`.
-- Manage specs only via the spec-management skill's `spec.py` (`.claude/skills/skill-spec-management/spec.py`) — never `mv` spec files or hand-edit their frontmatter.
+- Manage specs only via `uv run takt spec` (see the `skill-spec-management` skill; search with `takt spec search`) — never `mv` spec files or hand-edit their frontmatter.
 - Specs live in `specs/drafts/ → planned/ → done/`. A spec is the planning input: `uv run takt plan --write <spec>` turns it into beads.
 - Use `uv run takt merge <id>`, never `git merge`. Let the scheduler resolve merge-conflict beads — do not resolve them manually.
 - Never manually mark a developer bead `done`; it must go through the scheduler to trigger followup test/docs/review beads.
