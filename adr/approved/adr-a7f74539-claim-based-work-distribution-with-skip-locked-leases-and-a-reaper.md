@@ -1,15 +1,26 @@
 ---
 id: ADR-a7f74539
-title: "Claim-based work distribution with SKIP LOCKED leases and a reaper"
-status: draft
-created_at: 2026-11-08T21:40:16.843530+00:00
-authors: ['Renalias, Oscar']
-description: "In-flight = claimed_at set, not a status; reaper releases stale claims; advisory locks for singleton jobs"
-tags: [architecture, database]
-related_specs: [spec-9e974b88, spec-09a0a914]
-related_beads: 
-supersedes: 
+title: Claim-based work distribution with SKIP LOCKED leases and a reaper
+status: approved
+created_at: '2026-11-08T21:40:16.843530+00:00'
+authors:
+- Renalias, Oscar
+description: In-flight = claimed_at set, not a status; reaper releases stale claims;
+  advisory locks for singleton jobs
+accepted_at: '2026-11-08T21:44:20.676904+00:00'
+superseded_at: null
+superseded_by: null
+supersedes: []
+tags:
+- architecture
+- database
+related_specs:
+- spec-9e974b88
+- spec-09a0a914
+related_beads: []
+review_after: null
 ---
+
 # Claim-based work distribution with SKIP LOCKED leases and a reaper
 
 ## Summary
