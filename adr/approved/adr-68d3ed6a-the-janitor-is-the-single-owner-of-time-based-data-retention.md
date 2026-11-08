@@ -1,15 +1,25 @@
 ---
 id: ADR-68d3ed6a
-title: "The janitor is the single owner of time-based data retention"
-status: draft
-created_at: 2026-11-08T21:40:20.637808+00:00
-authors: ['Renalias, Oscar']
-description: "Age-based purges live only in aggregator-janitor under its own advisory lock; feature services never prune by age"
-tags: [architecture, database]
-related_specs: [spec-44ab62a3]
-related_beads: 
-supersedes: 
+title: The janitor is the single owner of time-based data retention
+status: approved
+created_at: '2026-11-08T21:40:20.637808+00:00'
+authors:
+- Renalias, Oscar
+description: Age-based purges live only in aggregator-janitor under its own advisory
+  lock; feature services never prune by age
+accepted_at: '2026-11-08T21:44:24.941899+00:00'
+superseded_at: null
+superseded_by: null
+supersedes: []
+tags:
+- architecture
+- database
+related_specs:
+- spec-44ab62a3
+related_beads: []
+review_after: null
 ---
+
 # The janitor is the single owner of time-based data retention
 
 ## Summary
