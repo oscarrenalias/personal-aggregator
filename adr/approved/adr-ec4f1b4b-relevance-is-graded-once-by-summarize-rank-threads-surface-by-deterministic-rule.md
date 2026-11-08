@@ -1,15 +1,26 @@
 ---
 id: ADR-ec4f1b4b
-title: "Relevance is graded once by summarize-rank; threads surface by deterministic rule"
-status: draft
-created_at: 2026-11-08T21:40:18.375209+00:00
-authors: ['Renalias, Oscar']
-description: "Single importance_score per article; clusterer groups but never re-ranks; surfacing is a rule over member grades and cluster shape"
-tags: [llm, clustering]
-related_specs: [spec-899062cd]
-related_beads: 
-supersedes: 
+title: Relevance is graded once by summarize-rank; threads surface by deterministic
+  rule
+status: approved
+created_at: '2026-11-08T21:40:18.375209+00:00'
+authors:
+- Renalias, Oscar
+description: Single importance_score per article; clusterer groups but never re-ranks;
+  surfacing is a rule over member grades and cluster shape
+accepted_at: '2026-11-08T21:44:22.615208+00:00'
+superseded_at: null
+superseded_by: null
+supersedes: []
+tags:
+- llm
+- clustering
+related_specs:
+- spec-899062cd
+related_beads: []
+review_after: null
 ---
+
 # Relevance is graded once by summarize-rank; threads surface by deterministic rule
 
 ## Summary
