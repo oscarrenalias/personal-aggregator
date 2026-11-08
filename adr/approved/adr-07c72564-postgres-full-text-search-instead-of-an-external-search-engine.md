@@ -1,15 +1,24 @@
 ---
 id: ADR-07c72564
-title: "Postgres full-text search instead of an external search engine"
-status: draft
-created_at: 2026-11-08T21:40:17.653449+00:00
-authors: ['Renalias, Oscar']
-description: "tsvector + GIN populated by the processor; no Elasticsearch/Meilisearch"
-tags: [database, search]
-related_specs: [spec-09a0a914]
-related_beads: 
-supersedes: 
+title: Postgres full-text search instead of an external search engine
+status: approved
+created_at: '2026-11-08T21:40:17.653449+00:00'
+authors:
+- Renalias, Oscar
+description: tsvector + GIN populated by the processor; no Elasticsearch/Meilisearch
+accepted_at: '2026-11-08T21:44:21.673497+00:00'
+superseded_at: null
+superseded_by: null
+supersedes: []
+tags:
+- database
+- search
+related_specs:
+- spec-09a0a914
+related_beads: []
+review_after: null
 ---
+
 # Postgres full-text search instead of an external search engine
 
 ## Summary
