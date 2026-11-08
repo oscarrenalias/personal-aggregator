@@ -1,15 +1,27 @@
 ---
 id: ADR-9687cb01
-title: "Shadow-evaluate model and prompt changes before cutover"
-status: draft
-created_at: 2026-11-08T21:40:18.713164+00:00
-authors: ['Renalias, Oscar']
-description: "LLM_EXPERIMENT shadow arms, PROMPT_VARIANTS registry, per-operation *_PROMPT_VARIANT settings, cutover criteria written before the data"
-tags: [llm, experiment]
-related_specs: [spec-5f4aeb9f, spec-9eac0646, spec-1b31bd43]
-related_beads: 
-supersedes: 
+title: Shadow-evaluate model and prompt changes before cutover
+status: approved
+created_at: '2026-11-08T21:40:18.713164+00:00'
+authors:
+- Renalias, Oscar
+description: LLM_EXPERIMENT shadow arms, PROMPT_VARIANTS registry, per-operation *_PROMPT_VARIANT
+  settings, cutover criteria written before the data
+accepted_at: '2026-11-08T21:44:23.063495+00:00'
+superseded_at: null
+superseded_by: null
+supersedes: []
+tags:
+- llm
+- experiment
+related_specs:
+- spec-5f4aeb9f
+- spec-9eac0646
+- spec-1b31bd43
+related_beads: []
+review_after: null
 ---
+
 # Shadow-evaluate model and prompt changes before cutover
 
 ## Summary
