@@ -149,6 +149,16 @@ This is a takt repo. Work is broken into **beads** executed by worker agents in 
 - Use `uv run takt merge <id>`, never `git merge`. Let the scheduler resolve merge-conflict beads — do not resolve them manually.
 - Never manually mark a developer bead `done`; it must go through the scheduler to trigger followup test/docs/review beads.
 
+## Architecture Decision Records (ADRs)
+
+Project-wide decisions live in `adr/` and are managed only via `uv run takt adr` (see the `skill-adr-management` skill) — never `mv` ADR files or hand-edit their frontmatter. Lifecycle: `adr/drafts/ → approved/`, later `superseded/` or `rejected/`.
+
+- **Approved ADRs are binding.** Before writing a spec or making a change that touches architecture, the LLM stack, data retention, security/exposure, deployment, or the web UI stack, search for related decisions: `uv run takt adr search "<topic>" --status approved`. Don't grep `adr/`.
+- **Don't contradict an approved ADR silently.** If a change conflicts with one, stop and raise it with the user; if the decision should change, write a new ADR and approve it with `--supersedes <old-id>`. Never edit an approved ADR's decision in place.
+- **ADR vs spec:** a spec says what to build for one feature; an ADR records a decision that outlives the feature (technology choice, cross-service principle, project-wide constraint, calibrated threshold). If text you're about to add to CLAUDE.md or a spec starts "we decided to…", it probably belongs in an ADR.
+- **Creating one:** `uv run takt adr new "<title>" --tag <t> --related-spec <spec-id>`, then fill in every body section (Summary, Context, Considered Options with specific Good/Bad bullets, Decision, Consequences) and run `uv run takt adr validate`. Leave it as a draft and run `takt adr approve` only when the user says to (it commits automatically).
+- **Reference ADRs by ID** (e.g. `ADR-9e36df3b`) in specs and CLAUDE.md rather than restating the rationale.
+
 ## Foundation implementation notes
 
 ### Database schema (Alembic)
