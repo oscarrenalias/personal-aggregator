@@ -1,15 +1,26 @@
 ---
 id: ADR-cf96d328
-title: "Single-host arm64 Raspberry Pi deployment with CI-managed versions and GHCR images"
-status: draft
-created_at: 2026-11-08T21:40:20.233545+00:00
-authors: ['Renalias, Oscar']
-description: "docker-compose.prod.yml on one Pi; CI patch-bumps version and publishes arm64 images; migrations run as a one-shot step"
-tags: [deployment]
-related_specs: [spec-2c473de7, spec-e2f5a9d1]
-related_beads: 
-supersedes: 
+title: Single-host arm64 Raspberry Pi deployment with CI-managed versions and GHCR
+  images
+status: approved
+created_at: '2026-11-08T21:40:20.233545+00:00'
+authors:
+- Renalias, Oscar
+description: docker-compose.prod.yml on one Pi; CI patch-bumps version and publishes
+  arm64 images; migrations run as a one-shot step
+accepted_at: '2026-11-08T21:44:24.469191+00:00'
+superseded_at: null
+superseded_by: null
+supersedes: []
+tags:
+- deployment
+related_specs:
+- spec-2c473de7
+- spec-e2f5a9d1
+related_beads: []
+review_after: null
 ---
+
 # Single-host arm64 Raspberry Pi deployment with CI-managed versions and GHCR images
 
 ## Summary
