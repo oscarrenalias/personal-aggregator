@@ -78,8 +78,15 @@ _REVIEW_OPERATIONS: frozenset = frozenset({"clusterer.consolidate_facts", "brief
 
 
 def _classify_outcome(label: str, thread_id: Optional[str]) -> str:
-    """Map a classify label to a coarser outcome category for outcome_agreement."""
+    """Map a classify label to a coarser outcome category for outcome_agreement.
+
+    An attaching label with thread_id=None means the LLM returned a list position
+    or otherwise unresolvable value; production coerces that to a new thread, so we
+    score it as "new" here to match what production actually did.
+    """
     if label in _ATTACHING_LABELS:
+        if thread_id is None:
+            return "new"
         return f"attach:{thread_id}"
     if label == "irrelevant_or_low_value":
         return "drop"
@@ -129,11 +136,9 @@ def _is_pair_disagree(
         return False
 
     if op_key == "clusterer.classify":
-        cl = ctrl_out.get("label", "")
-        al = arm_out.get("label", "")
-        if cl in _ATTACHING_LABELS or al in _ATTACHING_LABELS:
-            return not (cl == al and ctrl_out.get("thread_id") == arm_out.get("thread_id"))
-        return cl != al
+        ctrl_eff = _classify_outcome(ctrl_out.get("label", ""), ctrl_out.get("thread_id"))
+        arm_eff = _classify_outcome(arm_out.get("label", ""), arm_out.get("thread_id"))
+        return ctrl_eff != arm_eff
 
     if op_key == "clusterer.merge":
         return bool(ctrl_out.get("same_story", False)) != bool(arm_out.get("same_story", False))
@@ -766,6 +771,8 @@ def _content_clusterer_classify(ok_pairs: List[Tuple[Dict, Dict]]) -> Dict[str, 
     ctrl_attach_arm_new_count = 0
     ctrl_new_arm_attach_count = 0
     both_attach_diff_thread_count = 0
+    unresolved_ctrl_count = 0
+    unresolved_arm_count = 0
     conf_agree_ctrl: List[float] = []
     conf_agree_arm: List[float] = []
     conf_disagree_ctrl: List[float] = []
@@ -798,21 +805,30 @@ def _content_clusterer_classify(ok_pairs: List[Tuple[Dict, Dict]]) -> Dict[str, 
         if assigns_match:
             assignment_agree += 1
 
+        # Track attaching-label outputs whose thread_id is None (unresolvable by production).
+        if cl in _ATTACHING_LABELS and ct is None:
+            unresolved_ctrl_count += 1
+        if al in _ATTACHING_LABELS and at is None:
+            unresolved_arm_count += 1
+
         # Outcome classification: coarser than label+thread_id.
+        # _classify_outcome maps attaching-label+None → "new", matching production.
         ctrl_outcome = _classify_outcome(cl, ct)
         arm_outcome = _classify_outcome(al, at)
         if ctrl_outcome == arm_outcome:
             outcome_agree += 1
         else:
-            ctrl_is_attach = cl in _ATTACHING_LABELS
-            arm_is_attach = al in _ATTACHING_LABELS
-            ctrl_is_new = cl in _THREAD_TITLE_LABELS
-            arm_is_new = al in _THREAD_TITLE_LABELS
-            if ctrl_is_attach and arm_is_new:
+            # Use effective outcomes (not raw labels) so unresolved-id cases
+            # are classified correctly against what production actually did.
+            ctrl_eff_attach = ctrl_outcome.startswith("attach:")
+            arm_eff_attach = arm_outcome.startswith("attach:")
+            ctrl_eff_new = ctrl_outcome == "new"
+            arm_eff_new = arm_outcome == "new"
+            if ctrl_eff_attach and arm_eff_new:
                 ctrl_attach_arm_new_count += 1
-            elif ctrl_is_new and arm_is_attach:
+            elif ctrl_eff_new and arm_eff_attach:
                 ctrl_new_arm_attach_count += 1
-            elif ctrl_is_attach and arm_is_attach:
+            elif ctrl_eff_attach and arm_eff_attach:
                 # Both attaching but to different thread IDs (otherwise outcomes would match).
                 both_attach_diff_thread_count += 1
 
@@ -853,6 +869,10 @@ def _content_clusterer_classify(ok_pairs: List[Tuple[Dict, Dict]]) -> Dict[str, 
         "ctrl_new_arm_attach_rate": round(ctrl_new_arm_attach_count / n, 4) if n else None,
         "both_attach_diff_thread": both_attach_diff_thread_count,
         "both_attach_diff_thread_rate": round(both_attach_diff_thread_count / n, 4) if n else None,
+        "unresolved_thread_id_count_ctrl": unresolved_ctrl_count,
+        "unresolved_thread_id_rate_ctrl": round(unresolved_ctrl_count / n, 4) if n else None,
+        "unresolved_thread_id_count_arm": unresolved_arm_count,
+        "unresolved_thread_id_rate_arm": round(unresolved_arm_count / n, 4) if n else None,
         "mean_new_facts_ctrl": statistics.mean(new_facts_ctrl) if new_facts_ctrl else None,
         "mean_new_facts_arm": statistics.mean(new_facts_arm) if new_facts_arm else None,
         "label_confusion": {k: dict(v) for k, v in label_confusion.items()},

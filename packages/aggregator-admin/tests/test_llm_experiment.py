@@ -28,8 +28,10 @@ from sqlalchemy.orm import Session
 from aggregator_admin.llm_experiment import (
     CRITERIA_THRESHOLDS,
     SAMPLE_SEED,
+    _classify_outcome,
     _compute_verdict,
     _content_summarize_rank,
+    _content_clusterer_classify,
     _is_pair_disagree,
     _pair_shadow_rows,
     _percentile,
@@ -1109,6 +1111,92 @@ class TestRankContentNewKeys:
 # ---------------------------------------------------------------------------
 # AC11: .env.example has luna-prompts-v3-2026-11 with classify arms v2 and v3
 # ---------------------------------------------------------------------------
+
+
+class TestClassifyUnresolvedThreadId:
+    """Regression tests for attaching-label outputs whose thread_id is None.
+
+    Production coerces an unresolvable thread_id to None and creates a new thread,
+    so the report must score these as effective outcome 'new', not 'attach:None'.
+    """
+
+    def _pair(self, ctrl_label: str, ctrl_tid, arm_label: str, arm_tid) -> tuple:
+        ctrl_out = {"label": ctrl_label, "thread_id": ctrl_tid}
+        arm_out = {"label": arm_label, "thread_id": arm_tid}
+        ctrl_row = {"status": "ok", "output": ctrl_out}
+        arm_row = {"status": "ok", "output": arm_out}
+        return ctrl_row, arm_row
+
+    # --- _classify_outcome unit tests ---
+
+    def test_classify_outcome_attach_none_is_new(self) -> None:
+        """Attaching label with thread_id=None must map to 'new'."""
+        assert _classify_outcome("same_thread_new_fact", None) == "new"
+
+    def test_classify_outcome_attach_nonnull_is_attach(self) -> None:
+        """Attaching label with a real thread_id must map to 'attach:<id>'."""
+        assert _classify_outcome("same_thread_new_fact", "42") == "attach:42"
+
+    def test_classify_outcome_new_thread_is_new(self) -> None:
+        assert _classify_outcome("new_thread", None) == "new"
+
+    # --- outcome_agreement and counter regression cases ---
+
+    def test_ctrl_attach_none_vs_arm_new_thread_is_agreement(self) -> None:
+        """Control attaches with null thread_id; arm says new_thread.
+        Effective outcomes are both 'new' → counted as agreement, NOT ctrl_attach_arm_new."""
+        pair = self._pair("same_thread_new_fact", None, "new_thread", None)
+        result = _content_clusterer_classify([pair])
+        assert result["outcome_agreement"] == pytest.approx(1.0)
+        assert result["ctrl_attach_arm_new"] == 0
+
+    def test_ctrl_attach_none_vs_arm_attach_nonnull_is_ctrl_new_arm_attach(self) -> None:
+        """Control attaches with null thread_id (effective: new); arm attaches to thread 42.
+        → counted in ctrl_new_arm_attach, NOT both_attach_diff_thread."""
+        pair = self._pair("same_thread_new_fact", None, "same_thread_new_fact", "42")
+        result = _content_clusterer_classify([pair])
+        assert result["ctrl_new_arm_attach"] == 1
+        assert result["both_attach_diff_thread"] == 0
+        assert result["ctrl_attach_arm_new"] == 0
+        assert result["outcome_agreement"] == pytest.approx(0.0)
+
+    def test_both_attach_same_nonnull_id_is_agreement(self) -> None:
+        """Both attach to the same non-null thread_id → outcome agreement (unchanged behaviour)."""
+        pair = self._pair("same_thread_new_fact", "7", "same_thread_new_fact", "7")
+        result = _content_clusterer_classify([pair])
+        assert result["outcome_agreement"] == pytest.approx(1.0)
+        assert result["ctrl_attach_arm_new"] == 0
+        assert result["ctrl_new_arm_attach"] == 0
+        assert result["both_attach_diff_thread"] == 0
+
+    # --- unresolved_thread_id_count metrics ---
+
+    def test_unresolved_thread_id_count_reported(self) -> None:
+        """unresolved_thread_id_count_ctrl/arm count attaching outputs with thread_id=None."""
+        pairs = [
+            self._pair("same_thread_new_fact", None, "same_thread_new_fact", "10"),
+            self._pair("same_thread_new_fact", "5", "same_thread_new_fact", None),
+            self._pair("new_thread", None, "new_thread", None),  # not attaching — not counted
+        ]
+        result = _content_clusterer_classify(pairs)
+        assert result["unresolved_thread_id_count_ctrl"] == 1  # only first pair
+        assert result["unresolved_thread_id_count_arm"] == 1   # only second pair
+        assert result["unresolved_thread_id_rate_ctrl"] == pytest.approx(1 / 3, abs=1e-4)
+        assert result["unresolved_thread_id_rate_arm"] == pytest.approx(1 / 3, abs=1e-4)
+
+    # --- _is_pair_disagree regression cases ---
+
+    def test_is_pair_disagree_ctrl_attach_none_vs_arm_new_thread_not_disagree(self) -> None:
+        """Effective outcomes both 'new' → NOT a disagreement for --samples."""
+        ctrl = {"status": "ok", "output": {"label": "same_thread_new_fact", "thread_id": None}}
+        arm = {"status": "ok", "output": {"label": "new_thread"}}
+        assert _is_pair_disagree("clusterer.classify", ctrl, arm, {}) is False
+
+    def test_is_pair_disagree_ctrl_attach_none_vs_arm_attach_nonnull_is_disagree(self) -> None:
+        """Control effective outcome 'new' vs arm effective 'attach:42' → disagree."""
+        ctrl = {"status": "ok", "output": {"label": "same_thread_new_fact", "thread_id": None}}
+        arm = {"status": "ok", "output": {"label": "same_thread_new_fact", "thread_id": "42"}}
+        assert _is_pair_disagree("clusterer.classify", ctrl, arm, {}) is True
 
 
 class TestEnvExampleExperimentConfig:
