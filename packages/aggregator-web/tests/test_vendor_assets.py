@@ -60,3 +60,29 @@ def test_vendor_htmx_has_cache_control_no_cache(client):
         f"/static/vendor/htmx-1.9.12.min.js must have Cache-Control: no-cache, "
         f"got {response.headers.get('cache-control')!r}"
     )
+
+
+def test_vendor_alpine_has_version_banner(client):
+    """GET /static/vendor/alpine-3.14.1.min.js must begin with 'Alpine.js v3.14.1' banner.
+
+    The banner identifies the vendored library version and origin at a glance
+    without having to parse the minified source.
+    """
+    response = client.get("/static/vendor/alpine-3.14.1.min.js")
+    assert response.status_code == 200
+    assert response.text.startswith("// Alpine.js v3.14.1"), (
+        "alpine-3.14.1.min.js must begin with '// Alpine.js v3.14.1' version banner"
+    )
+
+
+def test_vendor_htmx_has_version_banner(client):
+    """GET /static/vendor/htmx-1.9.12.min.js must begin with 'htmx.org' banner.
+
+    The banner identifies the vendored library version and origin at a glance
+    without having to parse the minified source.
+    """
+    response = client.get("/static/vendor/htmx-1.9.12.min.js")
+    assert response.status_code == 200
+    assert response.text.startswith("// htmx.org"), (
+        "htmx-1.9.12.min.js must begin with '// htmx.org' version banner"
+    )
