@@ -35,9 +35,9 @@
     });
   </script>
   <!-- Alpine.js (defer keeps it non-blocking; must precede htmx for x-cloak to work) -->
-  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.1/dist/cdn.min.js"></script>
+  <script defer src="/static/vendor/alpine-3.14.1.min.js?v={{ app_version }}"></script>
   <!-- HTMX -->
-  <script src="https://unpkg.com/htmx.org@1.9.12" defer></script>
+  <script src="/static/vendor/htmx-1.9.12.min.js?v={{ app_version }}" defer></script>
 </head>
 <body x-data="aggregatorApp" @keydown.window="handleKey($event)" @reader:close.window="closeReader()"{% if initial_reader_open %} class="reader-open"{% endif %} data-auto-read-seconds="{{ web_auto_read_seconds }}">
 

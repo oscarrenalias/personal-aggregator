@@ -47,12 +47,12 @@ def test_app_js_loads_before_alpine_in_shell(client):
     html = response.text
 
     app_js_idx = html.find('/static/app.js')
-    alpine_idx = html.find('alpinejs')
+    alpine_idx = html.find('/static/vendor/alpine-')
 
     assert app_js_idx != -1, "/static/app.js script tag not found in shell HTML"
-    assert alpine_idx != -1, "Alpine CDN script tag not found in shell HTML"
+    assert alpine_idx != -1, "Alpine vendor script tag not found in shell HTML"
     assert app_js_idx < alpine_idx, (
-        "app.js must appear before the Alpine CDN script so component factories "
+        "app.js must appear before the Alpine vendor script so component factories "
         "exist when alpine:init fires"
     )
 

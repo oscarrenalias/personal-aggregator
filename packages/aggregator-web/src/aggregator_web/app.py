@@ -123,7 +123,7 @@ templates.env.globals["app_version"] = version()
 async def _static_cache_control(request: Request, call_next):
     """Set explicit Cache-Control on mutable static assets to prevent heuristic caching."""
     response = await call_next(request)
-    if request.url.path in ("/static/app.js", "/static/styles.css"):
+    if request.url.path in ("/static/app.js", "/static/styles.css") or request.url.path.startswith("/static/vendor/"):
         response.headers["Cache-Control"] = "no-cache"
     return response
 
