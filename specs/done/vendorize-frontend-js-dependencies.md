@@ -5,7 +5,7 @@ description: Serve Alpine.js and HTMX from the aggregator-web static directory i
 dependencies: null
 priority: medium
 complexity: low
-status: planned
+status: done
 tags: [frontend, web]
 scope:
   in: Static asset delivery for aggregator-web; shell.html script tags; cache handling for the vendored files; version pinning and update procedure.
