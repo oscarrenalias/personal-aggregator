@@ -24,6 +24,11 @@
   <link rel="stylesheet" href="/static/styles.css?v={{ app_version }}">
 
   <script src="/static/app.js?v={{ app_version }}"></script>
+  <script>
+    document.addEventListener('alpine:init', () => {
+      window.Alpine.store('nav', { current: 'threads' });
+    });
+  </script>
   <script defer src="/static/vendor/alpine-3.14.1.min.js?v={{ app_version }}"></script>
   <script src="/static/vendor/htmx-1.9.12.min.js?v={{ app_version }}" defer></script>
 </head>

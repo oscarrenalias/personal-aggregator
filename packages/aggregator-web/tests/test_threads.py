@@ -521,6 +521,38 @@ class TestThreadDetailPublishedAt:
         assert " · " in response.text
 
 
+class TestThreadsNavStoreSeeding:
+    """Regression tests: threads/index.html seeds the Alpine nav store (B-d5ab365b)."""
+
+    def test_threads_full_page_contains_nav_store_seed(self, client, db_session):
+        """GET /threads full-page response must contain the Alpine nav-store seeding script."""
+        response = client.get("/threads")
+        assert response.status_code == 200
+        assert "store('nav', { current: 'threads' })" in response.text
+
+    def test_threads_nav_store_seed_appears_after_app_js(self, client, db_session):
+        """The nav-store seeding script must appear after /static/app.js (load order)."""
+        response = client.get("/threads")
+        assert response.status_code == 200
+        html = response.text
+        app_js_pos = html.find("/static/app.js")
+        seed_pos = html.find("store('nav', { current: 'threads' })")
+        assert app_js_pos != -1, "/static/app.js not found"
+        assert seed_pos != -1, "nav-store seeding script not found"
+        assert app_js_pos < seed_pos
+
+    def test_threads_nav_store_seed_appears_before_alpine_vendor(self, client, db_session):
+        """The nav-store seeding script must appear before /static/vendor/alpine- (load order)."""
+        response = client.get("/threads")
+        assert response.status_code == 200
+        html = response.text
+        seed_pos = html.find("store('nav', { current: 'threads' })")
+        alpine_pos = html.find("/static/vendor/alpine-")
+        assert seed_pos != -1, "nav-store seeding script not found"
+        assert alpine_pos != -1, "/static/vendor/alpine- not found"
+        assert seed_pos < alpine_pos
+
+
 class TestThreadKeyboardHooks:
     """Regression tests: keyboard shortcut DOM hooks are present on thread pages (B-e27109bb).
 
