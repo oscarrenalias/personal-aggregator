@@ -1,9 +1,14 @@
+import logging
 from typing import Dict
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import SettingsConfigDict
 
 from aggregator_common.config import Settings
+
+logger = logging.getLogger(__name__)
+
+TTS_TONES: tuple[str, ...] = ("grave", "serious", "neutral", "engaged", "upbeat")
 
 
 class PodcastSettings(Settings):
@@ -28,7 +33,25 @@ class PodcastSettings(Settings):
         },
         description="Mapping of topic_category to TTS style string; categories absent from the map send no speech_metadata",
     )
+    podcast_tts_tone_map: Dict[str, str] = Field(
+        default_factory=lambda: {
+            "grave": "Grave and restrained. Slow, low and steady, with no brightness.",
+            "serious": "Serious, measured, authoritative.",
+            "neutral": "Calm, clear, neutral newsreader delivery.",
+            "engaged": "Curious and engaged, warm but still straight news delivery.",
+            "upbeat": "Bright and upbeat, lively but still a straight news report.",
+        },
+        description="Mapping of LLM-selected tone to TTS style string; takes precedence over podcast_tts_style_map",
+    )
     podcast_tts_requests_per_minute: int = Field(10, description="Maximum TTS API requests per minute for rate limiting")
     podcast_continuity_count: int = Field(2, description="Number of previous podcasts included for continuity context")
     podcast_max_stories: int = Field(6, description="Maximum number of stories selected per episode")
     podcast_polish_enabled: bool = Field(True, description="Run cross-segment polish pass to vary repeated phrasing")
+
+    @field_validator("podcast_tts_tone_map", mode="after")
+    @classmethod
+    def _validate_tone_map(cls, v: Dict[str, str]) -> Dict[str, str]:
+        unknown = [k for k in v if k not in TTS_TONES]
+        for key in unknown:
+            logger.warning("PODCAST_TTS_TONE_MAP: unknown tone %r (not in TTS_TONES); ignoring", key)
+        return {k: val for k, val in v.items() if k in TTS_TONES}

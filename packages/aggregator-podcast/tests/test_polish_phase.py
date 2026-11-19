@@ -53,6 +53,51 @@ def test_segment_prompt_no_longer_contains_latest_chapter():
 
 # ── Polish pass: immutable fields ─────────────────────────────────────────────
 
+def test_polish_preserves_tts_hints():
+    """Polish pass must leave tts_hints (including tone) identical before and after (AC[1])."""
+    from aggregator_podcast.generate import run_polish_phase
+
+    segments = [
+        {
+            "thread_id": 1,
+            "headline": "Tech story",
+            "topic_category": "AI & Technology",
+            "sources": ["The Verge"],
+            "is_developing": False,
+            "text": "Developers report a 3-percent speedup.",
+            "tts_hints": {"pause_before": "short", "pace": "normal", "tone": "serious"},
+        },
+        {
+            "thread_id": 2,
+            "headline": "Politics story",
+            "topic_category": "World Politics",
+            "sources": ["Reuters"],
+            "is_developing": True,
+            "text": "Talks concluded after 42 hours of negotiations.",
+            "tts_hints": {"pause_before": "none", "pace": "normal", "tone": "neutral"},
+        },
+    ]
+
+    rewritten = [
+        {"index": 0, "text": "A 3-percent speedup was reported by developers."},
+        {"index": 1, "text": "After 42 hours of negotiations, talks concluded."},
+    ]
+    fake_resp = _fake_polish_response(rewritten)
+
+    settings = _make_settings()
+    with patch("aggregator_podcast.generate.litellm.completion", return_value=fake_resp):
+        result = run_polish_phase(segments, settings)
+
+    for i, seg in enumerate(result):
+        assert seg["tts_hints"] == segments[i]["tts_hints"], (
+            f"tts_hints changed for segment {i}: "
+            f"original={segments[i]['tts_hints']!r}, after={seg['tts_hints']!r}"
+        )
+    # text may differ
+    assert result[0]["text"] == "A 3-percent speedup was reported by developers."
+    assert result[1]["text"] == "After 42 hours of negotiations, talks concluded."
+
+
 def test_polish_preserves_non_text_fields():
     """Polish pass must not alter headline, thread_id, topic_category, sources, is_developing."""
     from aggregator_podcast.generate import run_polish_phase
