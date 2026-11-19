@@ -15,9 +15,36 @@ from google import genai
 from google.genai import errors as genai_errors
 from google.genai import types
 
-from aggregator_podcast.config import PodcastSettings
+from aggregator_podcast.config import PodcastSettings, TTS_TONES
 
 logger = logging.getLogger(__name__)
+
+
+def resolve_style(seg: dict, settings: PodcastSettings) -> tuple[str | None, str]:
+    """Return (style_string, source) for a segment.
+
+    Resolution order:
+    1. tts_hints.tone (if valid and mapped) → source='tone'
+    2. podcast_tts_style_map[topic_category] → source='category'
+    3. No style → source='none'
+    """
+    hints = seg.get("tts_hints") or {}
+    raw_tone = hints.get("tone")
+    if raw_tone is not None:
+        tone = str(raw_tone).strip().lower()
+        if tone in TTS_TONES:
+            style = settings.podcast_tts_tone_map.get(tone)
+            if style:
+                return style, "tone"
+        else:
+            logger.warning("segment has unknown tone %r (not in TTS_TONES); falling back to category map", raw_tone)
+
+    category_style = settings.podcast_tts_style_map.get(seg.get("topic_category", ""))
+    if category_style:
+        return category_style, "category"
+
+    return None, "none"
+
 
 PAUSE_DURATIONS: dict[str, float] = {
     "none":   0.0,
@@ -85,7 +112,7 @@ def _split_sentences(text: str, max_chars: int) -> list[str]:
 
 def _synthesize_chunk(
     text: str,
-    seg: dict,
+    style: str | None,
     client: genai.Client,
     model: str,
     voice: str,
@@ -94,7 +121,6 @@ def _synthesize_chunk(
 ) -> None:
     """Synthesise one text chunk to a WAV file, with rate limiting and 429 retry."""
     part = types.Part(text=text)
-    style = settings.podcast_tts_style_map.get(seg.get("topic_category", ""))
     if style:
         part.speech_metadata = types.SpeechMetadata(style=style)
 
@@ -141,7 +167,7 @@ def _synthesize_chunk(
 
 def _synthesize(
     text: str,
-    seg: dict,
+    style: str | None,
     client: genai.Client,
     model: str,
     voice: str,
@@ -153,13 +179,13 @@ def _synthesize(
     """TTS with automatic sentence-boundary splitting for long inputs."""
     chunks = _split_sentences(text, max_chars)
     if len(chunks) == 1:
-        _synthesize_chunk(text, seg, client, model, voice, out_path, settings)
+        _synthesize_chunk(text, style, client, model, voice, out_path, settings)
         return
 
     chunk_paths = []
     for i, chunk_text in enumerate(chunks):
         cp = os.path.join(tmp_dir, f"{os.path.basename(out_path)}.part{i}.wav")
-        _synthesize_chunk(chunk_text, seg, client, model, voice, cp, settings)
+        _synthesize_chunk(chunk_text, style, client, model, voice, cp, settings)
         chunk_paths.append(cp)
 
     list_path = out_path + ".parts.txt"
@@ -213,13 +239,21 @@ def generate_audio(
             pause_key = hints.get("pause_before", "none")
             pause_secs = PAUSE_DURATIONS.get(pause_key, 0.0)
 
+            style, source = resolve_style(seg, settings)
+            logger.info(
+                "segment %d: tone=%s style_source=%s",
+                i,
+                hints.get("tone"),
+                source,
+            )
+
             if pause_secs > 0:
                 parts.append(get_silence(pause_secs))
 
             seg_path = os.path.join(tmp_dir, f"seg_{i:03d}.wav")
             _synthesize(
                 text,
-                seg,
+                style,
                 client,
                 settings.podcast_tts_model,
                 settings.podcast_tts_voice,

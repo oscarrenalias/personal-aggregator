@@ -5,7 +5,7 @@ description: Segment writer picks a per-story TTS tone from a fixed list; tone m
 dependencies: null
 priority: medium
 complexity: null
-status: planned
+status: done
 tags:
 - podcast
 - tts
