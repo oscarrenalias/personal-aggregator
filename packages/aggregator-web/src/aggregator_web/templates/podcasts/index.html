@@ -29,8 +29,8 @@
       window.Alpine.store('nav', { current: 'podcasts' });
     });
   </script>
-  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.1/dist/cdn.min.js"></script>
-  <script src="https://unpkg.com/htmx.org@1.9.12" defer></script>
+  <script defer src="/static/vendor/alpine-3.14.1.min.js?v={{ app_version }}"></script>
+  <script src="/static/vendor/htmx-1.9.12.min.js?v={{ app_version }}" defer></script>
 </head>
 <body x-data="aggregatorApp" @keydown.window="handleKey($event)" @reader:close.window="closeReader()" data-auto-read-seconds="{{ web_auto_read_seconds }}">
 
