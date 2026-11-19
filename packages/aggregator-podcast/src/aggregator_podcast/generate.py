@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session
 
 from aggregator_common.models import Article, InterestProfile, PodcastEpisode, Source, Thread, ThreadMembership
 from aggregator_common.queries import get_recent_podcast_episodes
-from aggregator_podcast.config import PodcastSettings
+from aggregator_podcast.config import PodcastSettings, TTS_TONES
 
 log = logging.getLogger(__name__)
 
@@ -344,7 +344,10 @@ def _db_get_article_excerpt(session: Session, article_id: int) -> dict:
 
 # ── Phase 2: Segment generation ───────────────────────────────────────────────
 
-_SEGMENT_SYSTEM = """\
+# Pipe-separated enum string built from TTS_TONES so the prompt cannot drift from the vocabulary.
+_TONE_ENUM = "|".join(TTS_TONES)
+
+_SEGMENT_SYSTEM = f"""\
 You are a radio journalist writing one segment of a daily news podcast. Write in a neutral, \
 authoritative broadcast style — factual, precise, well-attributed. No opinion, no editorialising.
 
@@ -368,18 +371,27 @@ Craft each segment like this:
    "[Name], [title], told [outlet]: '...'"  Never paraphrase as if it were a direct quote.
 6. 150-220 words of spoken text. Short sentences. Active voice. No bullet points.
 
+Choosing the right tone:
+- Choose tone from the substance and stakes of the story, NOT from its topic_category.
+- A technology story about a vulnerability, breach, outage, or layoffs should be 'serious'. \
+  If people were harmed or killed, use 'grave'.
+- When unsure, choose 'neutral'.
+- Keep the written text consistent with the chosen tone — a 'grave' story should not sound breezy; \
+  an 'upbeat' story should feel warm, not sombre.
+
 Return a JSON object in exactly this format:
-{
+{{
   "headline": "<broadcast-style one-sentence headline>",
   "text": "<the full spoken segment, 150-220 words>",
   "topic_category": "<one of: AI & Technology, World Politics, Business & Finance, Motorsport, Gaming, Science, Other>",
   "sources": ["<source name>", ...],
   "is_developing": <true if thread has substantial prior history, false if new today>,
-  "tts_hints": {
+  "tts_hints": {{
     "pause_before": "<none|short|medium|long>",
-    "pace": "<slow|normal|brisk>"
-  }
-}\
+    "pace": "<slow|normal|brisk>",
+    "tone": "<{_TONE_ENUM}>"
+  }}
+}}\
 """
 
 
