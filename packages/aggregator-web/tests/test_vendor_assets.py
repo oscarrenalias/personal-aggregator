@@ -2,7 +2,25 @@
 
 from __future__ import annotations
 
+import hashlib
 import re
+from pathlib import Path
+
+import aggregator_web
+
+
+def _assert_no_cdn_scripts(html: str, page: str) -> None:
+    cdn_pattern = re.compile(r'<script[^>]+src=["\'][^"\']*cdn\.jsdelivr\.net', re.IGNORECASE)
+    unpkg_pattern = re.compile(r'<script[^>]+src=["\'][^"\']*unpkg\.com', re.IGNORECASE)
+
+    assert not cdn_pattern.search(html), (
+        f"{page} must not reference cdn.jsdelivr.net in any script src — "
+        "Alpine and HTMX must be served from /static/vendor/"
+    )
+    assert not unpkg_pattern.search(html), (
+        f"{page} must not reference unpkg.com in any script src — "
+        "all JS bundles must be served locally"
+    )
 
 
 def test_shell_html_has_no_cdn_script_origins(client):
@@ -14,19 +32,21 @@ def test_shell_html_has_no_cdn_script_origins(client):
     """
     response = client.get("/")
     assert response.status_code == 200
-    html = response.text
+    _assert_no_cdn_scripts(response.text, "shell.html")
 
-    cdn_pattern = re.compile(r'<script[^>]+src=["\'][^"\']*cdn\.jsdelivr\.net', re.IGNORECASE)
-    unpkg_pattern = re.compile(r'<script[^>]+src=["\'][^"\']*unpkg\.com', re.IGNORECASE)
 
-    assert not cdn_pattern.search(html), (
-        "shell.html must not reference cdn.jsdelivr.net in any script src — "
-        "Alpine and HTMX must be served from /static/vendor/"
-    )
-    assert not unpkg_pattern.search(html), (
-        "shell.html must not reference unpkg.com in any script src — "
-        "all JS bundles must be served locally"
-    )
+def test_podcasts_index_has_no_cdn_script_origins(client):
+    """podcasts/index.html must not reference cdn.jsdelivr.net or unpkg.com in any script src."""
+    response = client.get("/podcasts")
+    assert response.status_code == 200
+    _assert_no_cdn_scripts(response.text, "podcasts/index.html")
+
+
+def test_threads_index_has_no_cdn_script_origins(client):
+    """threads/index.html must not reference cdn.jsdelivr.net or unpkg.com in any script src."""
+    response = client.get("/threads")
+    assert response.status_code == 200
+    _assert_no_cdn_scripts(response.text, "threads/index.html")
 
 
 def test_vendor_alpine_has_cache_control_no_cache(client):
@@ -62,27 +82,26 @@ def test_vendor_htmx_has_cache_control_no_cache(client):
     )
 
 
-def test_vendor_alpine_has_version_banner(client):
-    """GET /static/vendor/alpine-3.14.1.min.js must begin with 'Alpine.js v3.14.1' banner.
+def test_vendor_assets_sha256():
+    """Vendored JS files must be byte-identical to the upstream releases.
 
-    The banner identifies the vendored library version and origin at a glance
-    without having to parse the minified source.
+    Alpine source: https://cdn.jsdelivr.net/npm/alpinejs@3.14.1/dist/cdn.min.js
+    htmx source:  https://unpkg.com/htmx.org@1.9.12/dist/htmx.min.js
     """
-    response = client.get("/static/vendor/alpine-3.14.1.min.js")
-    assert response.status_code == 200
-    assert response.text.startswith("// Alpine.js v3.14.1"), (
-        "alpine-3.14.1.min.js must begin with '// Alpine.js v3.14.1' version banner"
+    static_dir = Path(aggregator_web.__file__).parent / "static" / "vendor"
+
+    alpine_path = static_dir / "alpine-3.14.1.min.js"
+    alpine_sha256 = hashlib.sha256(alpine_path.read_bytes()).hexdigest()
+    assert alpine_sha256 == "358d9afbb1ab5befa2f48061a30776e5bcd7707f410a606ba985f98bc3b1c034", (
+        f"alpine-3.14.1.min.js SHA-256 mismatch — expected byte-identical copy of "
+        "https://cdn.jsdelivr.net/npm/alpinejs@3.14.1/dist/cdn.min.js, "
+        f"got {alpine_sha256}"
     )
 
-
-def test_vendor_htmx_has_version_banner(client):
-    """GET /static/vendor/htmx-1.9.12.min.js must begin with 'htmx.org' banner.
-
-    The banner identifies the vendored library version and origin at a glance
-    without having to parse the minified source.
-    """
-    response = client.get("/static/vendor/htmx-1.9.12.min.js")
-    assert response.status_code == 200
-    assert response.text.startswith("// htmx.org"), (
-        "htmx-1.9.12.min.js must begin with '// htmx.org' version banner"
+    htmx_path = static_dir / "htmx-1.9.12.min.js"
+    htmx_sha256 = hashlib.sha256(htmx_path.read_bytes()).hexdigest()
+    assert htmx_sha256 == "449317ade7881e949510db614991e195c3a099c4c791c24dacec55f9f4a2a452", (
+        f"htmx-1.9.12.min.js SHA-256 mismatch — expected byte-identical copy of "
+        "https://unpkg.com/htmx.org@1.9.12/dist/htmx.min.js, "
+        f"got {htmx_sha256}"
     )
