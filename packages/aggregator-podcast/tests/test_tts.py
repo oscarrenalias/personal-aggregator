@@ -148,7 +148,72 @@ class TestStyleMap:
 
 
 # ---------------------------------------------------------------------------
-# 3. resolve_style — resolver scenarios
+# 3. Multi-chunk style consistency
+# ---------------------------------------------------------------------------
+
+class TestMultiChunkStyle:
+    def test_same_style_sent_on_every_chunk(self, tmp_path):
+        """_synthesize passes the same style string to every _synthesize_chunk call (spec AC 7)."""
+        from unittest.mock import patch, call
+        import aggregator_podcast.tts as tts_mod
+
+        settings = _make_settings()
+        wav_data = b"RIFF" + b"\x00" * 40
+
+        # Build a text long enough to split into 3+ chunks at max_chars=50
+        long_text = (
+            "First sentence is quite long indeed. "
+            "Second sentence is also relatively long. "
+            "Third sentence rounds it out nicely."
+        )
+        style = "Serious, measured, authoritative."
+        client = None  # won't be called — _synthesize_chunk is patched
+
+        chunk_calls: list[tuple[str, str | None]] = []
+
+        def fake_synthesize_chunk(text, s, cli, model, voice, out_path, settings_arg):
+            chunk_calls.append((text, s))
+            with open(out_path, "wb") as f:
+                f.write(wav_data)
+
+        fake_concat = None
+
+        def fake_subprocess_run(cmd, **kwargs):
+            result = MagicMock()
+            result.returncode = 0
+            result.stderr = ""
+            if cmd[0] == "ffmpeg":
+                # write dummy file to the output path (last non-flag arg)
+                for arg in reversed(cmd):
+                    if not arg.startswith("-"):
+                        with open(arg, "wb") as f:
+                            f.write(wav_data)
+                        break
+            return result
+
+        with patch.object(tts_mod, "_synthesize_chunk", side_effect=fake_synthesize_chunk):
+            with patch("aggregator_podcast.tts.subprocess.run", side_effect=fake_subprocess_run):
+                tts_mod._synthesize(
+                    long_text,
+                    style,
+                    client,
+                    model="gemini-3.8-flash-lite-tts",
+                    voice="Kore",
+                    out_path=str(tmp_path / "seg.wav"),
+                    tmp_dir=str(tmp_path),
+                    max_chars=50,
+                    settings=settings,
+                )
+
+        assert len(chunk_calls) >= 2, f"expected at least 2 chunks; got {len(chunk_calls)}"
+        for text, s in chunk_calls:
+            assert s == style, (
+                f"chunk {text!r:.40} got style={s!r}; expected {style!r}"
+            )
+
+
+# ---------------------------------------------------------------------------
+# 4. resolve_style — resolver scenarios
 # ---------------------------------------------------------------------------
 
 class TestResolveStyle:
@@ -597,7 +662,108 @@ class TestFilenameUniqueness:
 
 
 # ---------------------------------------------------------------------------
-# 8. Integration test (requires live GOOGLE_API_KEY)
+# 8. generate_audio — model-selected segment tone: missing or invalid
+# ---------------------------------------------------------------------------
+
+class TestGenerateAudioToneHandling:
+    """generate_audio forwards the correct style to _synthesize when segment tone is missing or invalid."""
+
+    def _patch_generate_audio(self, monkeypatch, tmp_path, capture_styles: list):
+        import aggregator_podcast.tts as tts_mod
+
+        wav_data = b"RIFF" + b"\x00" * 40
+
+        def fake_synthesize(text, style, client, model, voice, out_path, tmp_dir, max_chars, settings_arg):
+            capture_styles.append(style)
+            with open(out_path, "wb") as f:
+                f.write(wav_data)
+
+        def fake_make_silence(duration, td):
+            p = os.path.join(td, f"silence_{duration:.2f}s.wav")
+            with open(p, "wb") as f:
+                f.write(wav_data)
+            return p
+
+        def fake_subprocess_run(cmd, **kwargs):
+            for arg in reversed(cmd):
+                if not arg.startswith("-"):
+                    with open(arg, "wb") as f:
+                        f.write(b"\xff\xfb" + b"\x00" * 100)
+                    break
+            result = MagicMock()
+            result.returncode = 0
+            result.stderr = ""
+            return result
+
+        monkeypatch.setenv("GOOGLE_API_KEY", "fake-key")
+        monkeypatch.setattr(tts_mod, "_synthesize", fake_synthesize)
+        monkeypatch.setattr(tts_mod, "_make_silence", fake_make_silence)
+        monkeypatch.setattr("aggregator_podcast.tts.subprocess.run", fake_subprocess_run)
+        monkeypatch.setattr("google.genai.Client", MagicMock)
+
+    def test_missing_tone_passes_none_style_to_synthesize(self, tmp_path, monkeypatch):
+        """When a segment has no tone key in tts_hints and no matching category, _synthesize receives style=None."""
+        captured_styles: list = []
+        self._patch_generate_audio(monkeypatch, tmp_path, captured_styles)
+        from aggregator_podcast.tts import generate_audio
+
+        settings = _make_settings()
+        script = {
+            "iso_date": "2026-10-03",
+            "segments": [
+                {
+                    "type": "story",
+                    "text": "Some news today.",
+                    "tts_hints": {"pause_before": "none"},
+                    # no tone key; "Niche Sports" is not in the default style_map
+                    "topic_category": "Niche Sports",
+                }
+            ],
+        }
+
+        path, size = generate_audio(script, tmp_path, settings, episode_id=100)
+
+        assert len(captured_styles) == 1
+        assert captured_styles[0] is None, (
+            f"expected style=None for missing tone; got {captured_styles[0]!r}"
+        )
+
+    def test_invalid_tone_passes_none_style_and_logs_warning(self, tmp_path, monkeypatch, caplog):
+        """When a segment has an invalid tone (not in TTS_TONES), _synthesize receives style=None and a warning is logged."""
+        import logging
+
+        captured_styles: list = []
+        self._patch_generate_audio(monkeypatch, tmp_path, captured_styles)
+        from aggregator_podcast.tts import generate_audio
+
+        settings = _make_settings()
+        script = {
+            "iso_date": "2026-10-03",
+            "segments": [
+                {
+                    "type": "story",
+                    "text": "Some news today.",
+                    "tts_hints": {"tone": "hyperactive"},  # not in TTS_TONES
+                    # "Niche Sports" not in style_map → style resolves to None
+                    "topic_category": "Niche Sports",
+                }
+            ],
+        }
+
+        with caplog.at_level(logging.WARNING, logger="aggregator_podcast.tts"):
+            path, size = generate_audio(script, tmp_path, settings, episode_id=101)
+
+        assert len(captured_styles) == 1
+        assert captured_styles[0] is None, (
+            f"expected style=None for invalid tone; got {captured_styles[0]!r}"
+        )
+        assert any("unknown tone" in r.message for r in caplog.records), (
+            "expected a WARNING about unknown tone in generate_audio log output"
+        )
+
+
+# ---------------------------------------------------------------------------
+# 9. Integration test (requires live GOOGLE_API_KEY)
 # ---------------------------------------------------------------------------
 
 GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY", "")
