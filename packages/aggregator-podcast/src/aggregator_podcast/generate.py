@@ -521,7 +521,8 @@ Rules:
   phrases. Change nothing else.
 - Do NOT alter any number, name, date, percentage, or direct quotation. Do not change the \
   meaning of any sentence.
-- Do NOT touch the fields headline, thread_id, topic_category, sources, or is_developing.
+- Do NOT touch the fields headline, thread_id, topic_category, sources, is_developing, or tts_hints \
+  (including tts_hints.tone). These fields must be returned exactly as received.
 - Only the text field of each segment may differ from what you receive.
 - If a segment does not need any change, return its text unchanged.
 
