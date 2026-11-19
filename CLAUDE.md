@@ -293,7 +293,7 @@ At process startup, every service calls `aggregator_common.load_env()` (python-d
 | `PODCAST_TTS_VOICE` | `Kore` | Voice name for TTS synthesis |
 | `PODCAST_TTS_MAX_CHARS_PER_CHUNK` | `1000` | Maximum characters per TTS API chunk |
 | `PODCAST_TTS_STYLE_MAP` | `{"World Politics": "Serious…", "AI & Technology": "Curious…", "Motorsport": "Lively…"}` | JSON object mapping topic_category → TTS style string; used as a fallback when no valid LLM-selected tone is present; categories absent from the map send no speech_metadata |
-| `PODCAST_TTS_TONE_MAP` | `{"grave": "Grave and restrained…", "serious": "Serious, measured…", "neutral": "Calm, clear…", "engaged": "Curious and engaged…", "upbeat": "Bright and upbeat…"}` | JSON object mapping LLM-selected tone (from `TTS_TONES`: `grave`, `serious`, `neutral`, `engaged`, `upbeat`) → TTS style string; takes precedence over `PODCAST_TTS_STYLE_MAP`; keys not in `TTS_TONES` are silently dropped at startup |
+| `PODCAST_TTS_TONE_MAP` | `{"grave": "Grave and restrained…", "serious": "Serious, measured…", "neutral": "Calm, clear…", "engaged": "Curious and engaged…", "upbeat": "Bright and upbeat…"}` | JSON object mapping LLM-selected tone (from `TTS_TONES`: `grave`, `serious`, `neutral`, `engaged`, `upbeat`) → TTS style string; takes precedence over `PODCAST_TTS_STYLE_MAP`; keys not in `TTS_TONES` are ignored with a startup WARNING |
 | `PODCAST_TTS_REQUESTS_PER_MINUTE` | `10` | Maximum TTS API requests per minute for rate limiting |
 | `PODCAST_CONTINUITY_COUNT` | `2` | Number of previous podcast episodes included for continuity context |
 | `PODCAST_MAX_STORIES` | `6` | Maximum number of stories selected per episode; enforced as a hard cap after Phase 1 selection regardless of LLM output |

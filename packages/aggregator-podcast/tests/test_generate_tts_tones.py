@@ -39,6 +39,28 @@ def test_segment_system_tone_enum_covers_all_tts_tones():
     assert _TONE_ENUM in _SEGMENT_SYSTEM
 
 
+def test_segment_system_guidance_block_covers_all_tts_tones():
+    """Each tone in TTS_TONES has a use-for bullet in the guidance block (not just the enum line)."""
+    from aggregator_podcast.generate import _SEGMENT_SYSTEM, _TONE_ENUM
+    from aggregator_podcast.config import TTS_TONES
+
+    # Isolate the guidance block: everything after "Choosing the right tone:"
+    # and before "Return a JSON object".
+    assert "Choosing the right tone:" in _SEGMENT_SYSTEM, "guidance block header missing"
+    guidance_part = _SEGMENT_SYSTEM.split("Choosing the right tone:")[1]
+    guidance_part = guidance_part.split("Return a JSON object")[0]
+
+    # Strip the enum line so we only check the bullet guidance, not the enum
+    enum_line = f'"tone": "<{_TONE_ENUM}>"'
+    guidance_without_enum = guidance_part.replace(enum_line, "")
+
+    for tone in TTS_TONES:
+        assert tone in guidance_without_enum, (
+            f"TTS tone {tone!r} not found in _SEGMENT_SYSTEM guidance block; "
+            f"the LLM has no use-for guidance for this tone"
+        )
+
+
 def test_segment_system_contains_vulnerability_guidance():
     """_SEGMENT_SYSTEM must mention 'vulnerability' in the tone-choice guidance."""
     from aggregator_podcast.generate import _SEGMENT_SYSTEM

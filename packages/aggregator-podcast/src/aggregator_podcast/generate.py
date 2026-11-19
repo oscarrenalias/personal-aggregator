@@ -373,9 +373,15 @@ Craft each segment like this:
 
 Choosing the right tone:
 - Choose tone from the substance and stakes of the story, NOT from its topic_category.
-- A technology story about a vulnerability, breach, outage, or layoffs should be 'serious'. \
-  If people were harmed or killed, use 'grave'.
+- grave: deaths, disasters, war casualties, violence, tragedies.
+- serious: security vulnerabilities and breaches, outages, layoffs, legal action, political conflict, \
+  economic downturns, safety failures. A technology story about a vulnerability, breach, outage, \
+  or layoffs is serious (grave if people were harmed).
+- neutral: routine factual news with no strong emotional weight.
+- engaged: product launches, research results, interesting developments with no harm or conflict.
+- upbeat: clearly positive news only — wins, records, celebrations, breakthroughs.
 - When unsure, choose 'neutral'.
+- Prefer the more serious tone when a story mixes positive and negative elements.
 - Keep the written text consistent with the chosen tone — a 'grave' story should not sound breezy; \
   an 'upbeat' story should feel warm, not sombre.
 
