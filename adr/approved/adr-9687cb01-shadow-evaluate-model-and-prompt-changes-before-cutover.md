@@ -69,6 +69,8 @@ Any change to an LLM model or prompt used in production MUST be shadow-evaluated
 
 Shadow work MUST NOT block, alter or replace the production result.
 
+**Scope exclusion — podcast prompts.** The podcast service (`aggregator-podcast`: story selection, segment writing, polish, intro/transitions/outro) is excluded from this decision. Its prompts and models MAY be changed in place without a registered variant or shadow experiment. Rationale: it makes a handful of LLM calls once a day, its output is spoken audio judged by listening rather than by measurable agreement, the shadow framework has no podcast operations, and a bad episode is contained to one day and does not feed any other service's state.
+
 ## Consequences
 
 ### Positive
