@@ -770,7 +770,7 @@ def _assemble_script(
     output_segments.append({
         "type": "intro",
         "text": wrapper.get("intro", ""),
-        "tts_hints": {"pause_before": "none", "pace": "normal"},
+        "tts_hints": {"pause_before": "none", "pace": "normal", "tone": "neutral"},
     })
 
     transitions = wrapper.get("transitions", [])
@@ -782,7 +782,7 @@ def _assemble_script(
                 output_segments.append({
                     "type": "transition",
                     "text": transition_text,
-                    "tts_hints": {"pause_before": "medium", "pace": "normal"},
+                    "tts_hints": {"pause_before": "medium", "pace": "normal", "tone": "neutral"},
                 })
 
         output_segments.append({
@@ -799,7 +799,7 @@ def _assemble_script(
     output_segments.append({
         "type": "outro",
         "text": wrapper.get("outro", ""),
-        "tts_hints": {"pause_before": "long", "pace": "slow"},
+        "tts_hints": {"pause_before": "long", "pace": "slow", "tone": "neutral"},
     })
 
     total_words = sum(
