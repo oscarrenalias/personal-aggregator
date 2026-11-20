@@ -5,7 +5,7 @@ description: "Offline promptfoo eval for the clusterer.merge prompt: frozen data
 dependencies: null
 priority: medium
 complexity: null
-status: planned
+status: done
 tags:
 - llm
 - evals
