@@ -182,3 +182,52 @@ def merge_v4(context: dict) -> list[dict]:
             ),
         },
     ]
+
+
+# v4b (draft, 2026-11-21): v4 with a narrower product rule (launch and reception, or
+# one specific problem, but not separate features or side stories) and v3's
+# different-scope rule restored (v4 lost the measles Americas/US pair).
+_V4_PRODUCT_RULE = (
+    "- One product, release or launch across its whole life is one subject: rumours, "
+    "announcement, launch, reviews, updates, bugs and problems, pricing, and return or support "
+    "policies — e.g. a new game console's leaks, its launch reviews and its first firmware "
+    "problems.\n"
+)
+_V4B_PRODUCT_RULE = (
+    "- One product's launch and reception is one subject: rumours, announcement, launch, "
+    "reviews and first impressions, pricing and availability, early sales — e.g. a new game "
+    "console's leaks, its launch day and its reviews. One specific problem with a product — a "
+    "defect, recall or outage — together with its reports, investigation and fix is also one "
+    "subject. But separate features, tips, accessories or side stories about the same product "
+    "are not the same subject as each other or as the launch — e.g. a console's new controller "
+    "feature and a guide to its parental controls; an e-reader's new note-taking mode and "
+    "a tip for extending its battery life.\n"
+)
+_V4_EVENT_RULE_END = (
+    "an election's results, the legal fights over the count and the new majority's first plans.\n"
+)
+_V4B_SCOPE_RULE = (
+    "- The same situation reported at a different scope is one subject — e.g. a region-wide "
+    "drought emergency and one country in that region rationing water because of it.\n"
+)
+assert _V4_PRODUCT_RULE in MERGE_SYSTEM_PROMPT_V4 and _V4_EVENT_RULE_END in MERGE_SYSTEM_PROMPT_V4
+MERGE_SYSTEM_PROMPT_V4B = MERGE_SYSTEM_PROMPT_V4.replace(_V4_PRODUCT_RULE, _V4B_PRODUCT_RULE).replace(
+    _V4_EVENT_RULE_END, _V4_EVENT_RULE_END + _V4B_SCOPE_RULE
+)
+assert MERGE_SYSTEM_PROMPT_V4B != MERGE_SYSTEM_PROMPT_V4
+
+
+def merge_v4b(context: dict) -> list[dict]:
+    vars_ = context["vars"]
+    return [
+        {"role": "system", "content": MERGE_SYSTEM_PROMPT_V4B},
+        {
+            "role": "user",
+            "content": _build_user_message(
+                vars_.get("thread_a_title"),
+                vars_.get("thread_a_summary"),
+                vars_.get("thread_b_title"),
+                vars_.get("thread_b_summary"),
+            ),
+        },
+    ]

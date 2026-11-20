@@ -66,6 +66,8 @@ prompts:
     label: v3-deals
   - id: "file://prompts.py:merge_v4"
     label: v4
+  - id: "file://prompts.py:merge_v4b"
+    label: v4b
 
 # Test cases are rendered by render_tests.py before this config runs.
 # The Makefile handles this automatically via: make eval-merge
