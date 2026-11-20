@@ -1,25 +1,110 @@
 pair_id,label,tags,notes,labeled_by,labeled_at
-23327:23773,merge,shopping,,human,2026-11-20
-23478:24127,merge,,,human,2026-11-20
-24325:24621,merge,,,human,2026-11-20
-24276:24480,merge,,,human,2026-11-20
-23967:24673,separate,,,human,2026-11-20
-23773:24686,merge,shopping,,human,2026-11-20
-23327:24686,merge,shopping,,human,2026-11-20
-24634:24761,merge,,,human,2026-11-20
-23478:24479,merge,,,human,2026-11-20
-24459:24765,separate,ambiguous,somewhat related but only because they're iPhone Duo. Could go either way.,human,2026-11-20
-24750:24765,separate,ambiguous,somewhat related but only because they're iPhone Duo. Could go either way.,human,2026-11-20
-24415:24840,separate,,,human,2026-11-20
-24822:24857,merge,,,human,2026-11-20
-24502:24726,merge,,,human,2026-11-20
+13038:22343,separate,,,human,2026-11-20
+13178:20844,separate,,,human,2026-11-20
+13178:23328,separate,clear,totally different tracks,human,2026-11-20
+16592:20307,separate,,,human,2026-11-20
+16592:21143,merge,either-way,"both related to new product launches, but they don't refer to the same products. I would prefer them merged but no big deal if not.",human,2026-11-20
+16592:22307,merge,either-way,could still go either way since one article is about ipads and the other one about general product announcements,human,2026-11-20
+17974:17988,merge,either-way,,human,2026-11-20
+17974:22438,separate,,,human,2026-11-20
+20265:21073,separate,,,human,2026-11-20
+20426:20528,separate,,,human,2026-11-20
+20442:22202,merge,clear,"evolution of an ebola outbreak, even if it refers to separate countries",human,2026-11-20
+20510:21429,separate,,,human,2026-11-20
+20510:21448,merge,either-way,"I may have flagged others like this as separate, and this one as merge. This is a difficult case because it's about the same game, but about different mechanics in it.",human,2026-11-20
+20520:21306,separate,,,human,2026-11-20
+20520:21520,separate,clear,,human,2026-11-20
+20528:21427,separate,difficult;either-way,,human,2026-11-20
+20570:21034,merge,difficult;either-way,same product but described differently,human,2026-11-20
+20685:21786,separate,clear,,human,2026-11-20
+20692:20728,separate,,,human,2026-11-20
+20742:21493,separate,clear,,human,2026-11-20
+20844:23227,separate,clear,clearly different,human,2026-11-20
+20916:20963,separate,,,human,2026-11-20
+20922:21627,separate,clear,,human,2026-11-20
+20941:21055,merge,difficult;either-way,"same product, same issue, but expressed in very different terms",human,2026-11-20
+20955:21351,merge,,,human,2026-11-20
+21043:21427,separate,clear,,human,2026-11-20
+21092:22248,merge,,,human,2026-11-20
+21122:21216,merge,clear,,human,2026-11-20
+21143:21144,merge,clear,,human,2026-11-20
+21143:21436,separate,either-way,,human,2026-11-20
+21143:21473,separate,clear,separate products,human,2026-11-20
+21144:21436,separate,,,human,2026-11-20
+21144:21675,separate,,,human,2026-11-20
+21216:21981,merge,clear,,human,2026-11-20
+21223:21493,merge,,,human,2026-11-20
+21242:21427,separate,,,human,2026-11-20
+21251:21448,merge,either-way,"could go either way, same game but slightly different topics.",human,2026-11-20
+21259:21398,separate,either-way,"same product, different features",human,2026-11-20
+21306:21515,separate,clear,totally different topics around rankinds,human,2026-11-20
+21371:21479,separate,,,human,2026-11-20
+21371:22038,merge,either-way,"separate apps, but same purpose",human,2026-11-20
+21429:21854,merge,either-way,,human,2026-11-20
+21448:21854,merge,either-way,,human,2026-11-20
+21448:22453,merge,,,human,2026-11-20
+21448:22590,merge,either-way,,human,2026-11-20
+21544:22042,separate,,,human,2026-11-20
+21559:21573,separate,clear,,human,2026-11-20
+21573:21752,separate,,,human,2026-11-20
+21752:21966,separate,,,human,2026-11-20
+21786:21923,separate,,,human,2026-11-20
+21811:21999,separate,clear,"both about drone attacks, but one is about russian attacks and the other about ukrainian attacks",human,2026-11-20
+21811:22582,merge,either-way,,human,2026-11-20
+21948:21966,separate,clear,,human,2026-11-20
+21966:22905,separate,clear,,human,2026-11-20
+22036:22910,merge,either-way,"somewhat common topic, but undernstandable if they're not merged",human,2026-11-20
+22108:22693,separate,,,human,2026-11-20
+22198:22684,merge,,,human,2026-11-20
+22207:23210,separate,,,human,2026-11-20
+22223:23227,separate,clear,,human,2026-11-20
+22287:22558,merge,difficult;either-way,"I would merge, though I can see why an LLM would have an issue with this as the same topic is approached from two very different directions.",human,2026-11-20
+22647:22875,merge,,,human,2026-11-20
+22749:22759,merge,either-way,"one talks about the senate and the other about the huose, even though they're both about recent Democrats victories.",human,2026-11-20
+22761:22912,merge,clear,,human,2026-11-20
+22793:23728,merge,,,human,2026-11-20
+22937:23893,separate,clear,same common character but different topics,human,2026-11-20
+22964:23750,merge,either-way,,human,2026-11-20
+22966:23331,separate,,,human,2026-11-20
+22970:23201,merge,,,human,2026-11-20
+22978:23746,merge,clear,,human,2026-11-20
 23094:24330,separate,,,human,2026-11-20
-24652:24799,merge,,,human,2026-11-20
-24963:25116,separate,,these topics are not even close,human,2026-11-20
+23129:24137,merge,either-way,,human,2026-11-20
+23161:23331,separate,,,human,2026-11-20
+23171:23262,separate,clear,,human,2026-11-20
+23171:24137,separate,either-way,,human,2026-11-20
+23262:24137,merge,either-way,some of these merges would lead to a mega-thread containing everything to do wtih ukraine war.,human,2026-11-20
+23262:24417,separate,clear,,human,2026-11-20
+23265:24535,separate,,,human,2026-11-20
+23327:23773,merge,shopping,,human,2026-11-20
+23327:24686,merge,shopping,,human,2026-11-20
+23456:24222,separate,,"the headline of thread b is just wrong, it's about a race 10 years ago but that's not stated in the title",human,2026-11-20
+23468:24382,merge,clear,,human,2026-11-20
+23478:24127,merge,,,human,2026-11-20
+23478:24479,merge,,,human,2026-11-20
+23773:24686,merge,shopping,,human,2026-11-20
+23967:24673,separate,,,human,2026-11-20
+24113:24309,merge,,,human,2026-11-20
+24115:24224,separate,clear,,human,2026-11-20
+24183:24442,separate,clear,,human,2026-11-20
+24222:24382,merge,either-way,"could go either way, one refers to something 5 years ago and the other one to 10 years ago, even if it's the same GP",human,2026-11-20
+24224:24309,separate,either-way,"could still go either way since it's all about Apple, but the products are different",human,2026-11-20
+24276:24480,merge,,,human,2026-11-20
+24325:24621,merge,,,human,2026-11-20
+24337:24417,separate,either-way,,human,2026-11-20
+24339:24799,separate,either-way,could go either way (I think this is a repeat?),human,2026-11-20
 24339:25195,separate,,same main chracter (Le Pen) but different underlying topics,human,2026-11-20
+24415:24840,separate,,,human,2026-11-20
+24459:24765,separate,either-way,somewhat related but only because they're iPhone Duo. Could go either way.,human,2026-11-20
+24502:24726,merge,,,human,2026-11-20
+24634:24761,merge,,,human,2026-11-20
+24652:24799,merge,,,human,2026-11-20
 24686:25271,merge,shopping,black Friday deals,human,2026-11-20
-25271:25316,merge,shopping,moar black Friday deals,human,2026-11-20
 24686:25316,merge,shopping,moar black Friday deals,human,2026-11-20
+24716:25349,separate,either-way,"may go either way, it's all about the Vegas GP",human,2026-11-20
+24750:24765,separate,either-way,somewhat related but only because they're iPhone Duo. Could go either way.,human,2026-11-20
+24822:24857,merge,,,human,2026-11-20
+24963:25116,separate,,these topics are not even close,human,2026-11-20
+25271:25316,merge,shopping,moar black Friday deals,human,2026-11-20
+25280:25411,merge,clear,,human,2026-11-20
 25289:25295,merge,,,human,2026-11-20
-24716:25349,separate,ambiguous,"may go either way, it's all about the Vegas GP",human,2026-11-20
-24339:24799,separate,ambiguous,could go either way (I think this is a repeat?),human,2026-11-20
