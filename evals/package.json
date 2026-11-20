@@ -1,0 +1,8 @@
+{
+  "name": "evals",
+  "version": "1.0.0",
+  "private": true,
+  "devDependencies": {
+    "promptfoo": "0.125.1"
+  }
+}
