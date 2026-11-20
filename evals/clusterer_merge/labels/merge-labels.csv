@@ -1,0 +1,25 @@
+pair_id,label,tags,notes,labeled_by,labeled_at
+23327:23773,merge,shopping,,human,2026-11-20
+23478:24127,merge,,,human,2026-11-20
+24325:24621,merge,,,human,2026-11-20
+24276:24480,merge,,,human,2026-11-20
+23967:24673,separate,,,human,2026-11-20
+23773:24686,merge,shopping,,human,2026-11-20
+23327:24686,merge,shopping,,human,2026-11-20
+24634:24761,merge,,,human,2026-11-20
+23478:24479,merge,,,human,2026-11-20
+24459:24765,separate,ambiguous,somewhat related but only because they're iPhone Duo. Could go either way.,human,2026-11-20
+24750:24765,separate,ambiguous,somewhat related but only because they're iPhone Duo. Could go either way.,human,2026-11-20
+24415:24840,separate,,,human,2026-11-20
+24822:24857,merge,,,human,2026-11-20
+24502:24726,merge,,,human,2026-11-20
+23094:24330,separate,,,human,2026-11-20
+24652:24799,merge,,,human,2026-11-20
+24963:25116,separate,,these topics are not even close,human,2026-11-20
+24339:25195,separate,,same main chracter (Le Pen) but different underlying topics,human,2026-11-20
+24686:25271,merge,shopping,black Friday deals,human,2026-11-20
+25271:25316,merge,shopping,moar black Friday deals,human,2026-11-20
+24686:25316,merge,shopping,moar black Friday deals,human,2026-11-20
+25289:25295,merge,,,human,2026-11-20
+24716:25349,separate,ambiguous,"may go either way, it's all about the Vegas GP",human,2026-11-20
+24339:24799,separate,ambiguous,could go either way (I think this is a repeat?),human,2026-11-20
