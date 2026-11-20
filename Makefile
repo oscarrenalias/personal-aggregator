@@ -51,6 +51,7 @@ eval-merge:
 	  --dataset $(DATASET) --labels $(LABELS) --out $(TESTS_OUT) \
 	  $(_EXCLUDE_ARGS) $(_ONLY_ARGS)
 	PROMPTFOO_PYTHON="$(PROMPTFOO_PYTHON)" \
+	PROMPTFOO_FAILED_TEST_EXIT_CODE=0 \
 	npx --prefix evals promptfoo eval \
 	  -c evals/clusterer_merge/promptfooconfig.yaml \
 	  --tests $(TESTS_OUT) \
@@ -72,9 +73,10 @@ eval-merge-smoke:
 	$(eval TIMESTAMP := $(shell date -u +%Y%m%dT%H%M%SZ))
 	$(eval RESULTS_OUT := evals/results/clusterer-merge-smoke-$(TIMESTAMP).json)
 	PROMPTFOO_PYTHON="$(PROMPTFOO_PYTHON)" \
+	PROMPTFOO_FAILED_TEST_EXIT_CODE=0 \
 	npx --prefix evals promptfoo eval \
 	  -c evals/clusterer_merge/smoke.promptfooconfig.yaml \
-	  -o $(RESULTS_OUT) || true
+	  -o $(RESULTS_OUT)
 	$(PROMPTFOO_PYTHON) evals/clusterer_merge/report.py $(RESULTS_OUT)
 
 eval-merge-sheet:
