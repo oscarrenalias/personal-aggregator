@@ -1,15 +1,25 @@
 ---
 id: ADR-f8cc0455
-title: "Screen LLM prompt and model variants with offline evals against human-labelled datasets"
-status: draft
-created_at: 2026-11-20T16:11:34.951591+00:00
-authors: ['Renalias, Oscar']
-description: 
-tags: [llm, experiment, evals]
-related_specs: 
-related_beads: 
-supersedes: 
+title: Screen LLM prompt and model variants with offline evals against human-labelled
+  datasets
+status: approved
+created_at: '2026-11-20T16:11:34.951591+00:00'
+authors:
+- Renalias, Oscar
+description: null
+accepted_at: '2026-11-20T16:35:56.849143+00:00'
+superseded_at: null
+superseded_by: null
+supersedes: []
+tags:
+- llm
+- experiment
+- evals
+related_specs: []
+related_beads: []
+review_after: null
 ---
+
 # Screen LLM prompt and model variants with offline evals against human-labelled datasets
 
 ## Summary
