@@ -11,9 +11,11 @@ evals/
   README.md
   package.json               # promptfoo pinned to 0.125.1
   package-lock.json
-  .gitignore                 # node_modules/, results/
+  .gitignore                 # node_modules/, results/, .cache/
+  promptfoo-python.sh        # Python wrapper for promptfoo; execs .venv/bin/python when
+                             #   present (fast), falls back to uv run --all-packages python
   shared/
-    litellm_provider.py      # promptfoo Python provider — calls litellm
+    litellm_provider.py      # promptfoo Python provider — calls litellm, with disk cache
     stub_provider.py         # deterministic offline provider for smoke tests
   clusterer_merge/
     promptfooconfig.yaml     # the real eval (needs OPENAI_API_KEY + network)
@@ -34,6 +36,7 @@ evals/
       smoke-labels.csv
   tests/                     # deterministic pytest unit tests (no LLM, no DB)
   results/                   # promptfoo outputs and rendered test files (gitignored)
+  .cache/litellm/            # disk response cache (gitignored); see Caching below
 ```
 
 ## Prerequisites
@@ -41,6 +44,37 @@ evals/
 - **Node ≥ 20** in `PATH`
 - Run `make eval-install` once to install promptfoo: `npm ci --prefix evals`
 - `OPENAI_API_KEY` set in the repo-root `.env` (only needed for real eval runs, not smoke)
+
+## Performance: venv and caching
+
+**Python startup** — `eval-merge` and `eval-merge-smoke` run `uv sync --all-packages --inexact` before invoking promptfoo. This creates `.venv/` at the repo root (once, fast on subsequent runs). `promptfoo-python.sh` then execs `.venv/bin/python` directly instead of `uv run`, cutting per-call Python startup from ~0.17 s to ~0.06 s. At concurrency 8 and 768 provider calls the wall-clock reduction is roughly 10–15 s.
+
+**Response cache** — `litellm_provider.py` caches every successful LLM response under `evals/.cache/litellm/` (gitignored). The cache key is a SHA-256 over model + messages + params + repeat index, so identical reruns are free. Files are written atomically (temp file + rename) so concurrent promptfoo workers are safe.
+
+**Repeat semantics** — promptfoo exposes `context['repeatIndex']` (0-based integer) to Python providers. Each distinct `repeatIndex` produces a **different cache key**, so repeat runs remain independent samples — repeat 0 and repeat 1 of the same test case are stored and retrieved separately. This holds for all repeat counts.
+
+**Disabling the cache:**
+
+```
+make eval-merge NOCACHE=1        # passes --no-cache to promptfoo AND sets EVAL_NO_CACHE=1
+EVAL_NO_CACHE=1 make eval-merge  # alternative: set env var directly
+```
+
+Both disable cache reads and writes for that run. Errors are never cached regardless.
+
+**Clearing the cache:**
+
+```
+make eval-cache-clear            # deletes evals/.cache/litellm/
+```
+
+**Concurrency:**
+
+```
+make eval-merge MAXCONCURRENCY=4   # default is 8
+```
+
+Passed as `--max-concurrency` to `promptfoo eval`.
 
 ## Operator loop
 
@@ -77,14 +111,15 @@ Labels are written to `evals/clusterer_merge/labels/merge-labels.csv`. An existi
 ### 3. Run the eval
 
 ```
-make eval-merge                   # run all prompts × providers, print report
-make eval-merge REPEAT=3          # run each test 3 times (averages out non-determinism)
-make eval-merge EXCLUDE_TAGS=ambiguous   # skip pairs tagged ambiguous
-make eval-merge ONLY_TAGS=shopping       # run only shopping-tagged pairs
-make eval-merge NOCACHE=1         # disable promptfoo's response cache
+make eval-merge                        # run all prompts × providers, print report
+make eval-merge REPEAT=3               # run each test 3 times (averages out non-determinism)
+make eval-merge EXCLUDE_TAGS=ambiguous # skip pairs tagged ambiguous
+make eval-merge ONLY_TAGS=shopping     # run only shopping-tagged pairs
+make eval-merge NOCACHE=1              # disable both litellm cache and promptfoo cache
+make eval-merge MAXCONCURRENCY=4       # limit concurrency (default 8)
 ```
 
-This renders test cases from the latest dataset and labels file, runs `promptfoo eval`, and prints a score table.
+This renders test cases from the latest dataset and labels file, runs `promptfoo eval`, and prints a score table. Responses are cached in `evals/.cache/litellm/` by default; a second run with the same inputs returns cached results without calling the API.
 
 ### 4. View results in the promptfoo UI
 
