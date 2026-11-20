@@ -26,13 +26,13 @@ pair_id,label,tags,notes,labeled_by,labeled_at
 20955:21351,merge,,,human,2026-11-20
 21043:21427,separate,clear,,human,2026-11-20
 21092:22248,merge,,,human,2026-11-20
-21122:21216,merge,clear,,human,2026-11-20
+21122:21216,separate,clear,relabelled: 'Burnham as PM' is not a thread; different issues,human,2026-11-21
 21143:21144,merge,clear,,human,2026-11-20
 21143:21436,separate,either-way,,human,2026-11-20
 21143:21473,separate,clear,separate products,human,2026-11-20
 21144:21436,separate,,,human,2026-11-20
 21144:21675,separate,,,human,2026-11-20
-21216:21981,merge,clear,,human,2026-11-20
+21216:21981,separate,clear,relabelled: 'Burnham as PM' is not a thread; different issues,human,2026-11-21
 21223:21493,merge,,,human,2026-11-20
 21242:21427,separate,,,human,2026-11-20
 21251:21448,merge,either-way,"could go either way, same game but slightly different topics.",human,2026-11-20
