@@ -1,0 +1,51 @@
+description: "clusterer.merge prompt vs model accuracy comparison"
+
+# PROMPTFOO_PYTHON must point to the uv run interpreter so aggregator_clusterer
+# (and all other workspace packages) are importable. The Makefile sets this
+# automatically; to run promptfoo directly, export it first:
+#
+#   export PROMPTFOO_PYTHON="uv run --all-packages --with openpyxl python"
+#
+# Adding a new provider requires only editing the providers list below.
+env:
+  PROMPTFOO_PYTHON: "uv run --all-packages --with openpyxl python"
+
+providers:
+  - id: "file://../shared/litellm_provider.py"
+    label: terra-none
+    config:
+      model: gpt-6.1-terra
+      params:
+        reasoning_effort: none
+        max_completion_tokens: 128
+        temperature: 0.0
+        timeout: 60
+
+  - id: "file://../shared/litellm_provider.py"
+    label: luna-none
+    config:
+      model: gpt-6-luna
+      params:
+        reasoning_effort: none
+        max_completion_tokens: 128
+        temperature: 0.0
+        timeout: 60
+
+prompts:
+  - id: "file://prompts.py:merge_v1"
+    label: v1
+  - id: "file://prompts.py:merge_v2"
+    label: v2
+  - id: "file://prompts.py:merge_v3"
+    label: v3
+  - id: "file://prompts.py:merge_v3_deals"
+    label: v3-deals
+
+# Test cases are rendered by render_tests.py before this config runs.
+# The Makefile handles this automatically via: make eval-merge
+tests: "../results/test-cases.yaml"
+
+defaultTest:
+  assert:
+    - type: python
+      value: "file://assert_same_story.py:get_assert"

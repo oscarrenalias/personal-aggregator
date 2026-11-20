@@ -1,0 +1,85 @@
+description: "clusterer.merge smoke eval (offline, no network or API key needed)"
+
+# PROMPTFOO_PYTHON must point to the uv run interpreter. The Makefile sets this
+# automatically; to run promptfoo directly, export it first:
+#
+#   export PROMPTFOO_PYTHON="uv run --all-packages --with openpyxl python"
+env:
+  PROMPTFOO_PYTHON: "uv run --all-packages --with openpyxl python"
+
+providers:
+  - id: "file://../shared/stub_provider.py"
+    label: stub
+
+prompts:
+  - id: "file://prompts.py:merge_v1"
+    label: v1
+  - id: "file://prompts.py:merge_v2"
+    label: v2
+  - id: "file://prompts.py:merge_v3"
+    label: v3
+  - id: "file://prompts.py:merge_v3_deals"
+    label: v3-deals
+
+# Inline test cases derived from:
+#   fixtures/smoke-dataset.jsonl  (3 synthetic pairs)
+#   fixtures/smoke-labels.csv     (human labels for each pair)
+#
+# These are intentionally inlined so the smoke eval is fully self-contained
+# (no render_tests.py run required). Keep them in sync with the fixture files.
+tests:
+  - description: "1001:1002 (merge)"
+    vars:
+      pair_id: "1001:1002"
+      thread_a_id: 1001
+      thread_a_title: "MERGE: Apple announces new iPhone model"
+      thread_a_summary: "Apple has unveiled a new iPhone with improved camera and battery life."
+      thread_b_id: 1002
+      thread_b_title: "New iPhone features detailed by Apple"
+      thread_b_summary: "Apple's latest iPhone brings significant upgrades to photography and endurance."
+      label: "merge"
+      tags: []
+    metadata:
+      pair_id: "1001:1002"
+      label: "merge"
+      tags: []
+      labeled_by: "human"
+
+  - description: "2001:2002 (separate)"
+    vars:
+      pair_id: "2001:2002"
+      thread_a_id: 2001
+      thread_a_title: "EU announces new climate policy targets"
+      thread_a_summary: "The European Union has set ambitious new targets for carbon emissions reduction by 2035."
+      thread_b_id: 2002
+      thread_b_title: "Tech sector layoffs continue in Q4"
+      thread_b_summary: "Major technology companies announced further workforce reductions in the fourth quarter."
+      label: "separate"
+      tags: []
+    metadata:
+      pair_id: "2001:2002"
+      label: "separate"
+      tags: []
+      labeled_by: "human"
+
+  - description: "3001:3002 (merge, null titles)"
+    vars:
+      pair_id: "3001:3002"
+      thread_a_id: 3001
+      thread_a_title: null
+      thread_a_summary: null
+      thread_b_id: 3002
+      thread_b_title: null
+      thread_b_summary: null
+      label: "merge"
+      tags: []
+    metadata:
+      pair_id: "3001:3002"
+      label: "merge"
+      tags: []
+      labeled_by: "human"
+
+defaultTest:
+  assert:
+    - type: python
+      value: "file://assert_same_story.py:get_assert"
