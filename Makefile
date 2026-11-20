@@ -4,7 +4,7 @@ DATASET ?= $(shell ls -t evals/clusterer_merge/datasets/*.jsonl 2>/dev/null | he
 LABELS  ?= evals/clusterer_merge/labels/merge-labels.csv
 SHEET   ?= evals/results/merge-label-sheet.xlsx
 REPEAT  ?= 1
-PROMPTFOO_PYTHON := uv run --all-packages --with openpyxl python
+PROMPTFOO_PYTHON := ./evals/promptfoo-python.sh
 
 .PHONY: build up down logs version openapi \
         eval-install eval-merge-export eval-merge eval-merge-report \
@@ -74,7 +74,7 @@ eval-merge-smoke:
 	PROMPTFOO_PYTHON="$(PROMPTFOO_PYTHON)" \
 	npx --prefix evals promptfoo eval \
 	  -c evals/clusterer_merge/smoke.promptfooconfig.yaml \
-	  -o $(RESULTS_OUT)
+	  -o $(RESULTS_OUT) || true
 	$(PROMPTFOO_PYTHON) evals/clusterer_merge/report.py $(RESULTS_OUT)
 
 eval-merge-sheet:

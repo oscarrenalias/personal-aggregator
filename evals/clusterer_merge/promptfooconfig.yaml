@@ -1,14 +1,17 @@
 description: "clusterer.merge prompt vs model accuracy comparison"
 
-# PROMPTFOO_PYTHON must point to the uv run interpreter so aggregator_clusterer
-# (and all other workspace packages) are importable. The Makefile sets this
-# automatically; to run promptfoo directly, export it first:
+# PROMPTFOO_PYTHON must be a single executable path; promptfoo uses execFile(),
+# not exec(), so it cannot be a multi-word shell command. The wrapper script
+# evals/promptfoo-python.sh delegates to `uv run --all-packages --with openpyxl python`
+# so aggregator_clusterer (and all workspace packages) are importable.
+# The Makefile sets PROMPTFOO_PYTHON automatically; to run promptfoo directly,
+# run from the repo root:
 #
-#   export PROMPTFOO_PYTHON="uv run --all-packages --with openpyxl python"
+#   export PROMPTFOO_PYTHON="./evals/promptfoo-python.sh"
 #
 # Adding a new provider requires only editing the providers list below.
 env:
-  PROMPTFOO_PYTHON: "uv run --all-packages --with openpyxl python"
+  PROMPTFOO_PYTHON: "./evals/promptfoo-python.sh"
 
 providers:
   - id: "file://../shared/litellm_provider.py"
