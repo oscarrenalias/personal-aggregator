@@ -35,7 +35,7 @@ class PodcastSettings(Settings):
     )
     podcast_tts_tone_map: Dict[str, str] = Field(
         default_factory=lambda: {
-            "grave": "Grave and restrained. Slow, low and steady, with no brightness.",
+            "grave": "Grave and restrained, with a low, steady voice at a normal news-reading pace. No brightness.",
             "serious": "Serious, measured, authoritative.",
             "neutral": "Calm, clear, neutral newsreader delivery.",
             "engaged": "Curious and engaged, warm but still straight news delivery.",

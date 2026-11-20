@@ -560,6 +560,18 @@ class TestConfigParsing:
 
         assert settings.podcast_tts_style_map == {}
 
+    def test_default_grave_tone_has_no_slow_instruction(self):
+        """Default grave tone must not instruct the TTS model to read slowly."""
+        from aggregator_podcast.config import PodcastSettings
+
+        settings = PodcastSettings(DATABASE_URL="postgresql://x:x@localhost/x")
+        grave = settings.podcast_tts_tone_map["grave"]
+
+        assert grave == (
+            "Grave and restrained, with a low, steady voice at a normal news-reading pace. No brightness."
+        ), f"unexpected grave default: {grave!r}"
+        assert "slow" not in grave.lower(), f"grave style must not contain 'slow'; got: {grave!r}"
+
 
 # ---------------------------------------------------------------------------
 # 7. Filename uniqueness (regression for same-date collision bug)
