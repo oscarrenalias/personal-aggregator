@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import datetime
 import json
 import random
 import sys
@@ -199,6 +200,29 @@ def write_workbook(pairs: list[dict], out_path: str) -> None:
     wb.save(out_path)
 
 
+def _load_all_labels(path: str) -> dict[str, dict]:
+    """Return every row from the labels CSV keyed by pair_id (all labeled_by values)."""
+    rows: dict[str, dict] = {}
+    if not Path(path).exists():
+        return rows
+    with open(path, encoding="utf-8", newline="") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            pid = row.get("pair_id", "")
+            if pid:
+                rows[pid] = dict(row)
+    return rows
+
+
+def _pair_id_sort_key(row: dict) -> tuple:
+    pid = row.get("pair_id", "")
+    try:
+        a, b = pid.split(":")
+        return (int(a), int(b))
+    except (ValueError, AttributeError):
+        return (float("inf"), float("inf"))
+
+
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
@@ -217,6 +241,106 @@ def cmd_export(args: argparse.Namespace) -> None:
 
     write_workbook(pairs, args.out)
     print(f"wrote {len(pairs)} rows to {args.out}")
+
+
+def cmd_import(args: argparse.Namespace) -> None:
+    wb = openpyxl.load_workbook(args.sheet, read_only=True, data_only=True)
+    ws = wb.active
+    assert ws is not None
+
+    # Discover column indices from header row (case-insensitive)
+    header_row = next(ws.iter_rows(min_row=1, max_row=1, values_only=True))
+
+    pair_id_col: int | None = None
+    decision_col: int | None = None
+    tags_col: int | None = None
+    notes_col: int | None = None
+
+    for i, h in enumerate(header_row):
+        if h is None:
+            continue
+        h_lower = str(h).strip().lower()
+        if h_lower == "pair_id":
+            pair_id_col = i
+        elif h_lower.startswith("your_decision"):
+            decision_col = i
+        elif h_lower == "tags":
+            tags_col = i
+        elif h_lower == "notes":
+            notes_col = i
+
+    if pair_id_col is None or decision_col is None:
+        print("error: could not find required columns (pair_id, your_decision)", file=sys.stderr)
+        wb.close()
+        sys.exit(1)
+
+    # First pass: read and validate all data rows; collect valid ones
+    today = datetime.date.today().isoformat()
+    pending: list[tuple[str, str, str, str]] = []  # (pair_id, label, tags, notes)
+    n_skipped = 0
+
+    for row_idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
+        raw_pid = row[pair_id_col]
+        pair_id = str(raw_pid).strip() if raw_pid is not None else ""
+        if not pair_id:
+            continue
+
+        raw_decision = row[decision_col]
+        decision_str = str(raw_decision).strip() if raw_decision is not None else ""
+
+        raw_tags = row[tags_col] if tags_col is not None else None
+        tags = str(raw_tags).strip() if raw_tags is not None else ""
+
+        raw_notes = row[notes_col] if notes_col is not None else None
+        notes = str(raw_notes).strip() if raw_notes is not None else ""
+
+        if not decision_str:
+            n_skipped += 1
+            continue
+
+        decision_lower = decision_str.lower()
+        if decision_lower not in ("merge", "separate"):
+            print(f"error: row {row_idx}: invalid decision value {decision_str!r} (must be merge, separate, or blank)")
+            wb.close()
+            sys.exit(1)
+
+        pending.append((pair_id, decision_lower, tags, notes))
+
+    wb.close()
+
+    # Load existing labels (all rows, not just human)
+    existing = _load_all_labels(args.labels)
+
+    # Apply changes
+    n_added = 0
+    n_replaced = 0
+
+    for pair_id, label, tags, notes in pending:
+        new_row = {
+            "pair_id": pair_id,
+            "label": label,
+            "tags": tags,
+            "notes": notes,
+            "labeled_by": "human",
+            "labeled_at": today,
+        }
+        if pair_id in existing:
+            existing[pair_id] = new_row
+            n_replaced += 1
+        else:
+            existing[pair_id] = new_row
+            n_added += 1
+
+    # Write sorted CSV
+    fieldnames = ["pair_id", "label", "tags", "notes", "labeled_by", "labeled_at"]
+    sorted_rows = sorted(existing.values(), key=_pair_id_sort_key)
+
+    with open(args.labels, "w", encoding="utf-8", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore")
+        writer.writeheader()
+        writer.writerows(sorted_rows)
+
+    print(f"{n_added} added, {n_replaced} replaced, {n_skipped} skipped")
 
 
 def main() -> None:
@@ -250,10 +374,16 @@ def main() -> None:
         help=f"Random seed for shuffling (default: {DEFAULT_SEED})",
     )
 
+    import_p = sub.add_parser("import", help="Import decisions from a filled xlsx labelling sheet.")
+    import_p.add_argument("--sheet", required=True, help="Filled .xlsx sheet to import")
+    import_p.add_argument("--labels", required=True, help="CSV labels file to update")
+
     args = parser.parse_args()
 
     if args.command == "export":
         cmd_export(args)
+    elif args.command == "import":
+        cmd_import(args)
     else:
         parser.print_help()
         sys.exit(1)
