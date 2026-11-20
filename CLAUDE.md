@@ -400,6 +400,10 @@ JANITOR_ARTICLE_RETENTION_DAYS=35
 
 The default is 14 days; 35 covers a month-long experiment with a one-week buffer. Revert to 14 after the experiment table is dropped.
 
+### Offline evals
+
+`evals/` contains offline promptfoo eval tooling for benchmarking prompt and model variants against frozen, human-labelled datasets (ADR-f8cc0455). The two-stage rule: **screen offline first** (run `make eval-merge` against human labels) **then shadow-test before cutover** (configure `LLM_EXPERIMENT`, ADR-9687cb01). Never promote a prompt variant straight to production without both stages. The `eval-*` Makefile targets cover the full operator loop — export → label → eval → report/view. See `evals/README.md` for details.
+
 ## Logging
 
 Centralized, env-driven logging configured via `aggregator_common.logging_setup.configure_logging(settings, *, stream)`:
