@@ -104,12 +104,12 @@ def build_test_cases(
                 "thread_b_title": thread_b.get("title"),
                 "thread_b_summary": thread_b.get("summary"),
                 "label": label,
-                "tags": tags,
+                "tags": list(tags),
             },
             "metadata": {
                 "pair_id": pair_id,
                 "label": label,
-                "tags": tags,
+                "tags": list(tags),
                 "labeled_by": labeled_by,
             },
         }
