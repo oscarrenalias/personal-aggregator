@@ -24,6 +24,27 @@ providers:
         temperature: 0.0
         timeout: 60
 
+  # Reasoning arms: terra only accepts the default temperature (1) when
+  # reasoning_effort is not "none", and reasoning tokens count against the
+  # completion budget, so temperature is omitted and the budget raised.
+  - id: "file://../shared/litellm_provider.py"
+    label: terra-low
+    config:
+      model: gpt-6.1-terra
+      params:
+        reasoning_effort: low
+        max_completion_tokens: 2048
+        timeout: 120
+
+  - id: "file://../shared/litellm_provider.py"
+    label: terra-medium
+    config:
+      model: gpt-6.1-terra
+      params:
+        reasoning_effort: medium
+        max_completion_tokens: 2048
+        timeout: 120
+
   - id: "file://../shared/litellm_provider.py"
     label: luna-none
     config:
