@@ -25,3 +25,8 @@ for d in "${dirs[@]}"; do
   # makes a plain `uv run`/`uv sync` install only the root, not the members.
   uv run --all-packages pytest "${d}"
 done
+
+if [ -d evals/tests ]; then
+  echo "===== pytest evals/tests ====="
+  uv run --all-packages --with openpyxl pytest evals/tests
+fi
