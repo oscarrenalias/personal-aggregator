@@ -1,6 +1,6 @@
 ---
 name: metrics-review
-description: Retrieve, review, and analyze PRODUCTION metrics/health for the personal-aggregator running on the Raspberry Pi — pipeline state-machine counts, stuck/failed work, clustering (threads/tiers/fragmentation), archival & retention, daily briefs, and LLM cost/errors. Use whenever asked to "check metrics", "is prod healthy", "review clustering/archival", "how much is the LLM costing", or to sanity-check the pipeline after a deploy. Read-only by default. Connects over a Docker-container tunnel because the workstation's LAN filters block host-CLI access to the Pi (container egress is not filtered).
+description: Retrieve, review, and analyze PRODUCTION metrics/health for the personal-aggregator running on the Raspberry Pi — pipeline state-machine counts, stuck/failed work, clustering (threads/tiers/fragmentation), archival & retention, daily briefs, and LLM cost/errors. Use whenever asked to "check metrics", "is prod healthy", "review clustering/archival", "how much is the LLM costing", or to sanity-check the pipeline after a deploy. Read-only. Queries run through the prod-db skill's script (.claude/skills/prod-db/prod-db.sh).
 tools: Bash, Read
 license: MIT
 ---
@@ -9,67 +9,45 @@ license: MIT
 
 A repeatable playbook to pull and analyze the **production** aggregator's health from this workstation. The prod stack runs on the Pi; `docker-compose.prod.yml` publishes Postgres on `${POSTGRES_PUBLISH_ADDR:-127.0.0.1}:5432`, so the Pi's `/opt/personal-aggregator/.env` must set `POSTGRES_PUBLISH_ADDR=192.168.68.52` for LAN access (if `5432` is refused, check that first — the default binds Pi-local only). A **Docker container on this Mac can reach it** even though host CLI (`psql`/`curl`/`ssh`) cannot — the workstation's GlobalProtect/Zscaler filters drop host→LAN traffic, but a container's egress bypasses them.
 
-**READ-ONLY by default.** Only run `SELECT`/status/list commands. Never run mutations (`recluster`, `brief generate`, `ops reap`, thread dismiss, any `INSERT/UPDATE/DELETE`) unless the user explicitly asks. **Always tear down the tunnel container when done** (host/Pi hygiene — this deployment has hit disk-full before).
+**READ-ONLY.** All access goes through the `prod-db` skill's script, **`.claude/skills/prod-db/prod-db.sh`** (run from the repo root with that exact relative path; it is allow-listed, so it runs without permission prompts). The script forces `default_transaction_read_only=on` on every session and opens and closes its own throwaway containers, so there is nothing to tear down. Never run mutations (`recluster`, `brief generate`, `ops reap`, thread dismiss, any `INSERT/UPDATE/DELETE`) unless the user explicitly asks; they would need a different path anyway.
 
-## 1. Resolve connection details (don't hardcode)
+## 1–2. Connecting and querying
 
 ```bash
-cd <repo-root>
-PI=$(ssh -G raspberrypi 2>/dev/null | awk '/^hostname /{print $2}')   # e.g. 192.168.68.52, from ~/.ssh/config
-PGUSER=$(awk '/POSTGRES_USER:/{print $2; exit}' docker-compose.prod.yml)
-PGPASS=$(awk '/POSTGRES_PASSWORD:/{print $2; exit}' docker-compose.prod.yml)
-PGDB=$(awk '/POSTGRES_DB:/{print $2; exit}' docker-compose.prod.yml)
-PG="postgresql://$PGUSER:$PGPASS@$PI:5432/$PGDB"     # for the direct psql-container method
-echo "Pi=$PI db=$PGDB user=$PGUSER"
+.claude/skills/prod-db/prod-db.sh check                                   # connectivity + read_only=on
+.claude/skills/prod-db/prod-db.sh psql -qAt -c "select count(*) from threads;"   # ad-hoc SQL (psql passthrough; multi-statement: -f - <<'SQL' ... SQL)
+.claude/skills/prod-db/prod-db.sh admin ops status                        # aggregator-admin against prod (tunnel handled by the script)
 ```
-(As of 2026-08: `raspberrypi` → `192.168.68.52`; creds are the compose defaults `aggregator/aggregator/aggregator`. DB is LAN/Tailscale-only, not public.)
-
-## 2. Two ways to query
-
-**A. Direct psql container** (best for ad-hoc aggregate SQL — one shot, self-contained):
-```bash
-docker run --rm postgres:16 psql "$PG" -qAt -c "select count(*) from threads;"
-```
-The container egresses straight to the Pi, bypassing the host filter.
-
-**B. socat forwarder + admin CLI** (needed for the `aggregator-admin` diagnostics, which run on the host and connect to `localhost`):
-```bash
-docker rm -f pgtunnel >/dev/null 2>&1
-docker run -d --name pgtunnel -p 15432:5432 alpine/socat tcp-listen:5432,fork,reuseaddr tcp-connect:$PI:5432
-sleep 2
-export DATABASE_URL="postgresql://$PGUSER:$PGPASS@localhost:15432/$PGDB"
-# ... run: uv run aggregator-admin <cmd> ...
-```
-Host→`localhost:15432` is local (not filtered); the container forwards to the Pi. **Teardown:** `docker rm -f pgtunnel`.
+(Pi = `192.168.68.52`, override with `PROD_DB_HOST`; credentials come from `docker-compose.prod.yml`. DB is LAN/Tailscale-only, not public.)
 
 ## 3. The standard review (all read-only)
 
-**Pipeline / state machine** (admin CLI via tunnel — method B):
+**Pipeline / state machine** (admin CLI):
 ```bash
-uv run aggregator-admin ops status        # article counts by status, in-flight, source counts
-uv run aggregator-admin ops stuck          # stale claims (should be empty)
-uv run aggregator-admin ops failures       # failed articles + last_error (should be empty)
-uv run aggregator-admin clusters list      # threads: id, tier, title, member_count, last_updated
-uv run aggregator-admin brief list         # recent briefs: status/origin/generated_at/headline
-uv run aggregator-admin llm-stats --days 7 # per-service cost/tokens/errors (table is wide/truncates)
+.claude/skills/prod-db/prod-db.sh admin ops status        # article counts by status, in-flight, source counts
+.claude/skills/prod-db/prod-db.sh admin ops stuck          # stale claims (should be empty)
+.claude/skills/prod-db/prod-db.sh admin ops failures       # failed articles + last_error (should be empty)
+.claude/skills/prod-db/prod-db.sh admin clusters list      # threads: id, tier, title, member_count, last_updated
+.claude/skills/prod-db/prod-db.sh admin brief list         # recent briefs: status/origin/generated_at/headline
+.claude/skills/prod-db/prod-db.sh admin llm-stats --days 7 # per-service cost/tokens/errors (table is wide/truncates)
 ```
 
-**Aggregates** (direct psql — method A; `llm-stats` truncates, so get cost from SQL):
+**Aggregates** (SQL; `llm-stats` truncates, so get cost from SQL):
 ```bash
 # LLM cost + errors by service/operation (7d)
-docker run --rm postgres:16 psql "$PG" -qAt -c "
+.claude/skills/prod-db/prod-db.sh psql -qAt -c "
  select service||' / '||operation||': \$'||round(sum(cost_usd)::numeric,3)||'  ('||count(*)||' calls'||
    case when count(*) filter (where status<>'success')>0 then ', '||count(*) filter (where status<>'success')||' ERR' else '' end||')'
  from llm_calls where created_at > now()-interval '7 days' group by 1,2 order by sum(cost_usd) desc nulls last;
  select '---- TOTAL 7d = \$'||round(sum(cost_usd)::numeric,2) from llm_calls where created_at > now()-interval '7 days';"
 
 # LLM errors detail (error_type breakdown)
-docker run --rm postgres:16 psql "$PG" -c "
+.claude/skills/prod-db/prod-db.sh psql -c "
  select service, operation, status, error_type, count(*) from llm_calls
  where created_at > now()-interval '7 days' and status<>'success' group by 1,2,3,4 order by 5 desc;"
 
 # Threads: status + tier distribution, fragmentation, dismissed
-docker run --rm postgres:16 psql "$PG" -qAt -c "
+.claude/skills/prod-db/prod-db.sh psql -qAt -c "
  select 'status '||status::text||' = '||count(*) from threads group by status;
  select 'tier '||coalesce(tier::text,'(none)')||' = '||count(*) from threads group by tier;
  select 'single-member = '||count(*) filter (where c=1)||' | multi = '||count(*) filter (where c>1)||' | total = '||count(*)
@@ -77,7 +55,7 @@ docker run --rm postgres:16 psql "$PG" -qAt -c "
  select 'threads idle >7d = '||count(*) from threads where last_updated < now()-interval '7 days';"
 
 # Retention: article/thread age spans
-docker run --rm postgres:16 psql "$PG" -qAt -c "
+.claude/skills/prod-db/prod-db.sh psql -qAt -c "
  select 'oldest ready article = '||min(retrieved_at)::text from articles where status='ready';
  select 'oldest thread last_updated = '||min(last_updated)::text from threads;
  select 'total threads = '||count(*) from threads;"
@@ -95,8 +73,6 @@ docker run --rm postgres:16 psql "$PG" -qAt -c "
 
 Pipeline: 7750 ready, 340 skipped, 0 failed/stuck/in-flight, 15 sources enabled. Briefs: daily 06:00 UTC, ready. LLM 7d: **$5.64 total** — `consolidate_facts` $3.07 (**54%**, ~370 calls/day, 40 `timeout` errors), `rank` $1.36, `classify` $1.11, `merge` $0.02, `brief` $0.09. Threads: **4635, all `active`, tier all NULL** (aging + tier were unimplemented — being fixed), 3469 idle >7d; **77% single-member** (3588/1047). Oldest ready article 2026-06-12; oldest thread 2026-07-19.
 
-## 6. Cleanup (always)
+## 6. Cleanup
 
-```bash
-docker rm -f pgtunnel >/dev/null 2>&1 && echo "tunnel removed"
-```
+Nothing to do: `prod-db.sh` removes its containers on exit.
