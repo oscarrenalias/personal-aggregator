@@ -364,7 +364,7 @@ def sidebar(request: Request, db: Session = Depends(get_db)) -> Response:
         for c in enabled_categories
     ]
 
-    _now = datetime.utcnow()
+    _now = datetime.now(timezone.utc).replace(tzinfo=None)
     return templates.TemplateResponse(
         request,
         "_sidebar.html",
