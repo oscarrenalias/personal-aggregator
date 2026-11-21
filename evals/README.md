@@ -144,6 +144,16 @@ make eval-merge-smoke
 
 Runs all four prompt variants against the stub provider on `fixtures/smoke-dataset.jsonl`. Exits 0, prints a report table with 4 rows (4 prompts × 1 provider × 3 pairs). Use this to verify the config loads and Python interop works without spending money.
 
+## Registered production variants
+
+| Variant | Status | Notes |
+|---|---|---|
+| `v1` | production default | Conservative: unambiguous same-event only |
+| `v2` | registered | Broader: same ongoing story, different angles |
+| `v4b` | registered (screened offline) | Specific-subject prompt; shadow-test before cutover per ADR-9687cb01 |
+
+`v3`, `v3-deals`, and `v4` remain draft-only (in `prompts.py` only; not in `PROMPT_VARIANTS`).
+
 ## How to add a draft prompt variant
 
 1. Add a new system prompt constant and prompt function to `evals/clusterer_merge/prompts.py` following the `merge_v3`/`merge_v3_deals` pattern. The user message must be byte-for-byte identical to what `_build_merge_messages` produces (the shared `_build_user_message` helper does this).

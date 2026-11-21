@@ -392,3 +392,62 @@ def test_get_named_scores_present():
 
 def test_get_named_scores_missing():
     assert report._get_named_scores({}) == {}
+
+
+# ---------------------------------------------------------------------------
+# Deduplication: same (prompt, provider, pair_id, repeatIndex) counted once
+# ---------------------------------------------------------------------------
+
+def test_duplicate_pair_ids_counted_once(tmp_path, capsys):
+    """Four copies of the same (prompt, provider, pair_id, repeatIndex) produce n=1."""
+    r = {
+        "prompt": {"label": "v1"},
+        "provider": {"label": "model-a"},
+        "repeatIndex": 0,
+        "testCase": {
+            "metadata": {"pair_id": "pair-001", "labeled_by": "human", "tags": ""}
+        },
+        "gradingResult": {
+            "namedScores": {"correct": 1, "wrong_merge": 0, "missed_merge": 0, "parse_error": 0}
+        },
+    }
+    _invoke_main(_write_fixture(tmp_path, [r, r, r, r]))
+    out, _ = capsys.readouterr()
+    data = _data_lines(out)
+    assert len(data) == 1
+    tokens = data[0].split()
+    assert tokens[2] == "1", f"expected n=1 after dedup, got row: {data[0]!r}"
+    assert "100%" in data[0]
+
+
+def test_duplicate_different_repeat_indices_not_collapsed(tmp_path, capsys):
+    """Same pair_id but different repeatIndex → counted separately."""
+    def _r(repeat_index, correct):
+        return {
+            "prompt": {"label": "v1"},
+            "provider": {"label": "model-a"},
+            "repeatIndex": repeat_index,
+            "testCase": {
+                "metadata": {"pair_id": "pair-001", "labeled_by": "human", "tags": ""}
+            },
+            "gradingResult": {
+                "namedScores": {"correct": correct, "wrong_merge": 0, "missed_merge": 0, "parse_error": 0}
+            },
+        }
+    _invoke_main(_write_fixture(tmp_path, [_r(0, 1), _r(1, 0)]))
+    out, _ = capsys.readouterr()
+    data = _data_lines(out)
+    assert len(data) == 1
+    tokens = data[0].split()
+    assert tokens[2] == "2", f"expected n=2 for distinct repeatIndex, got row: {data[0]!r}"
+
+
+def test_no_pair_id_no_dedup(tmp_path, capsys):
+    """Results without pair_id are never deduplicated (existing repeat behaviour preserved)."""
+    base = _result("v1", "model-a", correct=1)  # no pair_id in metadata
+    _invoke_main(_write_fixture(tmp_path, [base, base, base]))
+    out, _ = capsys.readouterr()
+    data = _data_lines(out)
+    assert len(data) == 1
+    tokens = data[0].split()
+    assert tokens[2] == "3", f"expected n=3 (no dedup without pair_id), got row: {data[0]!r}"

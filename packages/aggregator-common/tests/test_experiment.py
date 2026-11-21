@@ -930,7 +930,7 @@ class TestPromptVariantsRegistryV3:
     def test_other_operations_unchanged(self):
         from aggregator_common.experiment import PROMPT_VARIANTS
         assert PROMPT_VARIANTS["summarize_rank.rank"] == frozenset({"v1", "v2"})
-        assert PROMPT_VARIANTS["clusterer.merge"] == frozenset({"v1", "v2"})
+        assert PROMPT_VARIANTS["clusterer.merge"] == frozenset({"v1", "v2", "v4b"})
         assert PROMPT_VARIANTS["clusterer.consolidate_facts"] == frozenset({"v1"})
         assert PROMPT_VARIANTS["brief.generate"] == frozenset({"v1", "v2"})
 

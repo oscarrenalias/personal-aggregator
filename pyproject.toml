@@ -18,6 +18,12 @@ dev = [
 [tool.pytest.ini_options]
 testpaths = ["packages"]
 addopts = "-ra -q"
+filterwarnings = [
+    # Third-party: Starlette plans to drop httpx from TestClient; no code change available without upgrading deps
+    "ignore::starlette.testclient.StarletteDeprecationWarning",
+    # Third-party: google-genai uses a deprecated typing alias internally
+    "ignore:.*_UnionGenericAlias.*is deprecated:DeprecationWarning:google",
+]
 
 [tool.ruff]
 line-length = 100

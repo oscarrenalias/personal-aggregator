@@ -2,15 +2,17 @@
 
 from types import SimpleNamespace
 
-from aggregator_clusterer.worker import _build_merge_messages
+from aggregator_clusterer.worker import _MERGE_SYSTEM_PROMPTS, _build_merge_messages
 from clusterer_merge.prompts import (
     MERGE_SYSTEM_PROMPT_V3,
     MERGE_SYSTEM_PROMPT_V3_DEALS,
+    MERGE_SYSTEM_PROMPT_V4B,
     _build_user_message,
     merge_v1,
     merge_v2,
     merge_v3,
     merge_v3_deals,
+    merge_v4b,
 )
 
 
@@ -180,9 +182,46 @@ def test_no_external_calls_in_prompts_module():
     This test just verifies the calls complete without side-effects (no assertion
     failure = no network/DB access was needed)."""
     ctx = _context("title", "summary", "title b", "summary b")
-    for fn in (merge_v1, merge_v2, merge_v3, merge_v3_deals):
+    for fn in (merge_v1, merge_v2, merge_v3, merge_v3_deals, merge_v4b):
         result = fn(ctx)
         assert isinstance(result, list)
         assert len(result) == 2
         assert result[0]["role"] == "system"
         assert result[1]["role"] == "user"
+
+
+# ---------------------------------------------------------------------------
+# v4b tests
+# ---------------------------------------------------------------------------
+
+def test_merge_v4b_delegates_to_build_merge_messages():
+    """merge_v4b must produce the same messages as _build_merge_messages(variant='v4b')."""
+    ctx = _context("Title A", "Summary A", "Title B", "Summary B")
+    expected = _reference_messages("Title A", "Summary A", "Title B", "Summary B", "v4b")
+    assert merge_v4b(ctx) == expected
+
+
+def test_merge_v4b_with_none_values():
+    """None title/summary produce the (no title)/(no summary) fallback, matching the helper."""
+    ctx = _context(None, None, None, None)
+    expected = _reference_messages(None, None, None, None, "v4b")
+    assert merge_v4b(ctx) == expected
+
+
+def test_v4b_system_prompt_matches_production_registry():
+    """MERGE_SYSTEM_PROMPT_V4B in prompts.py is byte-for-byte equal to worker._MERGE_SYSTEM_PROMPTS['v4b']."""
+    assert MERGE_SYSTEM_PROMPT_V4B == _MERGE_SYSTEM_PROMPTS["v4b"]
+
+
+def test_v4b_system_prompt_differs_from_v1_and_v2():
+    """v4b must be a distinct prompt from v1 and v2."""
+    assert MERGE_SYSTEM_PROMPT_V4B != _MERGE_SYSTEM_PROMPTS["v1"]
+    assert MERGE_SYSTEM_PROMPT_V4B != _MERGE_SYSTEM_PROMPTS["v2"]
+
+
+def test_merge_v4b_user_message_matches_reference():
+    """The v4b user message is byte-for-byte identical to what _build_merge_messages produces."""
+    ctx = _context("Title A", "Summary A", "Title B", "Summary B")
+    reference = _reference_messages("Title A", "Summary A", "Title B", "Summary B", "v1")
+    v4b_msgs = merge_v4b(ctx)
+    assert v4b_msgs[1]["content"] == reference[1]["content"]

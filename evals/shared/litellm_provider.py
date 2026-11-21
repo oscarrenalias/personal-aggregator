@@ -3,8 +3,6 @@ import json
 import os
 from pathlib import Path
 
-import litellm
-
 from aggregator_common.env import load_env
 
 load_env()
@@ -68,6 +66,7 @@ def call_api(prompt: str, options: dict, context: dict) -> dict:
         cached["cached"] = True
         return cached
 
+    import litellm  # noqa: PLC0415 — lazy: only imported on actual API call (cache miss)
     try:
         response = litellm.completion(model=model, messages=messages, **params)
         output = response.choices[0].message.content
