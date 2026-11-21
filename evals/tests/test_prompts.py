@@ -6,12 +6,14 @@ from aggregator_clusterer.worker import _MERGE_SYSTEM_PROMPTS, _build_merge_mess
 from clusterer_merge.prompts import (
     MERGE_SYSTEM_PROMPT_V3,
     MERGE_SYSTEM_PROMPT_V3_DEALS,
+    MERGE_SYSTEM_PROMPT_V4,
     MERGE_SYSTEM_PROMPT_V4B,
     _build_user_message,
     merge_v1,
     merge_v2,
     merge_v3,
     merge_v3_deals,
+    merge_v4,
     merge_v4b,
 )
 
@@ -182,12 +184,42 @@ def test_no_external_calls_in_prompts_module():
     This test just verifies the calls complete without side-effects (no assertion
     failure = no network/DB access was needed)."""
     ctx = _context("title", "summary", "title b", "summary b")
-    for fn in (merge_v1, merge_v2, merge_v3, merge_v3_deals, merge_v4b):
+    for fn in (merge_v1, merge_v2, merge_v3, merge_v3_deals, merge_v4, merge_v4b):
         result = fn(ctx)
         assert isinstance(result, list)
         assert len(result) == 2
         assert result[0]["role"] == "system"
         assert result[1]["role"] == "user"
+
+
+# ---------------------------------------------------------------------------
+# v4 tests
+# ---------------------------------------------------------------------------
+
+def test_merge_v4_delegates_to_build_merge_messages():
+    """merge_v4 must produce the same user message as _build_merge_messages."""
+    ctx = _context("Title A", "Summary A", "Title B", "Summary B")
+    reference = _reference_messages("Title A", "Summary A", "Title B", "Summary B", "v1")
+    v4_msgs = merge_v4(ctx)
+    # system prompt uses MERGE_SYSTEM_PROMPT_V4
+    assert v4_msgs[0]["role"] == "system"
+    assert v4_msgs[0]["content"] == MERGE_SYSTEM_PROMPT_V4
+    # user message is the shared helper output
+    assert v4_msgs[1]["content"] == reference[1]["content"]
+
+
+def test_merge_v4_with_none_values():
+    ctx = _context(None, None, None, None)
+    v4_msgs = merge_v4(ctx)
+    assert isinstance(v4_msgs, list)
+    assert len(v4_msgs) == 2
+    assert "(no title)" in v4_msgs[1]["content"]
+    assert "(no summary)" in v4_msgs[1]["content"]
+
+
+def test_v4_system_prompt_differs_from_v4b():
+    """v4 and v4b must be distinct prompts."""
+    assert MERGE_SYSTEM_PROMPT_V4 != MERGE_SYSTEM_PROMPT_V4B
 
 
 # ---------------------------------------------------------------------------
