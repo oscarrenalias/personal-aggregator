@@ -272,7 +272,7 @@ At process startup, every service calls `aggregator_common.load_env()` (python-d
 | `CLUSTERER_CONSOLIDATION_MIN_INTERVAL_MINUTES` | `10` | Minimum minutes between consolidation passes; explicit recluster bypasses this floor |
 | `CLUSTERER_MAX_CLASSIFIER_CANDIDATES` | `5` | Maximum candidate threads passed to the LLM classifier per article |
 | `CLUSTERER_CLASSIFY_PROMPT_VARIANT` | `v1` | Prompt variant for `clusterer.classify`; must be a registered variant (`v1`, `v2`, or `v3`); invalid values fail at startup; set `v2` after validation to use the gpt-6-luna-calibrated classify prompt; set `v3` for the attach-by-default bias variant (prefers assigning articles to existing threads rather than creating new ones) |
-| `CLUSTERER_MERGE_PROMPT_VARIANT` | `v1` | Prompt variant for `clusterer.merge`; must be a registered variant (`v1` or `v2`); invalid values fail at startup; set `v2` after validation to use the gpt-6-luna-calibrated merge prompt |
+| `CLUSTERER_MERGE_PROMPT_VARIANT` | `v1` | Prompt variant for `clusterer.merge`; must be a registered variant (`v1`, `v2`, or `v4b`); invalid values fail at startup; `v4b` = specific-subject prompt screened offline per ADR-f8cc0455; shadow-test before cutover |
 | `JANITOR_ARTICLE_RETENTION_DAYS` | `14` | Days to retain articles before purging (unsaved, not in a live thread) |
 | `JANITOR_THREAD_RETENTION_DAYS` | `30` | Days to retain archived threads before permanent deletion (replaces `CLUSTERER_THREAD_RETENTION_DAYS`) |
 | `JANITOR_BRIEF_RETENTION_DAYS` | `30` | Days to retain completed briefs before pruning (replaces `BRIEF_RETENTION_DAYS`) |

@@ -121,6 +121,10 @@ def main() -> None:
         lambda: {"n": 0, "correct": 0, "wrong_merge": 0, "missed_merge": 0, "parse_error": 0}
     )
 
+    # Dedup set: (prompt_label, provider_label, pair_id, repeat_index)
+    # Only deduplicate when pair_id is available; keeps the first occurrence.
+    seen: set[tuple[str, str, str, int]] = set()
+
     for result in all_results:
         metadata = _get_metadata(result)
         tags = _get_tags(metadata)
@@ -132,8 +136,16 @@ def main() -> None:
 
         prompt_label = (result.get("prompt") or {}).get("label") or ""
         provider_label = (result.get("provider") or {}).get("label") or ""
-        key = (prompt_label, provider_label)
 
+        pair_id = metadata.get("pair_id") or (result.get("testCase") or {}).get("vars", {}).get("pair_id")
+        if pair_id is not None:
+            repeat_index = result.get("repeatIndex", 0)
+            dedup_key = (prompt_label, provider_label, str(pair_id), int(repeat_index))
+            if dedup_key in seen:
+                continue
+            seen.add(dedup_key)
+
+        key = (prompt_label, provider_label)
         named_scores = _get_named_scores(result)
         agg[key]["n"] += 1
         for score_key in _SCORE_KEYS:
