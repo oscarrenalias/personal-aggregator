@@ -128,7 +128,10 @@ def main(argv=None):
         records_by_pair_id[record["pair_id"]] = record
 
     exported_at = datetime.now(tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    sorted_records = sorted(records_by_pair_id.values(), key=lambda r: r["pair_id"])
+    sorted_records = sorted(
+        records_by_pair_id.values(),
+        key=lambda r: tuple(int(x) for x in r["pair_id"].split(":")),
+    )
 
     for record in sorted_records:
         record["exported_at"] = exported_at
