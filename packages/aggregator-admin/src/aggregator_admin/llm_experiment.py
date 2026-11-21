@@ -1354,7 +1354,7 @@ def llm_experiment_report_cmd(
     until: Optional[str] = typer.Option(
         None, "--until", help="Window end (ISO date, exclusive). Default: now."
     ),
-    as_json: bool = typer.Option(False, "--json", is_flag=True, help="Emit full metrics as JSON."),
+    as_json: bool = typer.Option(False, "--json", help="Emit full metrics as JSON."),
     samples_dir: Optional[str] = typer.Option(
         None, "--samples", help="Directory to write per-operation JSONL sample files."
     ),

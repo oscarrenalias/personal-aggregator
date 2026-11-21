@@ -339,14 +339,18 @@ class TestSigterm:
         )
         # Block until subprocess confirms its SIGTERM handler is installed.
         ready = proc.stdout.readline()
-        proc.stdout.close()
         if not ready.strip():
             proc.kill()
+            proc.communicate()
             pytest.fail("Subprocess did not emit ready signal before exiting")
         proc.send_signal(signal.SIGTERM)
         try:
-            proc.wait(timeout=15)
+            # communicate() drains stdout so the child can finish writing log lines
+            # without blocking on a full pipe. Never close the pipe while the child
+            # is alive — that causes BrokenPipeError → exit code 120 (flaky failure).
+            proc.communicate(timeout=15)
         except subprocess.TimeoutExpired:
             proc.kill()
+            proc.communicate()
             pytest.fail("Retriever process did not exit within 15 s after SIGTERM")
         assert proc.returncode == 0

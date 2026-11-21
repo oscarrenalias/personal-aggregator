@@ -1,11 +1,14 @@
 """promptfoo Python prompt functions for the clusterer.merge eval.
 
-merge_v1 and merge_v2 delegate to the production _build_merge_messages helper so
-they never need to copy prompt text — any update to the service prompt is picked up
-automatically.
+merge_v1, merge_v2, and merge_v4b delegate to the production _build_merge_messages
+helper so they never need to copy prompt text — any update to the service prompt is
+picked up automatically.
 
-merge_v3 and merge_v3_deals are draft variants that live here because they have not
-been promoted into the production PROMPT_VARIANTS registry yet.
+merge_v3, merge_v3_deals, and merge_v4 are draft variants that live here because they
+have not been promoted into the production PROMPT_VARIANTS registry.
+
+MERGE_SYSTEM_PROMPT_V4B is kept here for reference; test_prompts.py asserts it is
+byte-for-byte equal to the production registry entry so the two cannot drift.
 """
 
 from __future__ import annotations
@@ -219,15 +222,12 @@ assert MERGE_SYSTEM_PROMPT_V4B != MERGE_SYSTEM_PROMPT_V4
 
 def merge_v4b(context: dict) -> list[dict]:
     vars_ = context["vars"]
-    return [
-        {"role": "system", "content": MERGE_SYSTEM_PROMPT_V4B},
-        {
-            "role": "user",
-            "content": _build_user_message(
-                vars_.get("thread_a_title"),
-                vars_.get("thread_a_summary"),
-                vars_.get("thread_b_title"),
-                vars_.get("thread_b_summary"),
-            ),
-        },
-    ]
+    a = SimpleNamespace(
+        representative_title=vars_.get("thread_a_title"),
+        rolling_summary=vars_.get("thread_a_summary"),
+    )
+    b = SimpleNamespace(
+        representative_title=vars_.get("thread_b_title"),
+        rolling_summary=vars_.get("thread_b_summary"),
+    )
+    return _build_merge_messages(a, b, variant="v4b")
