@@ -11,6 +11,7 @@ from clusterer_merge.prompts import (
     merge_v2,
     merge_v3,
     merge_v3_deals,
+    merge_v4b,
 )
 
 
@@ -180,7 +181,7 @@ def test_no_external_calls_in_prompts_module():
     This test just verifies the calls complete without side-effects (no assertion
     failure = no network/DB access was needed)."""
     ctx = _context("title", "summary", "title b", "summary b")
-    for fn in (merge_v1, merge_v2, merge_v3, merge_v3_deals):
+    for fn in (merge_v1, merge_v2, merge_v3, merge_v3_deals, merge_v4b):
         result = fn(ctx)
         assert isinstance(result, list)
         assert len(result) == 2
