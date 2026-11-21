@@ -191,3 +191,39 @@ class TestEvalNoCache:
 
         cache_files = list(isolated_cache.glob("*.json")) if isolated_cache.exists() else []
         assert cache_files == []
+
+
+# ---------------------------------------------------------------------------
+# Lazy litellm import: cache hit must not import litellm
+# ---------------------------------------------------------------------------
+
+
+class TestLazyLitellmImport:
+    def test_cache_hit_does_not_import_litellm(self, isolated_cache):
+        """A cache hit must not trigger the litellm import."""
+        import sys
+        import shared.litellm_provider as prov
+
+        # Pre-populate the cache directly (bypasses litellm entirely)
+        messages = [{"role": "user", "content": "lazy-import-test"}]
+        key = prov._cache_key("gpt-4.1-mini", messages, {}, 0)
+        isolated_cache.mkdir(parents=True, exist_ok=True)
+        (isolated_cache / f"{key}.json").write_text(
+            json.dumps({
+                "output": "CACHED",
+                "tokenUsage": {"prompt": 1, "completion": 1, "total": 2},
+            })
+        )
+
+        # Remove litellm from sys.modules to simulate it not having been imported
+        saved_litellm = sys.modules.pop("litellm", None)
+        try:
+            opts = {"config": {"model": "gpt-4.1-mini", "params": {}}}
+            ctx = {"repeatIndex": 0}
+            result = prov.call_api(json.dumps(messages), opts, ctx)
+
+            assert result.get("cached") is True
+            assert "litellm" not in sys.modules
+        finally:
+            if saved_litellm is not None:
+                sys.modules["litellm"] = saved_litellm

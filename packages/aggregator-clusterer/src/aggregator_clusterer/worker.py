@@ -51,9 +51,47 @@ _MERGE_SYSTEM_PROMPT_V2 = (
     "different event. If unsure, answer false."
 )
 
+_MERGE_SYSTEM_PROMPT_V4B = (
+    "You are a news editor deciding whether two news threads should be combined into one. "
+    "Reply with a JSON object only — no markdown: "
+    '{"same_story": true|false, "reason": "..."}. '
+    "A thread follows one specific subject over time. First decide what each thread is "
+    "specifically about, then answer true when it is the same specific subject, even if the "
+    "threads cover different events, dates, angles, speakers or companies. In particular:\n"
+    "- One product's launch and reception is one subject: rumours, announcement, launch, "
+    "reviews and first impressions, pricing and availability, early sales — e.g. a new game "
+    "console's leaks, its launch day and its reviews. One specific problem with a product — a "
+    "defect, recall or outage — together with its reports, investigation and fix is also one "
+    "subject. But separate features, tips, accessories or side stories about the same product "
+    "are not the same subject as each other or as the launch — e.g. a console's new controller "
+    "feature and a guide to its parental controls; an e-reader's new note-taking mode and "
+    "a tip for extending its battery life.\n"
+    "- One specific issue, question or debate is one subject, even when different people or "
+    "organisations weigh in on different occasions — e.g. a mayor arguing that congestion "
+    "charging works and the transport agency publishing the scheme's first-year results; two "
+    "airlines both reporting that few passengers use their new chatbot booking.\n"
+    "- One event together with its developments and aftermath is one subject — e.g. a storm's "
+    "landfall, the damage reports and the recovery effort; an election's results, the legal "
+    "fights over the count and the new majority's first plans.\n"
+    "- The same situation reported at a different scope is one subject — e.g. a region-wide "
+    "drought emergency and one country in that region rationing water because of it.\n"
+    "- Deal and discount coverage for the same named sales event (Black Friday, Cyber Monday, "
+    "Prime Day, Singles' Day and the like) is one subject, whichever retailer, brand or product "
+    "each thread features. This applies only to deal and price coverage, not to other news that "
+    "happens to mention the event.\n"
+    "Answer false when the threads only share a broad actor or domain but are about different "
+    "specific subjects — e.g. a prime minister's trade policy and his handling of a party "
+    "rebellion; a company's new phone and its unrelated new headphones; a carmaker's recall and "
+    "a separate antitrust probe into the same carmaker; two different startups raising money in "
+    "the same sector.\n"
+    "A shared broad theme alone (\"AI\", \"the economy\", one company, one person) is not enough: "
+    "the specific subject must be the same. If you are still unsure, answer false."
+)
+
 _MERGE_SYSTEM_PROMPTS: dict[str, str] = {
     "v1": _MERGE_SYSTEM_PROMPT_V1,
     "v2": _MERGE_SYSTEM_PROMPT_V2,
+    "v4b": _MERGE_SYSTEM_PROMPT_V4B,
 }
 
 
