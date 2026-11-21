@@ -1,10 +1,13 @@
 """Tests for evals/clusterer_merge/build_dataset.py."""
 
 import json
+import sys
+from pathlib import Path
 
 import pytest
 
-import build_dataset  # noqa: E402  (evals/ added to sys.path by conftest)
+sys.path.insert(0, str(Path(__file__).parent.parent / "clusterer_merge"))
+import build_dataset  # noqa: E402
 
 VALID_RECORD = {
     "pair_id": "100:200",
@@ -196,6 +199,70 @@ def test_overwrite_refusal(tmp_path):
     assert exc_info.value.code == 1
     # File unchanged
     assert out.read_text(encoding="utf-8") == "existing content"
+
+
+def test_sort_order_numeric_not_lexicographic(tmp_path):
+    """Pairs are sorted numerically, not lexicographically.
+
+    Lexicographic sort would place '9:10' after '10:11' (because '9' > '1');
+    numeric sort must place '9:10' first.
+    """
+    record_9_10 = {
+        "pair_id": "9:10",
+        "first_seen": "2026-11-15T10:00:00Z",
+        "thread_a": {
+            "id": 9,
+            "title": "Thread 9",
+            "summary": "Summary 9",
+            "member_count": 1,
+            "recent_articles": [],
+        },
+        "thread_b": {
+            "id": 10,
+            "title": "Thread 10",
+            "summary": "Summary 10",
+            "member_count": 1,
+            "recent_articles": [],
+        },
+        "shadow_verdicts": {},
+    }
+    record_10_11 = {
+        "pair_id": "10:11",
+        "first_seen": "2026-11-15T10:00:00Z",
+        "thread_a": {
+            "id": 10,
+            "title": "Thread 10",
+            "summary": "Summary 10",
+            "member_count": 1,
+            "recent_articles": [],
+        },
+        "thread_b": {
+            "id": 11,
+            "title": "Thread 11",
+            "summary": "Summary 11",
+            "member_count": 1,
+            "recent_articles": [],
+        },
+        "shadow_verdicts": {},
+    }
+
+    # Input deliberately out of numeric order to verify sort
+    input_file = tmp_path / "input.jsonl"
+    input_file.write_text(
+        json.dumps(record_10_11) + "\n" + json.dumps(record_9_10),
+        encoding="utf-8",
+    )
+
+    out = tmp_path / "pairs.jsonl"
+    build_dataset.main(["--out", str(out), "--input", str(input_file)])
+
+    lines = out.read_text(encoding="utf-8").splitlines()
+    assert len(lines) == 2
+    rec0 = json.loads(lines[0])
+    rec1 = json.loads(lines[1])
+    # 9:10 must come before 10:11 (numeric order)
+    assert rec0["pair_id"] == "9:10", f"expected '9:10' first, got '{rec0['pair_id']}'"
+    assert rec1["pair_id"] == "10:11", f"expected '10:11' second, got '{rec1['pair_id']}'"
 
 
 def test_blank_lines_skipped(tmp_path):
