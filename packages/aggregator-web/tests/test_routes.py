@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import warnings
 
 from sqlalchemy import text
 
@@ -2261,3 +2262,22 @@ def test_shell_surfaces_auto_read_seconds_zero_when_disabled(client):
     finally:
         app_mod.settings.web_auto_read_seconds = original
         app_mod.templates.env.globals["web_auto_read_seconds"] = original
+
+
+# ---------------------------------------------------------------------------
+# Regression: datetime.utcnow() DeprecationWarning in sidebar render
+# ---------------------------------------------------------------------------
+
+
+def test_sidebar_does_not_use_utcnow(client):
+    """Regression: GET /sidebar must not call datetime.utcnow() (deprecated in Python 3.12+).
+
+    Before the fix app.py called datetime.utcnow() to build the utcnow_date /
+    yesterday_date template variables.  This test promotes that specific
+    DeprecationWarning to an error so the test fails without the fix and passes
+    after replacing utcnow() with datetime.now(timezone.utc).replace(tzinfo=None).
+    """
+    with warnings.catch_warnings():
+        warnings.filterwarnings("error", message=".*utcnow.*", category=DeprecationWarning)
+        response = client.get("/sidebar")
+    assert response.status_code == 200

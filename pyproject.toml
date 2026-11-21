@@ -19,8 +19,10 @@ dev = [
 testpaths = ["packages"]
 addopts = "-ra -q"
 filterwarnings = [
-    # Third-party: Starlette plans to drop httpx from TestClient; no code change available without upgrading deps
-    "ignore::starlette.testclient.StarletteDeprecationWarning",
+    # Third-party: Starlette plans to drop httpx from TestClient; message-based filter avoids
+    # importing starlette.testclient at config load, which itself emits the warning before the
+    # category-based filter becomes active.
+    "ignore:Using .httpx. with .starlette.testclient. is deprecated",
     # Third-party: google-genai uses a deprecated typing alias internally
     "ignore:.*_UnionGenericAlias.*is deprecated:DeprecationWarning:google",
 ]
