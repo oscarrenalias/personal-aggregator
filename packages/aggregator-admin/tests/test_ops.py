@@ -4,7 +4,6 @@ from __future__ import annotations
 import json
 from datetime import datetime, timedelta, timezone
 
-import pytest
 from sqlalchemy import text
 
 from aggregator_admin.main import app
@@ -215,3 +214,124 @@ def test_ops_reap_explicit_lease_seconds(runner, db_session):
     result_short = runner.invoke(app, ["ops", "reap", "--lease-seconds", "10"])
     assert result_short.exit_code == 0
     assert "Released 1" in result_short.output
+
+
+# ---------------------------------------------------------------------------
+# ops llm-cutover-cleanup
+# ---------------------------------------------------------------------------
+
+
+def _seed_shadow_and_verdicts(db_engine, n_shadow: int = 2, n_verdicts: int = 1) -> None:
+    with db_engine.connect() as conn:
+        for i in range(n_shadow):
+            conn.execute(text(
+                "INSERT INTO llm_shadow_results"
+                "(experiment,service,operation,ref_id,arm,model,prompt_hash,status,attempts,params)"
+                f" VALUES('exp','svc','op','{i}','control','m','h','ok',1,'{{}}')"
+            ))
+        for i in range(n_verdicts):
+            conn.execute(text(
+                "INSERT INTO thread_merge_verdicts(thread_a_id,thread_b_id,same_story,decided_at)"
+                f" VALUES({i + 1},{i + 2},true,now())"
+                " ON CONFLICT DO NOTHING"
+            ))
+        conn.commit()
+
+
+def test_llm_cutover_cleanup_dry_run_writes_nothing(runner, db_engine, db_session, monkeypatch):
+    """Without --yes: prints counts to stderr, writes nothing."""
+    monkeypatch.delenv("LLM_EXPERIMENT", raising=False)
+    with db_engine.connect() as conn:
+        conn.execute(text("TRUNCATE llm_shadow_results CASCADE"))
+        conn.execute(text("TRUNCATE thread_merge_verdicts CASCADE"))
+        conn.commit()
+
+    _seed_shadow_and_verdicts(db_engine, n_shadow=3, n_verdicts=1)
+
+    result = runner.invoke(app, ["ops", "llm-cutover-cleanup"])
+    assert result.exit_code == 0
+
+    # Nothing deleted
+    with db_engine.connect() as conn:
+        shadow_count = conn.execute(text("SELECT COUNT(*) FROM llm_shadow_results")).scalar_one()
+        verdict_count = conn.execute(text("SELECT COUNT(*) FROM thread_merge_verdicts")).scalar_one()
+    assert shadow_count == 3
+    assert verdict_count == 1
+
+
+def test_llm_cutover_cleanup_yes_empties_both_tables(runner, db_engine, db_session, monkeypatch):
+    """With --yes: both tables are emptied; llm_shadow_results still exists and accepts an INSERT."""
+    monkeypatch.delenv("LLM_EXPERIMENT", raising=False)
+    with db_engine.connect() as conn:
+        conn.execute(text("TRUNCATE llm_shadow_results CASCADE"))
+        conn.execute(text("TRUNCATE thread_merge_verdicts CASCADE"))
+        conn.commit()
+
+    _seed_shadow_and_verdicts(db_engine, n_shadow=2, n_verdicts=1)
+
+    result = runner.invoke(app, ["ops", "llm-cutover-cleanup", "--yes"])
+    assert result.exit_code == 0
+
+    with db_engine.connect() as conn:
+        shadow_count = conn.execute(text("SELECT COUNT(*) FROM llm_shadow_results")).scalar_one()
+        verdict_count = conn.execute(text("SELECT COUNT(*) FROM thread_merge_verdicts")).scalar_one()
+    assert shadow_count == 0
+    assert verdict_count == 0
+
+    # Table still exists and accepts inserts
+    with db_engine.connect() as conn:
+        conn.execute(text(
+            "INSERT INTO llm_shadow_results"
+            "(experiment,service,operation,ref_id,arm,model,prompt_hash,status,attempts,params)"
+            " VALUES('post-cleanup','svc','op','99','control','m','h','ok',1,'{}')"
+        ))
+        conn.commit()
+        count_after = conn.execute(text("SELECT COUNT(*) FROM llm_shadow_results")).scalar_one()
+    assert count_after == 1
+
+
+def test_llm_cutover_cleanup_refuses_when_experiment_enabled(runner, db_session, monkeypatch):
+    """Refuses (exit 1) when LLM_EXPERIMENT has enabled=true."""
+    monkeypatch.setenv("LLM_EXPERIMENT", '{"name":"test","enabled":true}')
+    result = runner.invoke(app, ["ops", "llm-cutover-cleanup"])
+    assert result.exit_code != 0
+
+
+def test_llm_cutover_cleanup_refuses_on_invalid_json(runner, db_session, monkeypatch):
+    """Refuses (exit 1) when LLM_EXPERIMENT contains invalid JSON."""
+    monkeypatch.setenv("LLM_EXPERIMENT", "{not valid json")
+    result = runner.invoke(app, ["ops", "llm-cutover-cleanup"])
+    assert result.exit_code != 0
+
+
+def test_llm_cutover_cleanup_allows_unset_experiment(runner, db_engine, db_session, monkeypatch):
+    """Runs successfully when LLM_EXPERIMENT is unset."""
+    monkeypatch.delenv("LLM_EXPERIMENT", raising=False)
+    with db_engine.connect() as conn:
+        conn.execute(text("TRUNCATE llm_shadow_results CASCADE"))
+        conn.execute(text("TRUNCATE thread_merge_verdicts CASCADE"))
+        conn.commit()
+    result = runner.invoke(app, ["ops", "llm-cutover-cleanup", "--yes"])
+    assert result.exit_code == 0
+
+
+def test_llm_cutover_cleanup_allows_empty_string_experiment(runner, db_engine, db_session, monkeypatch):
+    """Runs successfully when LLM_EXPERIMENT is empty string."""
+    monkeypatch.setenv("LLM_EXPERIMENT", "")
+    with db_engine.connect() as conn:
+        conn.execute(text("TRUNCATE llm_shadow_results CASCADE"))
+        conn.execute(text("TRUNCATE thread_merge_verdicts CASCADE"))
+        conn.commit()
+    result = runner.invoke(app, ["ops", "llm-cutover-cleanup", "--yes"])
+    assert result.exit_code == 0
+
+
+def test_llm_cutover_cleanup_allows_disabled_experiment(runner, db_engine, db_session, monkeypatch):
+    """Runs successfully when LLM_EXPERIMENT has enabled=false."""
+    monkeypatch.setenv("LLM_EXPERIMENT", '{"name":"test","enabled":false}')
+    with db_engine.connect() as conn:
+        conn.execute(text("TRUNCATE llm_shadow_results CASCADE"))
+        conn.execute(text("TRUNCATE thread_merge_verdicts CASCADE"))
+        conn.commit()
+    result = runner.invoke(app, ["ops", "llm-cutover-cleanup", "--yes"])
+    assert result.exit_code == 0
