@@ -130,7 +130,7 @@ class Article(Base):
     # LLM (summarize-rank)
     summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     topics: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
-    entities: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    entities: Mapped[Optional[list]] = mapped_column(JSONB, nullable=True)
     importance_score: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     importance_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     llm_meta: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)

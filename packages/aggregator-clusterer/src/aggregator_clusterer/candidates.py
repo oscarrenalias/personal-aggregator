@@ -9,6 +9,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from aggregator_common.models import Article, Thread, ThreadMembership
+from aggregator_common.text_norm import normalize_entity
 from aggregator_clusterer.config import ClustererSettings
 from aggregator_clusterer.dedup import _normalize_title
 
@@ -35,6 +36,17 @@ def _to_set(value: Any) -> frozenset:
     if isinstance(value, dict):
         return frozenset(str(k) for k in value)
     return frozenset()
+
+
+def _entity_set(value: Any) -> frozenset:
+    """Like _to_set but normalises each entity string and drops empty results."""
+    raw = _to_set(value)
+    result = set()
+    for s in raw:
+        normalized = normalize_entity(s)
+        if normalized:
+            result.add(normalized)
+    return frozenset(result)
 
 
 def _jaccard(a: frozenset, b: frozenset) -> float:
@@ -107,7 +119,7 @@ def get_candidates(
     else:
         fts_scores = {tid: 0.0 for tid in thread_ids}
 
-    article_entities = _to_set(article.entities)
+    article_entities = _entity_set(article.entities)
     article_topics = _to_set(article.topics)
     article_url = _raw_url(article)
     article_title_tokens = _normalize_title(article.clean_title or article.feed_title or "")
@@ -126,7 +138,7 @@ def get_candidates(
         thread_entities: frozenset = frozenset()
         thread_topics: frozenset = frozenset()
         for _, member_art in thread_members:
-            thread_entities = thread_entities | _to_set(member_art.entities)
+            thread_entities = thread_entities | _entity_set(member_art.entities)
             thread_topics = thread_topics | _to_set(member_art.topics)
 
         entity_overlap = _jaccard(article_entities, thread_entities)
