@@ -1,7 +1,10 @@
-from pydantic import Field, model_validator
+from typing import Optional
+
+from pydantic import Field, field_validator, model_validator
 
 from aggregator_common.config import Settings as BaseSettings
 from aggregator_common.experiment import PROMPT_VARIANTS
+from aggregator_common.llm_params import REASONING_EFFORTS
 
 
 class BriefSettings(BaseSettings):
@@ -9,6 +12,10 @@ class BriefSettings(BaseSettings):
     brief_llm_max_output_tokens: int = Field(4096, description="Maximum output tokens for LLM calls")
     brief_llm_temperature: float = Field(0.3, description="LLM sampling temperature")
     brief_llm_timeout_seconds: int = Field(120, description="LLM call timeout in seconds")
+    brief_llm_reasoning_effort: Optional[str] = Field(
+        None,
+        description="reasoning_effort passed to the LLM; one of none/minimal/low/medium/high; unset disables reasoning params",
+    )
     brief_period_hours: int = Field(24, description="Hours of article history to include in each brief")
     brief_timezone: str = Field("UTC", description="Timezone for scheduling brief generation")
     brief_generation_hour: int = Field(6, description="Hour of day (in brief_timezone) to generate the brief")
@@ -19,6 +26,22 @@ class BriefSettings(BaseSettings):
     brief_poll_interval_seconds: int = Field(60, description="Seconds between scheduler poll cycles")
     brief_claim_lease_seconds: int = Field(600, description="Work-claim lease duration for brief jobs in seconds")
     brief_prompt_variant: str = Field("v1", description="Prompt variant for brief generation; must be a valid variant in PROMPT_VARIANTS['brief.generate']")
+
+    @field_validator("brief_llm_reasoning_effort", mode="before")
+    @classmethod
+    def _validate_reasoning_effort(cls, v: object) -> Optional[str]:
+        if v is None or v == "":
+            return None
+        if not isinstance(v, str):
+            raise ValueError(
+                f"BRIEF_LLM_REASONING_EFFORT must be a string; got {type(v).__name__!r}"
+            )
+        if v not in REASONING_EFFORTS:
+            raise ValueError(
+                f"BRIEF_LLM_REASONING_EFFORT={v!r} is not valid; "
+                f"must be one of {sorted(REASONING_EFFORTS)}"
+            )
+        return v
 
     @model_validator(mode="after")
     def _validate_prompt_variant(self) -> "BriefSettings":

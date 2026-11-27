@@ -11,6 +11,7 @@ from aggregator_brief.config import BriefSettings
 from aggregator_brief.generate import (
     BriefLoopError,
     GenerationError,
+    _build_llm_kwargs,
     _reconcile_references,
     generate_brief,
     run_brief_loop,
@@ -405,3 +406,28 @@ class TestReconcileReferences:
         assert result[0]["internal"] is True
         assert result[1]["internal"] is False
         assert result[2]["internal"] is False
+
+
+# ---------------------------------------------------------------------------
+# _build_llm_kwargs — reasoning effort integration
+# ---------------------------------------------------------------------------
+
+class TestBuildLlmKwargs:
+    _MESSAGES = [{"role": "user", "content": "hi"}]
+
+    def test_defaults_unchanged_without_reasoning_effort(self):
+        s = _settings()
+        kwargs = _build_llm_kwargs(self._MESSAGES, s)
+        assert kwargs["max_tokens"] == s.brief_llm_max_output_tokens
+        assert kwargs["temperature"] == s.brief_llm_temperature
+        assert "reasoning_effort" not in kwargs
+        assert "max_completion_tokens" not in kwargs
+
+    def test_reasoning_effort_low_transforms_kwargs(self):
+        s = _settings(brief_llm_reasoning_effort="low", brief_llm_max_output_tokens=8192)
+        kwargs = _build_llm_kwargs(self._MESSAGES, s)
+        assert kwargs["reasoning_effort"] == "low"
+        assert kwargs["max_completion_tokens"] == 8192
+        assert "max_tokens" not in kwargs
+        assert "temperature" not in kwargs
+        assert "reasoning_effort" in kwargs.get("allowed_openai_params", [])

@@ -12,6 +12,7 @@ from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from aggregator_common.llm_params import apply_reasoning_params
 from aggregator_common.models import Article, Brief, BriefTopic, InterestProfile
 
 from .config import BriefSettings
@@ -127,7 +128,7 @@ def _build_llm_kwargs(
     metadata: dict = {"service": "brief", "operation": "generate", "ref_id": ref_id}
     if extra_metadata:
         metadata.update(extra_metadata)
-    return {
+    base = {
         "model": settings.brief_llm_model,
         "messages": messages,
         "tools": TOOL_SCHEMAS,
@@ -137,6 +138,7 @@ def _build_llm_kwargs(
         "timeout": settings.brief_llm_timeout_seconds,
         "metadata": metadata,
     }
+    return apply_reasoning_params(base, settings.brief_llm_reasoning_effort)
 
 
 def _call_llm(

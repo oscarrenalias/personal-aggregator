@@ -75,3 +75,34 @@ class TestBriefSettingsVariantValidation:
         with pytest.raises(Exception) as exc_info:
             BriefSettings()
         assert "BRIEF_PROMPT_VARIANT" in str(exc_info.value)
+
+
+# ---------------------------------------------------------------------------
+# Reasoning effort field validation
+# ---------------------------------------------------------------------------
+
+class TestBriefReasoningEffortValidation:
+    def test_default_reasoning_effort_is_none(self):
+        s = BriefSettings()
+        assert s.brief_llm_reasoning_effort is None
+
+    def test_empty_string_treated_as_none(self, monkeypatch):
+        monkeypatch.setenv("BRIEF_LLM_REASONING_EFFORT", "")
+        s = BriefSettings()
+        assert s.brief_llm_reasoning_effort is None
+
+    def test_valid_low_accepted(self, monkeypatch):
+        monkeypatch.setenv("BRIEF_LLM_REASONING_EFFORT", "low")
+        s = BriefSettings()
+        assert s.brief_llm_reasoning_effort == "low"
+
+    def test_valid_medium_accepted(self, monkeypatch):
+        monkeypatch.setenv("BRIEF_LLM_REASONING_EFFORT", "medium")
+        s = BriefSettings()
+        assert s.brief_llm_reasoning_effort == "medium"
+
+    def test_invalid_value_raises_naming_setting(self, monkeypatch):
+        monkeypatch.setenv("BRIEF_LLM_REASONING_EFFORT", "turbo")
+        with pytest.raises(Exception) as exc_info:
+            BriefSettings()
+        assert "BRIEF_LLM_REASONING_EFFORT" in str(exc_info.value)
