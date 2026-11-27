@@ -59,6 +59,14 @@ A repeatable playbook to pull and analyze the **production** aggregator's health
  select 'oldest ready article = '||min(retrieved_at)::text from articles where status='ready';
  select 'oldest thread last_updated = '||min(last_updated)::text from threads;
  select 'total threads = '||count(*) from threads;"
+
+# Overlap inputs: entity/topic coverage of articles summarized in the last 24h
+# (clustering candidate selection and merge scoring depend on these — check them first)
+.claude/skills/prod-db/prod-db.sh psql -qAt -c "
+ select 'ready articles summarized 24h = '||count(*)
+   ||' | entities coverage = '||round(100.0*count(*) filter (where jsonb_typeof(entities)='array' and jsonb_array_length(entities)>0)/nullif(count(*),0),1)||'%'
+   ||' | topics coverage = '||round(100.0*count(*) filter (where jsonb_typeof(topics)='array' and jsonb_array_length(topics)>0)/nullif(count(*),0),1)||'%'
+ from articles where status='ready' and summarized_at > now()-interval '24 hours';"
 ```
 
 ## 4. What healthy looks like — flag deviations
@@ -67,6 +75,7 @@ A repeatable playbook to pull and analyze the **production** aggregator's health
 - **Briefs:** exactly **one `ready` brief per day** at `BRIEF_GENERATION_HOUR` (06:00 UTC), `origin=auto`. Flag gaps, `pending`/`failed`, or duplicates.
 - **LLM:** expect **0 errors**. Flag any `error_type` cluster (esp. `timeout`). Sanity-check cost and **flag any single operation dominating** (e.g. `consolidate_facts` should NOT be ~50% of spend). Watch model-name consistency in `llm_calls`.
 - **Clusters:** `status` distribution should include `dormant`/`archived` once thread-aging is live (before that, all `active` is a known gap). `tier` is currently **unused/NULL by design** (surfacing uses `surfaced`/`top_grade`, not `tier`) — don't alarm on null tier until tier classification is implemented. **Fragmentation:** high single-member share (>~70%) signals a clustering-recall problem.
+- **Overlap inputs:** topics coverage should be **≥95%**. Entities coverage should be **≥85% once `SUMMARIZE_RANK_PROMPT_VARIANT=v3` is live**; before that, entities are expected to be empty (only rank `v3` extracts them — spec-499532a1), so treat the number as informational. Low coverage silently cripples clustering: entity overlap is 40% of the merge-candidate score and 30% of the classify candidate score (on 2026-11-27 it had been 0% since launch, and no thread pair could reach the merge floor).
 - **Retention:** `oldest ready article` should be within a sane multiple of `JANITOR_ARTICLE_RETENTION_DAYS` (14) — very old ready articles usually mean they're pinned by a live thread. Thread age is bounded by the janitor's by-age purge (~30d).
 
 ## 5. Baseline snapshot (2026-08-18, for comparison)
