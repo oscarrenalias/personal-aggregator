@@ -229,10 +229,23 @@ def _seed_shadow_and_verdicts(db_engine, n_shadow: int = 2, n_verdicts: int = 1)
                 "(experiment,service,operation,ref_id,arm,model,prompt_hash,status,attempts,params)"
                 f" VALUES('exp','svc','op','{i}','control','m','h','ok',1,'{{}}')"
             ))
+        # thread_merge_verdicts has FK to threads.id; insert threads first
+        thread_ids: list[int] = []
+        for i in range(n_verdicts * 2):
+            row = conn.execute(text(
+                "INSERT INTO threads(representative_title,first_seen,last_updated)"
+                " VALUES('t',now(),now()) RETURNING id"
+            ))
+            thread_ids.append(row.scalar_one())
         for i in range(n_verdicts):
+            keep_id = thread_ids[i * 2]
+            absorb_id = thread_ids[i * 2 + 1]
+            if keep_id > absorb_id:
+                keep_id, absorb_id = absorb_id, keep_id
             conn.execute(text(
-                "INSERT INTO thread_merge_verdicts(thread_a_id,thread_b_id,same_story,decided_at)"
-                f" VALUES({i + 1},{i + 2},true,now())"
+                "INSERT INTO thread_merge_verdicts"
+                "(keep_id,absorb_id,keep_last_updated,absorb_last_updated,decided_at)"
+                f" VALUES({keep_id},{absorb_id},now(),now(),now())"
                 " ON CONFLICT DO NOTHING"
             ))
         conn.commit()

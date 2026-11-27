@@ -9,6 +9,7 @@ from pydantic import ValidationError
 
 from aggregator_common import experiment
 from aggregator_common.experiment import CallOutcome
+from aggregator_common.llm_params import apply_reasoning_params
 
 from .config import SummarizeRankSettings
 from .prompt import _CategoryEntry, build_messages, get_prompt_version
@@ -118,15 +119,18 @@ def rank(
         "ref_id": ref_id,
     }
 
-    control_kwargs: dict[str, Any] = {
-        "model": settings.llm_model,
-        "messages": messages,
-        "response_format": RankResult,
-        "max_tokens": settings.llm_max_output_tokens,
-        "temperature": settings.llm_temperature,
-        "timeout": settings.llm_timeout_seconds,
-        "metadata": decision.control_metadata(base_metadata) if decision is not None else base_metadata,
-    }
+    control_kwargs: dict[str, Any] = apply_reasoning_params(
+        {
+            "model": settings.llm_model,
+            "messages": messages,
+            "response_format": RankResult,
+            "max_tokens": settings.llm_max_output_tokens,
+            "temperature": settings.llm_temperature,
+            "timeout": settings.llm_timeout_seconds,
+            "metadata": decision.control_metadata(base_metadata) if decision is not None else base_metadata,
+        },
+        settings.llm_reasoning_effort,
+    )
 
     control_outcome = attempt(control_kwargs)
 

@@ -1,7 +1,10 @@
+from typing import Optional
+
 from pydantic import Field, field_validator
 
 from aggregator_common.config import Settings as BaseSettings
 from aggregator_common.experiment import PROMPT_VARIANTS
+from aggregator_common.llm_params import REASONING_EFFORTS
 
 
 class SummarizeRankSettings(BaseSettings):
@@ -12,6 +15,10 @@ class SummarizeRankSettings(BaseSettings):
     llm_max_output_tokens: int = Field(400, description="Maximum tokens in LLM response")
     llm_temperature: float = Field(0.2, description="LLM sampling temperature")
     llm_timeout_seconds: int = Field(60, description="LLM API call timeout in seconds")
+    llm_reasoning_effort: Optional[str] = Field(
+        None,
+        description="reasoning_effort passed to the LLM; one of none/minimal/low/medium/high; unset disables reasoning params",
+    )
     summarize_rank_poll_interval_seconds: int = Field(5, description="Seconds between poll cycles")
     summarize_rank_max_workers: int = Field(4, description="Maximum concurrent worker threads")
     summarize_rank_batch_size: int = Field(10, description="Articles claimed per poll cycle")
@@ -25,6 +32,22 @@ class SummarizeRankSettings(BaseSettings):
         "v1",
         description="Prompt variant for summarize_rank.rank; must be one of PROMPT_VARIANTS['summarize_rank.rank']",
     )
+
+    @field_validator("llm_reasoning_effort", mode="before")
+    @classmethod
+    def _validate_reasoning_effort(cls, v: object) -> Optional[str]:
+        if v is None or v == "":
+            return None
+        if not isinstance(v, str):
+            raise ValueError(
+                f"LLM_REASONING_EFFORT must be a string; got {type(v).__name__!r}"
+            )
+        if v not in REASONING_EFFORTS:
+            raise ValueError(
+                f"LLM_REASONING_EFFORT={v!r} is not valid; "
+                f"must be one of {sorted(REASONING_EFFORTS)}"
+            )
+        return v
 
     @field_validator("summarize_rank_prompt_variant")
     @classmethod
