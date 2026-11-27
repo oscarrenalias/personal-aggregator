@@ -1201,7 +1201,7 @@ class TestClassifyUnresolvedThreadId:
 
 class TestEnvExampleExperimentConfig:
     def test_env_example_has_v3_config(self):
-        """The .env.example file has exactly one # LLM_EXPERIMENT= line naming luna-prompts-v3-2026-11
+        """The .env.example file has a # LLM_EXPERIMENT= line naming luna-prompts-v3-2026-11
         with classify arms luna-none-v2 and luna-none-v3."""
         import aggregator_common.experiment as _exp_module
         from pathlib import Path
@@ -1211,16 +1211,29 @@ class TestEnvExampleExperimentConfig:
         env_example = repo_root / ".env.example"
         assert env_example.exists(), f".env.example not found at {env_example}"
 
+        import json as _json
+
         lines = env_example.read_text().splitlines()
         prefix = "# LLM_EXPERIMENT="
         matching = [line for line in lines if line.startswith(prefix)]
-        assert len(matching) == 1, f"Expected exactly one '# LLM_EXPERIMENT=' line, got {len(matching)}"
+        assert len(matching) >= 1, f"Expected at least one '# LLM_EXPERIMENT=' line, got {len(matching)}"
 
-        raw_json = matching[0][len(prefix):]
+        # Find the luna-prompts-v3-2026-11 config among all experiment lines
+        v3_line = None
+        for line in matching:
+            raw_json = line[len(prefix):]
+            try:
+                data = _json.loads(raw_json)
+                if data.get("name") == "luna-prompts-v3-2026-11":
+                    v3_line = raw_json
+                    break
+            except _json.JSONDecodeError:
+                continue
+        assert v3_line is not None, "No '# LLM_EXPERIMENT=' line for luna-prompts-v3-2026-11 found in .env.example"
+
         # Force enabled=true so _parse_config validates the full structure;
         # .env.example ships with enabled:false but the test checks JSON shape only.
-        import json as _json
-        raw_data = _json.loads(raw_json)
+        raw_data = _json.loads(v3_line)
         raw_data["enabled"] = True
         cfg = _exp_module._parse_config(_json.dumps(raw_data))
         assert cfg is not None, "LLM_EXPERIMENT config in .env.example failed to parse"

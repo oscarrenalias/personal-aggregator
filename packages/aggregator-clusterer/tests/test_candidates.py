@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from aggregator_clusterer.candidates import get_candidates
+from aggregator_clusterer.candidates import _entity_set, _to_set, get_candidates
 from aggregator_clusterer.config import ClustererSettings
 from aggregator_clusterer.dedup import check_duplicate
 from aggregator_common.models import ClassificationLabel, ThreadMembership
@@ -243,3 +243,99 @@ class TestGetCandidates:
         # Single-latest: jaccard({A,B}, {C,D}) = 0/4 = 0.0
         assert match.signals["entity_overlap"] > 0.0
         assert abs(match.signals["entity_overlap"] - 0.5) < 1e-9
+
+
+# ---------------------------------------------------------------------------
+# Tests for _entity_set normalisation integration (AC4, AC9, AC10)
+# ---------------------------------------------------------------------------
+
+class TestEntitySetNormalization:
+    """Unit tests for _entity_set helper: normalize_entity integration."""
+
+    def test_case_differences_still_overlap(self):
+        # Scenario: clustering-overlap / Normalised entity overlap / Case and spacing differences still overlap
+        a = _entity_set(["NVIDIA", "OpenAI"])
+        b = _entity_set(["nvidia", "openai"])
+        assert a == b
+        assert len(a & b) == 2
+
+    def test_spacing_differences_still_overlap(self):
+        # AC9: ' Nvidia ' normalises same as 'NVIDIA'
+        a = _entity_set(["NVIDIA"])
+        b = _entity_set([" Nvidia "])
+        assert a == b
+
+    def test_empty_after_normalisation_dropped(self):
+        # Scenario: clustering-overlap / Normalised entity overlap / Empty after normalisation is dropped
+        result = _entity_set(["", "   ", "...", "Apple"])
+        # Only "Apple" should survive (normalises to "apple")
+        assert len(result) == 1
+        assert "apple" in result
+
+    def test_none_input_returns_empty_frozenset(self):
+        result = _entity_set(None)
+        assert result == frozenset()
+
+    def test_punctuation_only_entity_dropped(self):
+        result = _entity_set(["---", "OpenAI"])
+        assert len(result) == 1
+        assert "openai" in result
+
+    def test_mixed_case_entities_normalize_identically(self):
+        a = _entity_set(["The Guardian"])
+        b = _entity_set(["Guardian"])
+        assert a == b
+
+    def test_entity_overlap_with_normalized_versions_in_candidate_scoring(self, db_session):
+        """Integration: article with 'NVIDIA' overlaps with thread member having 'nvidia'."""
+        src = make_source(db_session, url="https://ent-norm.test/feed.xml")
+        article = make_article(
+            db_session, source_id=src.id, dedup_key="norm-art",
+            entities=["NVIDIA", "OpenAI"],
+        )
+        thread = make_thread(db_session, title="AI chip market")
+        member = make_article(
+            db_session, source_id=src.id, dedup_key="norm-member",
+            entities=["nvidia", "openai"],  # same but lowercase
+        )
+        db_session.add(ThreadMembership(
+            thread_id=thread.id,
+            article_id=member.id,
+            classification_label=ClassificationLabel.new_thread.value,
+            suppressed=False,
+            assigned_at=datetime.now(tz=timezone.utc),
+        ))
+        db_session.commit()
+
+        result = get_candidates(db_session, article, _SETTINGS)
+        match = next((c for c in result if c.thread_id == thread.id), None)
+        assert match is not None
+        # Case-normalised entities should give full overlap = 1.0
+        assert abs(match.signals["entity_overlap"] - 1.0) < 1e-9
+
+    def test_empty_entity_dropped_from_overlap_scoring(self, db_session):
+        """Integration: empty entity string is excluded; overlap calculated on valid entities only."""
+        src = make_source(db_session, url="https://ent-empty.test/feed.xml")
+        article = make_article(
+            db_session, source_id=src.id, dedup_key="empty-art",
+            entities=["Apple", "", "   "],
+        )
+        thread = make_thread(db_session, title="Apple announcement thread")
+        member = make_article(
+            db_session, source_id=src.id, dedup_key="empty-member",
+            entities=["apple"],
+        )
+        db_session.add(ThreadMembership(
+            thread_id=thread.id,
+            article_id=member.id,
+            classification_label=ClassificationLabel.new_thread.value,
+            suppressed=False,
+            assigned_at=datetime.now(tz=timezone.utc),
+        ))
+        db_session.commit()
+
+        result = get_candidates(db_session, article, _SETTINGS)
+        match = next((c for c in result if c.thread_id == thread.id), None)
+        assert match is not None
+        # Only "apple" entity should count; Jaccard({apple}, {apple}) = 1.0
+        assert abs(match.signals["entity_overlap"] - 1.0) < 1e-9
