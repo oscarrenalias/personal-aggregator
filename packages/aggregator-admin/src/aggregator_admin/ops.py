@@ -100,7 +100,7 @@ def llm_cutover_cleanup_cmd(
     With --yes: runs DELETE FROM llm_shadow_results and TRUNCATE thread_merge_verdicts CASCADE
     in one transaction, then prints the removed counts to stderr.
 
-    Refuses (exit 1) when LLM_EXPERIMENT is set and enabled=true or contains invalid JSON.
+    Refuses (exit 1) when LLM_EXPERIMENT is set to anything other than a JSON object with enabled=false, or contains invalid JSON.
     """
     raw = os.environ.get("LLM_EXPERIMENT", "").strip()
     if raw:
@@ -109,9 +109,9 @@ def llm_cutover_cleanup_cmd(
         except json.JSONDecodeError as exc:
             typer.echo(f"Error: LLM_EXPERIMENT contains invalid JSON: {exc}", err=True)
             raise typer.Exit(code=1)
-        if parsed.get("enabled") is True:
+        if not (isinstance(parsed, dict) and parsed.get("enabled", True) is False):
             typer.echo(
-                "Error: LLM_EXPERIMENT has enabled=true. Disable or unset the experiment before running cutover cleanup.",
+                "Error: LLM_EXPERIMENT is set and not explicitly disabled. Set enabled=false or unset the experiment before running cutover cleanup.",
                 err=True,
             )
             raise typer.Exit(code=1)

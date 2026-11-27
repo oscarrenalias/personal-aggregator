@@ -348,3 +348,37 @@ def test_llm_cutover_cleanup_allows_disabled_experiment(runner, db_engine, db_se
         conn.commit()
     result = runner.invoke(app, ["ops", "llm-cutover-cleanup", "--yes"])
     assert result.exit_code == 0
+
+
+def test_llm_cutover_cleanup_refuses_when_no_enabled_key(runner, db_engine, db_session, monkeypatch):
+    """Refuses (exit 1) when LLM_EXPERIMENT is a valid dict but has no 'enabled' key.
+
+    aggregator_common.experiment defaults enabled=True when the key is absent, so the
+    experiment is live and cleanup must be blocked.
+    """
+    monkeypatch.setenv("LLM_EXPERIMENT", '{"name":"x","operations":{}}')
+    with db_engine.connect() as conn:
+        conn.execute(text("TRUNCATE llm_shadow_results CASCADE"))
+        conn.commit()
+    _seed_shadow_and_verdicts(db_engine, n_shadow=1, n_verdicts=0)
+    result = runner.invoke(app, ["ops", "llm-cutover-cleanup"])
+    assert result.exit_code != 0
+    # Nothing deleted
+    with db_engine.connect() as conn:
+        shadow_count = conn.execute(text("SELECT COUNT(*) FROM llm_shadow_results")).scalar_one()
+    assert shadow_count == 1
+
+
+def test_llm_cutover_cleanup_refuses_on_non_object_json(runner, db_engine, db_session, monkeypatch):
+    """Refuses (exit 1) when LLM_EXPERIMENT is valid JSON but not a dict (e.g. a list)."""
+    monkeypatch.setenv("LLM_EXPERIMENT", "[]")
+    with db_engine.connect() as conn:
+        conn.execute(text("TRUNCATE llm_shadow_results CASCADE"))
+        conn.commit()
+    _seed_shadow_and_verdicts(db_engine, n_shadow=1, n_verdicts=0)
+    result = runner.invoke(app, ["ops", "llm-cutover-cleanup"])
+    assert result.exit_code != 0
+    # Nothing deleted
+    with db_engine.connect() as conn:
+        shadow_count = conn.execute(text("SELECT COUNT(*) FROM llm_shadow_results")).scalar_one()
+    assert shadow_count == 1
