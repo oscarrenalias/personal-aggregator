@@ -1,15 +1,27 @@
 ---
 id: ADR-1cb48609
-title: "Clusterer biases toward attaching articles to existing threads; important threshold is 66 under gpt-6-luna"
-status: draft
-created_at: 2026-11-08T21:40:19.062078+00:00
-authors: ['Renalias, Oscar']
-description: "Classify v3 attach-by-default rule and recalibrated WEB_IMPORTANT_THRESHOLD for the Luna cutover"
-tags: [llm, clustering]
-related_specs: [spec-1b31bd43, spec-9eac0646]
-related_beads: 
-supersedes: 
+title: Clusterer biases toward attaching articles to existing threads; important threshold
+  is 66 under gpt-6-luna
+status: approved
+created_at: '2026-11-08T21:40:19.062078+00:00'
+authors:
+- Renalias, Oscar
+description: Classify v3 attach-by-default rule and recalibrated WEB_IMPORTANT_THRESHOLD
+  for the Luna cutover
+accepted_at: '2026-11-27T17:49:47.379212+00:00'
+superseded_at: null
+superseded_by: null
+supersedes: []
+tags:
+- llm
+- clustering
+related_specs:
+- spec-1b31bd43
+- spec-9eac0646
+related_beads: []
+review_after: null
 ---
+
 # Clusterer biases toward attaching articles to existing threads; important threshold is 66 under gpt-6-luna
 
 ## Summary
