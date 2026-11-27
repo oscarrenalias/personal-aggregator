@@ -5,7 +5,7 @@ description: Rank prompt v3 extracts named entities (shadow-evaluated per ADR-60
 dependencies: null
 priority: high
 complexity: null
-status: draft
+status: planned
 tags:
 - llm
 - summarize-rank
@@ -14,7 +14,7 @@ tags:
 scope:
   in: null
   out: null
-feature_root_id: null
+feature_root_id: B-6f6ab0c5
 ---
 # Extract named entities in summarize-rank so clustering overlap signals work
 
