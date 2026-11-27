@@ -11,7 +11,7 @@ from aggregator_common.grades import (
 )
 
 from .config import SummarizeRankSettings
-from .schema import PROMPT_VERSION, PROMPT_VERSION_V2
+from .schema import PROMPT_VERSION, PROMPT_VERSION_V2, PROMPT_VERSION_V3
 
 INTEREST_PROFILE_MAX_CHARS = 2_000
 
@@ -153,4 +153,6 @@ def build_messages(
 
 
 def get_prompt_version(variant: str = "v1") -> str:
+    if variant == "v3":
+        return PROMPT_VERSION_V3
     return PROMPT_VERSION_V2 if variant == "v2" else PROMPT_VERSION
