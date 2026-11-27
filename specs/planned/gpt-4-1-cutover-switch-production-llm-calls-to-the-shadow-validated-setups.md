@@ -5,7 +5,7 @@ description: Per-operation model/reasoning settings so production runs the shado
 dependencies: null
 priority: high
 complexity: null
-status: draft
+status: planned
 tags:
 - llm
 - cutover
@@ -284,7 +284,7 @@ The clusterer.merge eval export SHALL read merge pairs from `llm_calls` (`servic
 
 ## Pending Decisions
 
-- **Keep `llm_shadow_results`, emptied (resolved 2026-11-27, user).** ADR-9687cb01 says the cutover drops the table. The user chose to keep it, empty, so future experiments can reuse the shadow framework without a migration. Recorded in draft ADR-60ce8b01, which supersedes ADR-9687cb01. It also records that this cutover rests on the offline eval plus a reviewed shadow sample. It must be approved before this spec is planned.
+- **Keep `llm_shadow_results`, emptied (resolved 2026-11-27, user).** ADR-9687cb01 says the cutover drops the table. The user chose to keep it, empty, so future experiments can reuse the shadow framework without a migration. Recorded in ADR-60ce8b01 (approved 2026-11-27), which supersedes ADR-9687cb01. It also records that this cutover rests on the offline eval plus a reviewed shadow sample.
 - **Brief and fact consolidation reasoning level (resolved 2026-11-27, user):** `low` for both.
 - **Merge setup (resolved 2026-11-27, user):** `v4b` on gpt-6.1-terra, `reasoning_effort` none. The user chose to cut over before the experiment's `until` date (2026-12-07), based on the offline eval plus 46 shadow pairs with 0 errors.
-- **ADR-1cb48609** (attach-by-default classify, threshold 66) is still a draft "pending cutover". It should be approved alongside this cutover, once the user says so.
+- **ADR-1cb48609** (attach-by-default classify, threshold 66): approved 2026-11-27 alongside this cutover.
