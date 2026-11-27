@@ -5,7 +5,7 @@ description: Per-operation model/reasoning settings so production runs the shado
 dependencies: null
 priority: high
 complexity: null
-status: draft
+status: planned
 tags:
 - llm
 - cutover
@@ -16,7 +16,7 @@ tags:
 scope:
   in: null
   out: null
-feature_root_id: null
+feature_root_id: B-e0dd0e2f
 ---
 # gpt-4.1 cutover: switch production LLM calls to the shadow-validated setups
 
