@@ -71,6 +71,8 @@ def process_article(
         article.importance_reason = result.importance_reason
         article.categories = result.categories
         article.llm_meta = usage_dict
+        if settings.summarize_rank_prompt_variant == "v3":
+            article.entities = result.entities
         article.summarized_at = datetime.now(UTC)
         complete(session, article, ArticleStatus.ready)
         session.commit()
