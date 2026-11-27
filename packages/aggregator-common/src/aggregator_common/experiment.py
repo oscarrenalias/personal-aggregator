@@ -43,7 +43,7 @@ _KNOWN_OPS = frozenset({
 _FORBIDDEN_PARAMS = frozenset({"messages", "tools", "tool_choice", "response_format", "timeout", "metadata", "prompt"})
 
 PROMPT_VARIANTS: dict[str, frozenset] = {
-    "summarize_rank.rank":         frozenset({"v1", "v2"}),
+    "summarize_rank.rank":         frozenset({"v1", "v2", "v3"}),
     "clusterer.classify":          frozenset({"v1", "v2", "v3"}),
     "clusterer.merge":             frozenset({"v1", "v2", "v4b"}),
     "clusterer.consolidate_facts": frozenset({"v1"}),
