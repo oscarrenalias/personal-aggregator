@@ -216,19 +216,21 @@ At process startup, every service calls `aggregator_common.load_env()` (python-d
 | `LANGFUSE_SECRET_KEY` | *(unset)* | Langfuse secret key |
 | `LANGFUSE_HOST` | *(unset)* | Langfuse host URL (defaults to Langfuse cloud when omitted) |
 | `LLM_EXPERIMENT` | *(unset)* | JSON blob configuring the LLM shadow A/B experiment; parsed by `experiment.py` at startup — invalid JSON logs one ERROR and disables the experiment. See **LLM shadow evaluation framework** below. |
+| `LLM_REASONING_EFFORT` | *(unset)* | Reasoning effort for `summarize_rank.rank`; valid values: `none`, `minimal`, `low`, `medium`, `high`; unset = no reasoning parameters applied (today's behaviour); cutover target: `low` |
 | `WEB_HOST` | `127.0.0.1` | Host to bind the web server (never `0.0.0.0` in production) |
 | `WEB_PORT` | `8000` | Port to bind the web server |
 | `WEB_PAGE_SIZE` | `50` | Number of articles per page in feed lists |
-| `WEB_IMPORTANT_THRESHOLD` | `70` | Minimum `importance_score` for filtering important articles; applies to the web UI Important smart view, API priority signals (`has_priority` on sources and categories), and MCP threshold |
+| `WEB_IMPORTANT_THRESHOLD` | `70` | Minimum `importance_score` for filtering important articles; applies to the web UI Important smart view, API priority signals (`has_priority` on sources and categories), and MCP threshold; cutover target: `66` (recalibrated for gpt-6-luna per ADR-1cb48609) |
 | `WEB_SHOW_UNREAD_COUNTS` | `false` | Show numeric unread counts in sidebar (`true`) or qualitative dot markers only (`false`) |
 | `WEB_AUTO_READ_SECONDS` | `5` | Seconds of visible dwell before auto-marking an open article read; `0` disables the feature entirely |
 | `API_CORS_ALLOW_ORIGINS` | `*` | Comma-separated allowed CORS origins for `/api/v1`; default `*` is acceptable only behind the network perimeter — restrict before any public exposure |
 | `AGGREGATOR_API_URL` | `http://localhost:8000/api/v1` | Base URL for the aggregator JSON API used by `aggregator-tui`; overridden by `--api-url` CLI flag |
-| `SUMMARIZE_RANK_PROMPT_VARIANT` | `v1` | Prompt variant for `summarize_rank.rank`; must be a registered variant (`v1` or `v2`); invalid values fail at startup; set `v2` after validation to use the gpt-6-luna-calibrated prompt |
+| `SUMMARIZE_RANK_PROMPT_VARIANT` | `v1` | Prompt variant for `summarize_rank.rank`; must be a registered variant (`v1` or `v2`); invalid values fail at startup; `v2` is the gpt-6-luna-calibrated prompt; cutover target: `v2` |
 | `BRIEF_LLM_MODEL` | `gpt-4.1` | LLM model used for brief generation |
 | `BRIEF_LLM_MAX_OUTPUT_TOKENS` | `4096` | Maximum output tokens for LLM calls |
 | `BRIEF_LLM_TEMPERATURE` | `0.3` | LLM sampling temperature |
 | `BRIEF_LLM_TIMEOUT_SECONDS` | `120` | LLM call timeout in seconds |
+| `BRIEF_LLM_REASONING_EFFORT` | *(unset)* | Reasoning effort for `brief.generate`; valid values: `none`, `minimal`, `low`, `medium`, `high`; unset = no reasoning parameters applied; applies to every turn of the tool loop; cutover target: `low` |
 | `BRIEF_PERIOD_HOURS` | `24` | Hours of article history to include in each brief |
 | `BRIEF_TIMEZONE` | `UTC` | Timezone for scheduling brief generation |
 | `BRIEF_GENERATION_HOUR` | `6` | Hour of day (in `BRIEF_TIMEZONE`) to generate the brief |
@@ -238,7 +240,7 @@ At process startup, every service calls `aggregator_common.load_env()` (python-d
 | `BRIEF_TOOL_MAX_CALLS` | `12` | Maximum LLM tool calls per brief generation run |
 | `BRIEF_POLL_INTERVAL_SECONDS` | `60` | Seconds between scheduler poll cycles |
 | `BRIEF_CLAIM_LEASE_SECONDS` | `600` | Work-claim lease duration for brief jobs in seconds |
-| `BRIEF_PROMPT_VARIANT` | `v1` | Prompt variant for `brief.generate`; must be a registered variant (`v1` or `v2`); invalid values fail at startup; set `v2` after validation to use the gpt-6-luna-calibrated brief prompt |
+| `BRIEF_PROMPT_VARIANT` | `v1` | Prompt variant for `brief.generate`; must be a registered variant (`v1` or `v2`); invalid values fail at startup; `v2` is the gpt-6-luna-calibrated brief prompt; cutover target: `v2` |
 | `CLUSTERER_POLL_INTERVAL_SECONDS` | `60` | Seconds between clusterer poll cycles |
 | `CLUSTERER_CANDIDATE_WINDOW_HOURS_FAST` | `48` | Hours of history for fast-path candidate selection |
 | `CLUSTERER_CANDIDATE_WINDOW_DAYS_SLOW` | `7` | Days of history for slow-path candidate selection |
@@ -250,6 +252,15 @@ At process startup, every service calls `aggregator_common.load_env()` (python-d
 | `CLUSTERER_LLM_MAX_OUTPUT_TOKENS` | `512` | Maximum output tokens for LLM calls |
 | `CLUSTERER_LLM_TEMPERATURE` | `0.0` | LLM sampling temperature (0 = deterministic) |
 | `CLUSTERER_LLM_TIMEOUT_SECONDS` | `30` | LLM call timeout in seconds |
+| `CLUSTERER_CLASSIFY_LLM_MODEL` | *(unset)* | LLM model for classify calls; unset falls back to `CLUSTERER_LLM_MODEL`; cutover target: `gpt-6-luna` |
+| `CLUSTERER_CLASSIFY_LLM_REASONING_EFFORT` | *(unset)* | Reasoning effort for classify calls; valid values: `none`, `minimal`, `low`, `medium`, `high`; unset = no reasoning parameters applied; cutover target: `none` |
+| `CLUSTERER_CLASSIFY_LLM_MAX_OUTPUT_TOKENS` | *(unset)* | Max output tokens for classify calls; unset falls back to `CLUSTERER_LLM_MAX_OUTPUT_TOKENS`; cutover target: `512` |
+| `CLUSTERER_MERGE_LLM_MODEL` | *(unset)* | LLM model for merge calls; unset falls back to `CLUSTERER_LLM_MODEL`; cutover target: `gpt-6.1-terra` |
+| `CLUSTERER_MERGE_LLM_REASONING_EFFORT` | *(unset)* | Reasoning effort for merge calls; valid values: `none`, `minimal`, `low`, `medium`, `high`; unset = no reasoning parameters applied; cutover target: `none` |
+| `CLUSTERER_MERGE_LLM_MAX_OUTPUT_TOKENS` | `128` | Max output tokens for merge calls; cutover target: `128` |
+| `CLUSTERER_FACTS_LLM_MODEL` | *(unset)* | LLM model for consolidate_facts calls; unset falls back to `CLUSTERER_LLM_MODEL`; cutover target: `gpt-6-luna` |
+| `CLUSTERER_FACTS_LLM_REASONING_EFFORT` | *(unset)* | Reasoning effort for consolidate_facts calls; valid values: `none`, `minimal`, `low`, `medium`, `high`; unset = no reasoning parameters applied; cutover target: `low` |
+| `CLUSTERER_FACTS_LLM_MAX_OUTPUT_TOKENS` | *(unset)* | Max output tokens for consolidate_facts calls; unset falls back to `CLUSTERER_LLM_MAX_OUTPUT_TOKENS`; cutover target: `2000` |
 | `CLUSTERER_CLAIM_LEASE_SECONDS` | `600` | Work-claim lease duration for clusterer jobs in seconds |
 | `CLUSTERER_DORMANT_AGE_DAYS` | `7` | Days since `last_updated` before a thread transitions active→dormant (aging pass runs every cycle) |
 | `CLUSTERER_ARCHIVE_AGE_DAYS` | `30` | Additional days beyond `CLUSTERER_DORMANT_AGE_DAYS` before dormant→archived (total idle time = dormant + archive days) |
@@ -271,9 +282,9 @@ At process startup, every service calls `aggregator_common.load_env()` (python-d
 | `CLUSTERER_SECTION_TITLE_BLOCKLIST` | `["top stories","home",…]` | JSON array of RSS section/category titles too generic to use as thread titles |
 | `CLUSTERER_CONSOLIDATION_MIN_INTERVAL_MINUTES` | `10` | Minimum minutes between consolidation passes; explicit recluster bypasses this floor |
 | `CLUSTERER_MAX_CLASSIFIER_CANDIDATES` | `5` | Maximum candidate threads passed to the LLM classifier per article |
-| `CLUSTERER_CLASSIFY_PROMPT_VARIANT` | `v1` | Prompt variant for `clusterer.classify`; must be a registered variant (`v1`, `v2`, or `v3`); invalid values fail at startup; set `v2` after validation to use the gpt-6-luna-calibrated classify prompt; set `v3` for the attach-by-default bias variant (prefers assigning articles to existing threads rather than creating new ones) |
-| `CLUSTERER_MERGE_PROMPT_VARIANT` | `v1` | Prompt variant for `clusterer.merge`; must be a registered variant (`v1`, `v2`, or `v4b`); invalid values fail at startup; `v4b` = specific-subject prompt screened offline per ADR-f8cc0455; shadow-test before cutover |
-| `JANITOR_ARTICLE_RETENTION_DAYS` | `14` | Days to retain articles before purging (unsaved, not in a live thread) |
+| `CLUSTERER_CLASSIFY_PROMPT_VARIANT` | `v1` | Prompt variant for `clusterer.classify`; must be a registered variant (`v1`, `v2`, or `v3`); invalid values fail at startup; `v2` is the gpt-6-luna-calibrated classify prompt; `v3` is the attach-by-default bias variant (prefers assigning articles to existing threads, per ADR-1cb48609); cutover target: `v3` |
+| `CLUSTERER_MERGE_PROMPT_VARIANT` | `v1` | Prompt variant for `clusterer.merge`; must be a registered variant (`v1`, `v2`, or `v4b`); invalid values fail at startup; `v4b` = specific-subject prompt screened offline per ADR-f8cc0455 and validated via shadow; cutover target: `v4b` |
+| `JANITOR_ARTICLE_RETENTION_DAYS` | `14` | Days to retain articles before purging (unsaved, not in a live thread); raise to `35` during an LLM shadow experiment to cover the full experiment window; revert to `14` at cutover |
 | `JANITOR_THREAD_RETENTION_DAYS` | `30` | Days to retain archived threads before permanent deletion (replaces `CLUSTERER_THREAD_RETENTION_DAYS`) |
 | `JANITOR_BRIEF_RETENTION_DAYS` | `30` | Days to retain completed briefs before pruning (replaces `BRIEF_RETENTION_DAYS`) |
 | `JANITOR_LLM_TELEMETRY_RETENTION_DAYS` | `30` | Days to retain LLM call telemetry rows before purging |
@@ -329,6 +340,7 @@ Unset, empty, or `"enabled": false` → no sampling and no shadow work; the prod
 - **`until` guard** — no shadow sampling after the configured UTC timestamp, regardless of budget.
 - **Control metadata tagging** — when an item is sampled, the production LLM call receives `metadata.experiment=<name>` and `metadata.arm="control"`; arm calls receive `metadata.arm=<arm_name>`. Items skipped at any decision step leave control metadata untagged.
 - **`allowed_openai_params`** — when `reasoning_effort` is present in the effective arm kwargs, `build_arm_kwargs` automatically adds `allowed_openai_params=["reasoning_effort"]` to satisfy litellm's client-side validation.
+- **Arm params when control uses reasoning** — shadow arms receive the transformed control kwargs (after `apply_reasoning_params`). When control has a `reasoning_effort` set, the control kwargs already use `max_completion_tokens` (not `max_tokens`) and have `temperature` removed. Future arm `params` blocks must therefore use `max_completion_tokens`, not `max_tokens`; an arm that needs `temperature` (e.g. `reasoning_effort: none` over a `low`-effort control) must set it explicitly in its `params`.
 
 ### `brief.generate` operation
 
@@ -388,7 +400,7 @@ Stores raw outcomes of both control and shadow arms for offline comparison.
 
 Unique constraint `uq_llm_shadow_results_item_arm` on `(experiment, service, operation, ref_id, arm)`; duplicate writes use `ON CONFLICT DO NOTHING`.
 
-**Retention** — `llm_shadow_results` has **no janitor retention policy**. The table is intended to be dropped by the cutover spec once the experiment concludes.
+**Retention** — `llm_shadow_results` has **no janitor retention policy**. The table is emptied at cutover by `aggregator-admin ops llm-cutover-cleanup`; the table is kept for future experiments.
 
 ### Operator deploy note
 
@@ -398,7 +410,7 @@ Before deploying the shadow framework, raise the article retention period to cov
 JANITOR_ARTICLE_RETENTION_DAYS=35
 ```
 
-The default is 14 days; 35 covers a month-long experiment with a one-week buffer. Revert to 14 after the experiment table is dropped.
+The default is 14 days; 35 covers a month-long experiment with a one-week buffer. Revert to 14 at cutover (run `aggregator-admin ops llm-cutover-cleanup` and restore `JANITOR_ARTICLE_RETENTION_DAYS=14`).
 
 ### Offline evals
 
