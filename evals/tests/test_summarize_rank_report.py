@@ -3,11 +3,11 @@
 import csv
 import json
 import math
-import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent.parent / "summarize_rank"))
-import report as sr_report  # noqa: E402
+# conftest.py adds evals/ to sys.path; use package import to avoid name
+# collision with evals/clusterer_merge/report.py.
+from summarize_rank import report as sr_report
 
 
 # ---------------------------------------------------------------------------

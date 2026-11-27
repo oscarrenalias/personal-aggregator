@@ -1,13 +1,11 @@
 """Tests for evals/summarize_rank/build_dataset.py."""
 
 import json
-import sys
-from pathlib import Path
-
 import pytest
 
-sys.path.insert(0, str(Path(__file__).parent.parent / "summarize_rank"))
-import build_dataset as sr_build  # noqa: E402
+# conftest.py adds evals/ to sys.path; use package import to avoid name
+# collision with evals/clusterer_merge/build_dataset.py.
+from summarize_rank import build_dataset as sr_build
 
 
 VALID_RECORD = {
