@@ -223,3 +223,87 @@ class TestRankError:
         ):
             with pytest.raises(RankError, match="retry"):
                 rank(article, "", settings)
+
+
+# ---------------------------------------------------------------------------
+# Rank kwargs — defaults unchanged and reasoning effort transformation
+# ---------------------------------------------------------------------------
+
+
+class TestRankKwargs:
+    """Verify that rank() passes the correct kwargs to litellm.completion."""
+
+    def test_defaults_unchanged(self):
+        """With default settings, kwargs match the previous hardcoded values (no reasoning_effort)."""
+        settings = _make_settings()
+        article = {"clean_text": "x" * 500}
+        captured: list[dict] = []
+
+        def _capture(**kwargs):
+            captured.append(dict(kwargs))
+            return _make_response()
+
+        with (
+            patch("litellm.completion", side_effect=_capture),
+            patch("litellm.completion_cost", return_value=0.001),
+        ):
+            rank(article, "", settings)
+
+        assert captured, "litellm.completion was not called"
+        kw = captured[0]
+        assert kw["model"] == settings.llm_model
+        assert kw["temperature"] == settings.llm_temperature
+        assert kw.get("max_tokens") == settings.llm_max_output_tokens
+        assert "reasoning_effort" not in kw
+        assert "max_completion_tokens" not in kw
+
+    def test_reasoning_effort_low_transforms_kwargs(self):
+        """With llm_reasoning_effort='low', max_tokens→max_completion_tokens, temperature removed."""
+        settings = _make_settings(llm_reasoning_effort="low")
+        article = {"clean_text": "x" * 500}
+        captured: list[dict] = []
+
+        def _capture(**kwargs):
+            captured.append(dict(kwargs))
+            return _make_response()
+
+        with (
+            patch("litellm.completion", side_effect=_capture),
+            patch("litellm.completion_cost", return_value=0.001),
+        ):
+            rank(article, "", settings)
+
+        assert captured, "litellm.completion was not called"
+        kw = captured[0]
+        assert kw["reasoning_effort"] == "low"
+        assert kw["max_completion_tokens"] == settings.llm_max_output_tokens
+        assert "max_tokens" not in kw
+        assert "temperature" not in kw
+        assert "reasoning_effort" in kw.get("allowed_openai_params", [])
+
+
+# ---------------------------------------------------------------------------
+# SummarizeRankSettings validation — reasoning_effort field
+# ---------------------------------------------------------------------------
+
+
+class TestSummarizeRankSettingsReasoningEffort:
+    def test_default_is_none(self):
+        s = _make_settings()
+        assert s.llm_reasoning_effort is None
+
+    def test_empty_string_becomes_none(self, monkeypatch):
+        monkeypatch.setenv("LLM_REASONING_EFFORT", "")
+        s = SummarizeRankSettings()
+        assert s.llm_reasoning_effort is None
+
+    def test_valid_low_accepted(self, monkeypatch):
+        monkeypatch.setenv("LLM_REASONING_EFFORT", "low")
+        s = SummarizeRankSettings()
+        assert s.llm_reasoning_effort == "low"
+
+    def test_invalid_value_raises_naming_setting(self, monkeypatch):
+        monkeypatch.setenv("LLM_REASONING_EFFORT", "turbo")
+        with pytest.raises(Exception) as exc_info:
+            SummarizeRankSettings()
+        assert "LLM_REASONING_EFFORT" in str(exc_info.value)

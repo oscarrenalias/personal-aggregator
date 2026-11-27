@@ -5,7 +5,7 @@
 -- Retention: JANITOR_LLM_TELEMETRY_RETENTION_DAYS (default 30 days), so an export covers
 --   approximately the last month of merge decisions.
 -- shadow_verdicts is always '{}' from the gpt-4.1 cutover onward; the shadow experiment
---   table (llm_shadow_results) is no longer used as the pair source.
+--   table is no longer used as the pair source.
 WITH pairs AS (
     SELECT
         ref_id,
