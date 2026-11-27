@@ -1,15 +1,25 @@
 ---
 id: ADR-60ce8b01
-title: "Shadow-evaluate model and prompt changes before cutover; keep the shadow table"
-status: draft
-created_at: 2026-11-27T17:36:16.100567+00:00
-authors: ['Renalias, Oscar']
-description: 
-tags: [llm, experiment]
-related_specs: [spec-13660fe1]
-related_beads: 
-supersedes: 
+title: Shadow-evaluate model and prompt changes before cutover; keep the shadow table
+status: approved
+created_at: '2026-11-27T17:36:16.100567+00:00'
+authors:
+- Renalias, Oscar
+description: null
+accepted_at: '2026-11-27T17:49:46.037178+00:00'
+superseded_at: null
+superseded_by: null
+supersedes:
+- ADR-9687cb01
+tags:
+- llm
+- experiment
+related_specs:
+- spec-13660fe1
+related_beads: []
+review_after: null
 ---
+
 # Shadow-evaluate model and prompt changes before cutover; keep the shadow table
 
 ## Summary

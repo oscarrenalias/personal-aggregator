@@ -1,15 +1,15 @@
 ---
 id: ADR-9687cb01
 title: Shadow-evaluate model and prompt changes before cutover
-status: approved
+status: superseded
 created_at: '2026-11-08T21:40:18.713164+00:00'
 authors:
 - Renalias, Oscar
 description: LLM_EXPERIMENT shadow arms, PROMPT_VARIANTS registry, per-operation *_PROMPT_VARIANT
   settings, cutover criteria written before the data
 accepted_at: '2026-11-08T21:44:23.063495+00:00'
-superseded_at: null
-superseded_by: null
+superseded_at: '2026-11-27T17:49:46.040851+00:00'
+superseded_by: ADR-60ce8b01
 supersedes: []
 tags:
 - llm
