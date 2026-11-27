@@ -86,6 +86,10 @@ make eval-merge-export
 
 Runs `export.sql` against production via `.claude/skills/prod-db/prod-db.sh`, pipes the output through `build_dataset.py`, and writes a dated JSONL file to `evals/clusterer_merge/datasets/`. Dataset files are **never modified after creation**; each export creates a new file.
 
+**Pair source:** `export.sql` reads merge pairs from `llm_calls` (filtered by `service='clusterer'` AND `operation='merge'`), not from `llm_shadow_results`. `llm_calls` rows are retained for `JANITOR_LLM_TELEMETRY_RETENTION_DAYS` (default 30 days), so a fresh export covers approximately the last month of production merge decisions.
+
+**`shadow_verdicts`:** From the gpt-4.1 cutover onward, `shadow_verdicts` is always `{}` (an empty JSON object) in every exported row. The shadow experiment table is no longer used as the pair source. The field is kept in the output schema so `build_dataset.py` requires no modification.
+
 ### 2. Label pairs
 
 **Export a labelling sheet** (only unlabeled pairs, random order):

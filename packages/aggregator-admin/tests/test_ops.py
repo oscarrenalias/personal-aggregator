@@ -4,6 +4,9 @@ from __future__ import annotations
 import json
 from datetime import datetime, timedelta, timezone
 
+import pytest
+from sqlalchemy import text
+
 from aggregator_admin.main import app
 from aggregator_common.state import ArticleStatus
 

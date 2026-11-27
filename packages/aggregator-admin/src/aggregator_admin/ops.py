@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import json
+import os
 from typing import Optional
 
 import typer
+from sqlalchemy import text
 
 import aggregator_common.ops as ops
 from aggregator_common.config import Settings
@@ -86,6 +88,54 @@ def failures_cmd(
         row["source"] = row.pop("source_name")
 
     json_or_table(rows, ["id", "status", "retry_count", "last_error", "source"], as_json=as_json)
+
+
+@ops_app.command("llm-cutover-cleanup")
+def llm_cutover_cleanup_cmd(
+    yes: bool = typer.Option(False, "--yes", help="Execute the cleanup; without this flag only prints row counts."),
+) -> None:
+    """Empty llm_shadow_results and truncate thread_merge_verdicts after a model cutover.
+
+    Without --yes: prints row counts to stderr and exits 0 without writing.
+    With --yes: runs DELETE FROM llm_shadow_results and TRUNCATE thread_merge_verdicts CASCADE
+    in one transaction, then prints the removed counts to stderr.
+
+    Refuses (exit 1) when LLM_EXPERIMENT is set and enabled=true or contains invalid JSON.
+    """
+    raw = os.environ.get("LLM_EXPERIMENT", "").strip()
+    if raw:
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            typer.echo(f"Error: LLM_EXPERIMENT contains invalid JSON: {exc}", err=True)
+            raise typer.Exit(code=1)
+        if parsed.get("enabled") is True:
+            typer.echo(
+                "Error: LLM_EXPERIMENT has enabled=true. Disable or unset the experiment before running cutover cleanup.",
+                err=True,
+            )
+            raise typer.Exit(code=1)
+
+    with get_session() as session:
+        shadow_count = session.execute(text("SELECT COUNT(*) FROM llm_shadow_results")).scalar_one()
+        verdict_count = session.execute(text("SELECT COUNT(*) FROM thread_merge_verdicts")).scalar_one()
+
+    if not yes:
+        typer.echo(
+            f"Dry run: llm_shadow_results has {shadow_count} row(s); thread_merge_verdicts has {verdict_count} row(s). Pass --yes to delete.",
+            err=True,
+        )
+        return
+
+    with get_session() as session:
+        session.execute(text("DELETE FROM llm_shadow_results"))
+        session.execute(text("TRUNCATE thread_merge_verdicts CASCADE"))
+        session.commit()
+
+    typer.echo(
+        f"Removed {shadow_count} row(s) from llm_shadow_results; truncated {verdict_count} row(s) from thread_merge_verdicts.",
+        err=True,
+    )
 
 
 @ops_app.command("reap")
