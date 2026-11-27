@@ -1,0 +1,80 @@
+description: "summarize_rank.rank smoke eval (offline, no network or API key needed)"
+
+# PROMPTFOO_PYTHON must be a single executable path; promptfoo uses execFile(),
+# not exec(), so it cannot be a multi-word shell command. The wrapper script
+# evals/promptfoo-python.sh delegates to `uv run --all-packages python`.
+env:
+  PROMPTFOO_PYTHON: "./evals/promptfoo-python.sh"
+
+providers:
+  - id: "file://../shared/stub_provider.py"
+    label: stub
+
+prompts:
+  - id: "file://prompts.py:rank_v2"
+    label: v2
+  - id: "file://prompts.py:rank_v3"
+    label: v3
+
+# Inline test cases derived from fixtures/smoke-dataset.jsonl (3 synthetic articles).
+# Intentionally inlined so the smoke eval is fully self-contained (no render_tests.py run).
+tests:
+  - description: "article-1001 (high score, AI article)"
+    vars:
+      article_id: 1001
+      source_name: "TechCrunch"
+      clean_title: "OpenAI launches GPT-5 with improved reasoning"
+      feed_title: null
+      title: "OpenAI launches GPT-5 with improved reasoning"
+      content_text: "OpenAI announced the release of GPT-5, its latest large language model featuring significantly improved reasoning capabilities. The new model achieves state-of-the-art results on major benchmarks and is now available via API. CEO Sam Altman called it a major step forward for AI."
+      excerpt: null
+      feed_summary: null
+      production_score: 85
+      interest_profile_text: "I follow AI and machine learning developments closely, especially new frontier models from major labs."
+      categories:
+        - name: "AI & Technology"
+          description: "Artificial intelligence, machine learning, and tech industry news"
+    metadata:
+      article_id: 1001
+      production_score: 85
+
+  - description: "article-1002 (low score, unrelated article)"
+    vars:
+      article_id: 1002
+      source_name: "Reuters"
+      clean_title: "Local council approves new parking regulations"
+      feed_title: null
+      title: "Local council approves new parking regulations"
+      content_text: "The city council voted 7-4 to approve new parking regulations that will take effect next month. The changes affect metered parking in the downtown core and increase rates by 15 percent."
+      excerpt: null
+      feed_summary: null
+      production_score: 15
+      interest_profile_text: "I follow AI and machine learning developments closely, especially new frontier models from major labs."
+      categories: []
+    metadata:
+      article_id: 1002
+      production_score: 15
+
+  - description: "article-1003 (mid score, tech article)"
+    vars:
+      article_id: 1003
+      source_name: "The Verge"
+      clean_title: "Apple releases iOS 20 with new privacy features"
+      feed_title: null
+      title: "Apple releases iOS 20 with new privacy features"
+      content_text: "Apple today released iOS 20, introducing new privacy controls including enhanced app tracking transparency and on-device processing for Siri. The update is available for iPhone 12 and later."
+      excerpt: "Apple iOS 20 brings enhanced privacy controls."
+      feed_summary: null
+      production_score: 65
+      interest_profile_text: "I follow AI and machine learning developments closely, especially new frontier models from major labs."
+      categories:
+        - name: "AI & Technology"
+          description: "Artificial intelligence, machine learning, and tech industry news"
+    metadata:
+      article_id: 1003
+      production_score: 65
+
+defaultTest:
+  assert:
+    - type: python
+      value: "file://assert_rank_result.py:get_assert"

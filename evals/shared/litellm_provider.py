@@ -1,4 +1,5 @@
 import hashlib
+import importlib
 import json
 import os
 from pathlib import Path
@@ -10,12 +11,24 @@ load_env()
 _CACHE_DIR = Path(__file__).parent.parent / ".cache" / "litellm"
 
 
-def _cache_key(model: str, messages: list, params: dict, repeat_index: int) -> str:
+def _resolve_response_format(import_path: str) -> type:
+    """Resolve a dotted import path like 'module.submodule:ClassName' to the class."""
+    if ":" not in import_path:
+        raise ValueError(
+            f"response_format import path must use 'module:ClassName' syntax, got: {import_path!r}"
+        )
+    module_path, class_name = import_path.split(":", 1)
+    module = importlib.import_module(module_path)
+    return getattr(module, class_name)
+
+
+def _cache_key(model: str, messages: list, params: dict, repeat_index: int, response_format_path: str | None = None) -> str:
     payload = {
         "model": model,
         "messages": messages,
         "params": params,
         "repeat_index": repeat_index,
+        "response_format_path": response_format_path,
     }
     canon = json.dumps(payload, sort_keys=True, ensure_ascii=False)
     return hashlib.sha256(canon.encode()).hexdigest()
@@ -57,9 +70,17 @@ def call_api(prompt: str, options: dict, context: dict) -> dict:
     if "reasoning_effort" in params:
         params["allowed_openai_params"] = ["reasoning_effort"]
 
+    # response_format may be specified as a dotted import path string in config.
+    # It is resolved at call time and passed to litellm, but stored as the path
+    # string in the cache key so the cache remains serialisable.
+    response_format_path: str | None = config.get("response_format")
+    response_format_class = None
+    if response_format_path:
+        response_format_class = _resolve_response_format(response_format_path)
+
     repeat_index = (context or {}).get("repeatIndex", 0)
     messages = json.loads(prompt)
-    key = _cache_key(model, messages, params, repeat_index)
+    key = _cache_key(model, messages, params, repeat_index, response_format_path)
 
     cached = _cache_read(key)
     if cached is not None:
@@ -68,7 +89,10 @@ def call_api(prompt: str, options: dict, context: dict) -> dict:
 
     import litellm  # noqa: PLC0415 — lazy: only imported on actual API call (cache miss)
     try:
-        response = litellm.completion(model=model, messages=messages, **params)
+        call_kwargs = dict(params)
+        if response_format_class is not None:
+            call_kwargs["response_format"] = response_format_class
+        response = litellm.completion(model=model, messages=messages, **call_kwargs)
         output = response.choices[0].message.content
         usage = response.usage
         result: dict = {
