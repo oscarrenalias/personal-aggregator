@@ -25,6 +25,7 @@ from sqlalchemy.orm import Session
 
 from aggregator_common.management import merge_threads
 from aggregator_common.models import Article, Thread, ThreadMembership, ThreadMergeVerdict
+from aggregator_common.text_norm import normalize_entity
 from aggregator_clusterer.config import ClustererSettings
 from aggregator_clusterer.dedup import _normalize_title
 from aggregator_clusterer.scoring import compute_surfaced
@@ -53,6 +54,21 @@ def _to_set(value: object) -> frozenset:
         return frozenset(str(v) for v in value if v is not None)
     if isinstance(value, dict):
         return frozenset(str(k) for k in value)
+    return frozenset()
+
+
+def _to_entity_set(value: object) -> frozenset:
+    """Build an entity frozenset with normalize_entity applied; empty strings dropped."""
+    if value is None:
+        return frozenset()
+    if isinstance(value, list):
+        result: set[str] = set()
+        for v in value:
+            if v is not None:
+                normed = normalize_entity(str(v))
+                if normed:
+                    result.add(normed)
+        return frozenset(result)
     return frozenset()
 
 
@@ -115,33 +131,48 @@ def find_merge_candidates(
 
     thread_ids = [t.id for t in threads]
 
-    # Get entity/topic sets from each thread's most-recent member article.
-    latest_sub = (
+    # Get entity/topic data from each thread's most-recent member articles.
+    # Entities: union of the 3 most-recent members (normalize_entity applied, empties dropped).
+    # Topics: only the single most-recent member article (rn == 1).
+    # ROW_NUMBER with (assigned_at DESC, article_id DESC) avoids tie-row duplication.
+    rn_col = func.row_number().over(
+        partition_by=ThreadMembership.thread_id,
+        order_by=[ThreadMembership.assigned_at.desc(), Article.id.desc()],
+    ).label("rn")
+
+    ranked_sub = (
         select(
             ThreadMembership.thread_id,
-            func.max(ThreadMembership.assigned_at).label("max_assigned"),
+            Article.entities,
+            Article.topics,
+            rn_col,
         )
+        .join(Article, ThreadMembership.article_id == Article.id)
         .where(ThreadMembership.thread_id.in_(thread_ids))
-        .group_by(ThreadMembership.thread_id)
         .subquery()
     )
 
     member_rows = session.execute(
-        select(ThreadMembership.thread_id, Article.entities, Article.topics)
-        .join(Article, ThreadMembership.article_id == Article.id)
-        .join(
-            latest_sub,
-            (ThreadMembership.thread_id == latest_sub.c.thread_id)
-            & (ThreadMembership.assigned_at == latest_sub.c.max_assigned),
-        )
+        select(
+            ranked_sub.c.thread_id,
+            ranked_sub.c.entities,
+            ranked_sub.c.topics,
+            ranked_sub.c.rn,
+        ).where(ranked_sub.c.rn <= 3)
     ).all()
 
-    thread_entities: dict[int, frozenset] = {
-        row.thread_id: _to_set(row.entities) for row in member_rows
-    }
-    thread_topics: dict[int, frozenset] = {
-        row.thread_id: _to_set(row.topics) for row in member_rows
-    }
+    thread_entities: dict[int, frozenset] = {}
+    thread_topics: dict[int, frozenset] = {}
+    for row in member_rows:
+        # Entities: union across up to 3 most-recent members
+        entity_set = _to_entity_set(row.entities)
+        if row.thread_id in thread_entities:
+            thread_entities[row.thread_id] |= entity_set
+        else:
+            thread_entities[row.thread_id] = entity_set
+        # Topics: latest article only (rn == 1)
+        if row.rn == 1:
+            thread_topics[row.thread_id] = _to_set(row.topics)
 
     # Batch FTS similarity via a Postgres self-join, pushing the
     # incremental/recency bound into the WHERE clause so ts_rank is not
