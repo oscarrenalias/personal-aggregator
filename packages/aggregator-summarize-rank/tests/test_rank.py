@@ -30,6 +30,7 @@ def _make_litellm_response(
     score: int = 75,
     reason: str = "Test reason.",
     categories: list[str] | None = None,
+    entities: list[str] | None = None,
 ) -> SimpleNamespace:
     if topics is None:
         topics = ["ai", "python"]
@@ -41,6 +42,8 @@ def _make_litellm_response(
     }
     if categories is not None:
         payload["categories"] = categories
+    if entities is not None:
+        payload["entities"] = entities
     content = json.dumps(payload)
     message = SimpleNamespace(content=content, parsed=None)
     choice = SimpleNamespace(message=message)
@@ -344,6 +347,116 @@ class TestSourceLookup:
         assert captured, "litellm.completion was not called"
         user_msg = captured[0][1]["content"]
         assert "MyBlog" in user_msg
+
+
+# ---------------------------------------------------------------------------
+# Entity persistence: v3 writes, v2 leaves NULL
+# Scenarios: article-ranking / Named-entity extraction (rank prompt v3)
+# ---------------------------------------------------------------------------
+
+
+def test_v3_entities_persisted_on_article(db_session, src, db_engine):
+    """Scenario: v3 persists entities. AC6 / AC3."""
+    from aggregator_summarize_rank.config import SummarizeRankSettings
+
+    v3_settings = SummarizeRankSettings(summarize_rank_prompt_variant="v3")
+    factory = sessionmaker(bind=db_engine, autocommit=False, autoflush=False)
+
+    article = make_article(
+        db_session, source_id=src.id, dedup_key="v3-ent-persist", clean_text=_ENOUGH_TEXT
+    )
+    resp = _make_litellm_response(entities=["OpenAI", "NVIDIA", "Sam Altman"])
+    with (
+        patch("litellm.completion", return_value=resp),
+        patch("litellm.completion_cost", return_value=0.001),
+    ):
+        from aggregator_summarize_rank.rank import process_article
+
+        process_article(article.id, "", [], v3_settings, factory)
+
+    db_session.expire(article)
+    db_session.refresh(article)
+    assert article.entities is not None
+    assert len(article.entities) > 0
+    assert "OpenAI" in article.entities
+
+
+def test_v2_entities_not_written_on_article(db_session, src, db_engine):
+    """Scenario: v2 leaves entities untouched (None/NULL). AC7 / AC3."""
+    from aggregator_summarize_rank.config import SummarizeRankSettings
+
+    v2_settings = SummarizeRankSettings(summarize_rank_prompt_variant="v2")
+    factory = sessionmaker(bind=db_engine, autocommit=False, autoflush=False)
+
+    article = make_article(
+        db_session, source_id=src.id, dedup_key="v2-ent-null", clean_text=_ENOUGH_TEXT
+    )
+    # Even if LLM response includes entities, v2 must not write them
+    resp = _make_litellm_response(entities=["SomeName"])
+    with (
+        patch("litellm.completion", return_value=resp),
+        patch("litellm.completion_cost", return_value=0.001),
+    ):
+        from aggregator_summarize_rank.rank import process_article
+
+        process_article(article.id, "", [], v2_settings, factory)
+
+    db_session.expire(article)
+    db_session.refresh(article)
+    # v2 must not write entities; column remains NULL
+    assert article.entities is None
+
+
+def test_v1_entities_not_written_on_article(db_session, src, db_engine):
+    """v1 also must not write entities. AC3."""
+    from aggregator_summarize_rank.config import SummarizeRankSettings
+
+    v1_settings = SummarizeRankSettings(summarize_rank_prompt_variant="v1")
+    factory = sessionmaker(bind=db_engine, autocommit=False, autoflush=False)
+
+    article = make_article(
+        db_session, source_id=src.id, dedup_key="v1-ent-null", clean_text=_ENOUGH_TEXT
+    )
+    resp = _make_litellm_response()
+    with (
+        patch("litellm.completion", return_value=resp),
+        patch("litellm.completion_cost", return_value=0.001),
+    ):
+        from aggregator_summarize_rank.rank import process_article
+
+        process_article(article.id, "", [], v1_settings, factory)
+
+    db_session.expire(article)
+    db_session.refresh(article)
+    assert article.entities is None
+
+
+def test_v3_scoring_text_unchanged(db_session, src, db_engine):
+    """Scenario: v3 scoring text unchanged — importance score and other fields still populated. AC8."""
+    from aggregator_summarize_rank.config import SummarizeRankSettings
+
+    v3_settings = SummarizeRankSettings(summarize_rank_prompt_variant="v3")
+    factory = sessionmaker(bind=db_engine, autocommit=False, autoflush=False)
+
+    article = make_article(
+        db_session, source_id=src.id, dedup_key="v3-score-unchanged", clean_text=_ENOUGH_TEXT
+    )
+    resp = _make_litellm_response(score=78, summary="Summary text.", entities=["Apple"])
+    with (
+        patch("litellm.completion", return_value=resp),
+        patch("litellm.completion_cost", return_value=0.001),
+    ):
+        from aggregator_summarize_rank.rank import process_article
+
+        process_article(article.id, "I like tech", [], v3_settings, factory)
+
+    db_session.expire(article)
+    db_session.refresh(article)
+    from aggregator_common.state import ArticleStatus
+    assert article.status == ArticleStatus.ready
+    assert article.importance_score == 78
+    assert article.summary == "Summary text."
+    assert article.topics is not None
 
 
 def test_categories_persisted_and_filtered_to_enabled_set(

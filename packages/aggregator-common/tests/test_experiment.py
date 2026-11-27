@@ -667,9 +667,10 @@ class TestPromptVariantValidation:
         })
 
     def test_unregistered_prompt_logs_one_error(self, caplog):
+        # v4 is not a registered variant for summarize_rank.rank
         count = self._count_errors(
             caplog,
-            lambda: _exp_module.init(_make_settings(self._cfg_with_prompt("v3"))),
+            lambda: _exp_module.init(_make_settings(self._cfg_with_prompt("v4"))),
         )
         assert count == 1
         assert _exp_module._config is None
@@ -694,6 +695,14 @@ class TestPromptVariantValidation:
         count = self._count_errors(
             caplog,
             lambda: _exp_module.init(_make_settings(self._cfg_with_prompt("v2"))),
+        )
+        assert count == 0
+        assert _exp_module._config is not None
+
+    def test_valid_v3_prompt_accepted(self, caplog):
+        count = self._count_errors(
+            caplog,
+            lambda: _exp_module.init(_make_settings(self._cfg_with_prompt("v3"))),
         )
         assert count == 0
         assert _exp_module._config is not None
@@ -929,7 +938,8 @@ class TestPromptVariantsRegistryV3:
 
     def test_other_operations_unchanged(self):
         from aggregator_common.experiment import PROMPT_VARIANTS
-        assert PROMPT_VARIANTS["summarize_rank.rank"] == frozenset({"v1", "v2"})
+        # v3 was added by the named-entity extraction feature (spec-499532a1)
+        assert PROMPT_VARIANTS["summarize_rank.rank"] == frozenset({"v1", "v2", "v3"})
         assert PROMPT_VARIANTS["clusterer.merge"] == frozenset({"v1", "v2", "v4b"})
         assert PROMPT_VARIANTS["clusterer.consolidate_facts"] == frozenset({"v1"})
         assert PROMPT_VARIANTS["brief.generate"] == frozenset({"v1", "v2"})

@@ -11,7 +11,7 @@ from aggregator_common.grades import (
 )
 
 from .config import SummarizeRankSettings
-from .schema import PROMPT_VERSION, PROMPT_VERSION_V2
+from .schema import PROMPT_VERSION, PROMPT_VERSION_V2, PROMPT_VERSION_V3
 
 INTEREST_PROFILE_MAX_CHARS = 2_000
 
@@ -81,8 +81,22 @@ _SYSTEM_NEUTRAL_V2 = _SYSTEM_NEUTRAL.replace(
 
 _SYSTEM_SUFFIX = "\n\nRespond with valid JSON matching the RankResult schema."
 
+_STEP3_ENTITIES = "3. Extract up to 8 named entities (people, organisations, places, products, named events) as a list of short strings."
 
-def _build_category_instruction(categories: Sequence[_CategoryEntry]) -> str:
+_SYSTEM_WITH_PROFILE_V3 = (
+    _SYSTEM_WITH_PROFILE_V2
+    .replace("\n3. Score", f"\n{_STEP3_ENTITIES}\n4. Score")
+    .replace("\n4. Give", "\n5. Give")
+)
+
+_SYSTEM_NEUTRAL_V3 = (
+    _SYSTEM_NEUTRAL_V2
+    .replace("\n3. Score", f"\n{_STEP3_ENTITIES}\n4. Score")
+    .replace("\n4. Give", "\n5. Give")
+)
+
+
+def _build_category_instruction(categories: Sequence[_CategoryEntry], step_number: int = 5) -> str:
     lines = []
     for cat in categories:
         if cat.description:
@@ -91,7 +105,7 @@ def _build_category_instruction(categories: Sequence[_CategoryEntry]) -> str:
             lines.append(f"- {cat.name}")
     category_list = "\n".join(lines)
     return (
-        "5. Assign the article to zero or more of these categories using the exact names from the list below. "
+        f"{step_number}. Assign the article to zero or more of these categories using the exact names from the list below. "
         "Only assign a category when the article clearly matches that category's description. "
         "Honor any exclusions stated in a description (e.g. if a description says it EXCLUDES a topic, do not assign that category to articles about that topic). "
         "Prefer the most specific matching category. "
@@ -108,14 +122,17 @@ def build_messages(
     variant: str = "v1",
 ) -> list[dict[str, str]]:
     is_profiled = bool(interest_profile_text and interest_profile_text.strip())
-    if variant == "v2":
+    if variant == "v3":
+        system_base = _SYSTEM_WITH_PROFILE_V3 if is_profiled else _SYSTEM_NEUTRAL_V3
+    elif variant == "v2":
         system_base = _SYSTEM_WITH_PROFILE_V2 if is_profiled else _SYSTEM_NEUTRAL_V2
     else:
         system_base = _SYSTEM_WITH_PROFILE if is_profiled else _SYSTEM_NEUTRAL
 
     if enabled_categories:
+        step_number = 6 if variant == "v3" else 5
         system_content = (
-            system_base + "\n" + _build_category_instruction(enabled_categories) + _SYSTEM_SUFFIX
+            system_base + "\n" + _build_category_instruction(enabled_categories, step_number=step_number) + _SYSTEM_SUFFIX
         )
     else:
         system_content = system_base + _SYSTEM_SUFFIX
@@ -153,4 +170,6 @@ def build_messages(
 
 
 def get_prompt_version(variant: str = "v1") -> str:
+    if variant == "v3":
+        return PROMPT_VERSION_V3
     return PROMPT_VERSION_V2 if variant == "v2" else PROMPT_VERSION

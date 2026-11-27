@@ -9,15 +9,18 @@ from aggregator_summarize_rank.prompt import (
     INTEREST_PROFILE_MAX_CHARS,
     _CALIBRATION_NEUTRAL,
     _CALIBRATION_WITH_PROFILE,
+    _STEP3_ENTITIES,
     _SYSTEM_NEUTRAL,
     _SYSTEM_NEUTRAL_V2,
+    _SYSTEM_NEUTRAL_V3,
     _SYSTEM_WITH_PROFILE,
     _SYSTEM_WITH_PROFILE_V2,
+    _SYSTEM_WITH_PROFILE_V3,
     _build_category_instruction,
     build_messages,
     get_prompt_version,
 )
-from aggregator_summarize_rank.schema import PROMPT_VERSION, PROMPT_VERSION_V2
+from aggregator_summarize_rank.schema import PROMPT_VERSION, PROMPT_VERSION_V2, PROMPT_VERSION_V3
 
 
 @pytest.fixture
@@ -348,8 +351,138 @@ class TestSummarizeRankSettingsVariantValidation:
         s = SummarizeRankSettings()
         assert s.summarize_rank_prompt_variant == "v2"
 
+    def test_v3_accepted(self, monkeypatch):
+        monkeypatch.setenv("SUMMARIZE_RANK_PROMPT_VARIANT", "v3")
+        s = SummarizeRankSettings()
+        assert s.summarize_rank_prompt_variant == "v3"
+
     def test_invalid_value_raises_with_env_var_name(self, monkeypatch):
         monkeypatch.setenv("SUMMARIZE_RANK_PROMPT_VARIANT", "v99")
         with pytest.raises(Exception) as exc_info:
             SummarizeRankSettings()
         assert "SUMMARIZE_RANK_PROMPT_VARIANT" in str(exc_info.value)
+
+
+# ---------------------------------------------------------------------------
+# v3 prompt: entity step insertion and step renumbering
+# ---------------------------------------------------------------------------
+
+class TestV3PromptEntityStep:
+    """AC2: v3 is byte-for-byte equal to v2 except for the inserted entity step
+    and renumbered steps, for all four prompt mode combinations."""
+
+    def test_v3_with_profile_contains_entity_step(self):
+        assert _STEP3_ENTITIES in _SYSTEM_WITH_PROFILE_V3
+
+    def test_v3_neutral_contains_entity_step(self):
+        assert _STEP3_ENTITIES in _SYSTEM_NEUTRAL_V3
+
+    def test_v3_with_profile_has_step_4_score(self):
+        assert "\n4. Score" in _SYSTEM_WITH_PROFILE_V3
+
+    def test_v3_neutral_has_step_4_score(self):
+        assert "\n4. Score" in _SYSTEM_NEUTRAL_V3
+
+    def test_v3_with_profile_has_step_5_reason(self):
+        assert "\n5. Give" in _SYSTEM_WITH_PROFILE_V3
+
+    def test_v3_neutral_has_step_5_reason(self):
+        assert "\n5. Give" in _SYSTEM_NEUTRAL_V3
+
+    def test_v2_with_profile_has_step_4_reason(self):
+        assert "\n4. Give" in _SYSTEM_WITH_PROFILE_V2
+
+    def test_v2_neutral_has_step_4_reason(self):
+        assert "\n4. Give" in _SYSTEM_NEUTRAL_V2
+
+    def test_v3_with_profile_no_old_step_numbering(self):
+        # v3 should not have the old "3. Score" step (which was renumbered to 4)
+        assert "\n3. Score" not in _SYSTEM_WITH_PROFILE_V3
+
+    def test_v3_neutral_no_old_step_numbering(self):
+        assert "\n3. Score" not in _SYSTEM_NEUTRAL_V3
+
+    def test_v3_scoring_text_unchanged_profiled(self):
+        # AC8: Scenario: v3 scoring text unchanged (scoring bands same as v2)
+        # Extract the scoring section from both v2 and v3 profiled prompts
+        # Both should have the same 0-100 band text; only the step number differs
+        for band_text in ["noise", "on-topic", "good-to-know", "important", "must-know"]:
+            assert band_text in _SYSTEM_WITH_PROFILE_V3
+            assert band_text in _SYSTEM_WITH_PROFILE_V2
+
+    def test_v3_scoring_text_unchanged_neutral(self):
+        # AC8: Scenario: v3 scoring text unchanged (neutral prompt)
+        for band_text in ["noise", "on-topic", "good-to-know", "important", "must-know"]:
+            assert band_text in _SYSTEM_NEUTRAL_V3
+            assert band_text in _SYSTEM_NEUTRAL_V2
+
+    def test_v3_profiled_body_matches_v2_except_entity_and_renumber(self):
+        # Combination 1: profiled, no categories
+        v3 = _SYSTEM_WITH_PROFILE_V3
+        restored = v3.replace(f"\n{_STEP3_ENTITIES}\n4. Score", "\n3. Score").replace("\n5. Give", "\n4. Give")
+        assert restored == _SYSTEM_WITH_PROFILE_V2
+
+    def test_v3_neutral_body_matches_v2_except_entity_and_renumber(self):
+        # Combination 2: neutral, no categories
+        v3 = _SYSTEM_NEUTRAL_V3
+        restored = v3.replace(f"\n{_STEP3_ENTITIES}\n4. Score", "\n3. Score").replace("\n5. Give", "\n4. Give")
+        assert restored == _SYSTEM_NEUTRAL_V2
+
+    def test_v3_profiled_with_categories_body_matches_v2_except_entity_and_renumber(self, default_settings):
+        # Combination 3: profiled, with categories — step numbers differ (v3=6, v2=5) for category step
+        cats = [_Cat("Tech", "Technology")]
+        v3_msgs = build_messages({"clean_text": "x" * 300}, "I like tech", default_settings,
+                                 enabled_categories=cats, variant="v3")
+        v2_msgs = build_messages({"clean_text": "x" * 300}, "I like tech", default_settings,
+                                 enabled_categories=cats, variant="v2")
+        v3_sys = v3_msgs[0]["content"]
+        # Reverse the entity step insertion and step renumbering:
+        restored = v3_sys.replace(f"\n{_STEP3_ENTITIES}\n4. Score", "\n3. Score").replace("\n5. Give", "\n4. Give")
+        # The category step number also changes (6 → 5) in the _build_category_instruction call
+        restored = restored.replace("6. Assign", "5. Assign")
+        assert restored == v2_msgs[0]["content"]
+
+    def test_v3_neutral_with_categories_body_matches_v2_except_entity_and_renumber(self, default_settings):
+        # Combination 4: neutral, with categories
+        cats = [_Cat("Science")]
+        v3_msgs = build_messages({"clean_text": "x" * 300}, "", default_settings,
+                                 enabled_categories=cats, variant="v3")
+        v2_msgs = build_messages({"clean_text": "x" * 300}, "", default_settings,
+                                 enabled_categories=cats, variant="v2")
+        v3_sys = v3_msgs[0]["content"]
+        restored = v3_sys.replace(f"\n{_STEP3_ENTITIES}\n4. Score", "\n3. Score").replace("\n5. Give", "\n4. Give")
+        restored = restored.replace("6. Assign", "5. Assign")
+        assert restored == v2_msgs[0]["content"]
+
+
+class TestV3PromptVersionAndMessages:
+    def test_get_prompt_version_v3(self):
+        assert get_prompt_version("v3") == PROMPT_VERSION_V3
+
+    def test_v3_version_is_1_5_0(self):
+        assert PROMPT_VERSION_V3 == "1.5.0"
+
+    def test_build_messages_v3_returns_two_messages(self, default_settings):
+        msgs = build_messages({"clean_text": "x" * 300}, "", default_settings, variant="v3")
+        assert len(msgs) == 2
+
+    def test_build_messages_v3_no_profile_contains_entity_step(self, default_settings):
+        msgs = build_messages({"clean_text": "x" * 300}, "", default_settings, variant="v3")
+        assert "named entities" in msgs[0]["content"].lower() or "named entit" in msgs[0]["content"].lower()
+
+    def test_build_messages_v3_with_profile_contains_entity_step(self, default_settings):
+        msgs = build_messages({"clean_text": "x" * 300}, "I like AI", default_settings, variant="v3")
+        assert "named entities" in msgs[0]["content"].lower() or "named entit" in msgs[0]["content"].lower()
+
+    def test_build_messages_v3_categories_uses_step_6(self, default_settings):
+        cats = [_Cat("Tech", "Technology")]
+        msgs = build_messages({"clean_text": "x" * 300}, "", default_settings,
+                              enabled_categories=cats, variant="v3")
+        assert "6." in msgs[0]["content"]
+
+    def test_build_messages_v2_categories_uses_step_5(self, default_settings):
+        cats = [_Cat("Tech", "Technology")]
+        msgs = build_messages({"clean_text": "x" * 300}, "", default_settings,
+                              enabled_categories=cats, variant="v2")
+        assert "5." in msgs[0]["content"]
+        assert "6." not in msgs[0]["content"]

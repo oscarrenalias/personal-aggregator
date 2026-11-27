@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from aggregator_summarize_rank.schema import PROMPT_VERSION, RankResult
+from aggregator_summarize_rank.schema import PROMPT_VERSION, PROMPT_VERSION_V2, PROMPT_VERSION_V3, RankResult
 
 
 class TestRankResultConstruction:
@@ -81,6 +81,47 @@ class TestCategoriesField:
         assert hasattr(r, "categories")
 
 
+class TestEntitiesField:
+    def test_entities_defaults_to_empty_list(self):
+        r = RankResult(summary="s", topics=[], importance_score=0, importance_reason="r")
+        assert r.entities == []
+
+    def test_entities_can_be_set(self):
+        r = RankResult(summary="s", topics=[], importance_score=0, importance_reason="r",
+                       entities=["NVIDIA", "OpenAI"])
+        assert "NVIDIA" in r.entities
+
+    def test_entities_duplicates_removed_case_insensitive(self):
+        # normalize_entities deduplicates by casefold key, keeping first occurrence
+        r = RankResult(summary="s", topics=[], importance_score=0, importance_reason="r",
+                       entities=["NVIDIA", "nvidia", "Nvidia"])
+        assert len(r.entities) == 1
+        assert r.entities[0] == "NVIDIA"
+
+    def test_entities_empty_strings_removed(self):
+        r = RankResult(summary="s", topics=[], importance_score=0, importance_reason="r",
+                       entities=["Apple", "", "   ", "Google"])
+        assert "" not in r.entities
+        assert "   " not in r.entities
+        assert len(r.entities) == 2
+
+    def test_entities_truncated_to_8(self):
+        r = RankResult(summary="s", topics=[], importance_score=0, importance_reason="r",
+                       entities=["E1", "E2", "E3", "E4", "E5", "E6", "E7", "E8", "E9", "E10"])
+        assert len(r.entities) <= 8
+
+    def test_entities_exactly_8_unchanged(self):
+        r = RankResult(summary="s", topics=[], importance_score=0, importance_reason="r",
+                       entities=["E1", "E2", "E3", "E4", "E5", "E6", "E7", "E8"])
+        assert len(r.entities) == 8
+
+    def test_entities_whitespace_only_entries_removed(self):
+        r = RankResult(summary="s", topics=[], importance_score=0, importance_reason="r",
+                       entities=["  ", "\t", "Apple"])
+        result_names = [e.strip() for e in r.entities if e.strip()]
+        assert len(result_names) == 1
+
+
 class TestPromptVersion:
     def test_prompt_version_nonempty(self):
         assert PROMPT_VERSION
@@ -91,3 +132,14 @@ class TestPromptVersion:
 
     def test_prompt_version_is_1_3_0(self):
         assert PROMPT_VERSION == "1.3.0"
+
+    def test_prompt_version_v2_is_1_4_0(self):
+        assert PROMPT_VERSION_V2 == "1.4.0"
+
+    def test_prompt_version_v3_is_1_5_0(self):
+        assert PROMPT_VERSION_V3 == "1.5.0"
+
+    def test_all_three_versions_distinct(self):
+        assert PROMPT_VERSION != PROMPT_VERSION_V2
+        assert PROMPT_VERSION_V2 != PROMPT_VERSION_V3
+        assert PROMPT_VERSION != PROMPT_VERSION_V3

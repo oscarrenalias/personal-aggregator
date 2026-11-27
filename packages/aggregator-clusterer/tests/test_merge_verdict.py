@@ -30,7 +30,7 @@ _OLD = _ANCHOR
 _CHANGED_SINCE = _ANCHOR + timedelta(days=5)
 _RECENT = _ANCHOR + timedelta(days=10)
 
-_ENTITIES = {"OpenAI": 1, "GPT": 1}
+_ENTITIES = ["OpenAI", "GPT"]
 _TOPICS = ["AI", "tech"]
 
 
