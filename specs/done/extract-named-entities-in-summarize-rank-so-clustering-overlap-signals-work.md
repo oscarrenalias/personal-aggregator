@@ -5,7 +5,7 @@ description: Rank prompt v3 extracts named entities (shadow-evaluated per ADR-60
 dependencies: null
 priority: high
 complexity: null
-status: planned
+status: done
 tags:
 - llm
 - summarize-rank
