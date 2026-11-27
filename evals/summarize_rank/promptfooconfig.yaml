@@ -1,0 +1,36 @@
+description: "summarize_rank.rank prompt v2 vs v3 regression eval"
+
+# PROMPTFOO_PYTHON must be a single executable path; promptfoo uses execFile(),
+# not exec(), so it cannot be a multi-word shell command. The wrapper script
+# evals/promptfoo-python.sh delegates to `uv run --all-packages python`
+# so aggregator_summarize_rank (and all workspace packages) are importable.
+#
+#   export PROMPTFOO_PYTHON="./evals/promptfoo-python.sh"
+env:
+  PROMPTFOO_PYTHON: "./evals/promptfoo-python.sh"
+
+providers:
+  - id: "file://../shared/litellm_provider.py"
+    label: luna-low
+    config:
+      model: gpt-6-luna
+      response_format: "aggregator_summarize_rank.schema:RankResult"
+      params:
+        reasoning_effort: low
+        max_completion_tokens: 2000
+        timeout: 120
+
+prompts:
+  - id: "file://prompts.py:rank_v2"
+    label: v2
+  - id: "file://prompts.py:rank_v3"
+    label: v3
+
+# Test cases are rendered by render_tests.py before this config runs.
+# The Makefile handles this automatically via: make eval-rank
+tests: "../results/summarize-rank-tests.yaml"
+
+defaultTest:
+  assert:
+    - type: python
+      value: "file://assert_rank_result.py:get_assert"

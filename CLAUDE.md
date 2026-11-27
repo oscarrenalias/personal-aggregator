@@ -414,7 +414,11 @@ The default is 14 days; 35 covers a month-long experiment with a one-week buffer
 
 ### Offline evals
 
-`evals/` contains offline promptfoo eval tooling for benchmarking prompt and model variants against frozen, human-labelled datasets (ADR-f8cc0455). The two-stage rule: **screen offline first** (run `make eval-merge` against human labels) **then shadow-test before cutover** (configure `LLM_EXPERIMENT`, ADR-9687cb01). Never promote a prompt variant straight to production without both stages. The `eval-*` Makefile targets cover the full operator loop — export → label → eval → report/view. See `evals/README.md` for details.
+`evals/` contains offline promptfoo eval tooling for benchmarking prompt and model variants against frozen, human-labelled datasets (ADR-f8cc0455). The two-stage rule: **screen offline first** (run `make eval-merge` or `make eval-rank`) **then shadow-test before cutover** (configure `LLM_EXPERIMENT`, ADR-9687cb01). Never promote a prompt variant straight to production without both stages. The `eval-*` Makefile targets cover the full operator loop — export → label → eval → report/view. See `evals/README.md` for details.
+
+**Suites:**
+- `evals/clusterer_merge/` — merge-decision accuracy against human labels; targets `eval-merge-*`.
+- `evals/summarize_rank/` — regression/stability eval for `summarize_rank.rank` prompt v2 vs v3 (entity extraction); no human labels required; targets `eval-rank-*`. Metrics: parse failure rate, mae, Spearman rho, flip rate across threshold, v3 entity coverage and median entity count. PASS/FAIL criteria are defined in `spec-499532a1`.
 
 ## Logging
 

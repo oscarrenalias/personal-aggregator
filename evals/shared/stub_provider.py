@@ -13,6 +13,25 @@ def call_api(prompt: str, options: dict, context: dict) -> dict:
             system_content = msg.get("content", "") or ""
             break
 
+    # Rank eval: system prompt references RankResult schema
+    is_rank_prompt = "RankResult" in system_content or "importance_score" in system_content
+
+    if is_rank_prompt:
+        vars_ = context.get("vars") or {}
+        production_score = vars_.get("production_score") or 50
+        title = vars_.get("title") or vars_.get("clean_title") or "(stub article)"
+        return {
+            "output": json.dumps({
+                "summary": f"Stub summary for: {title}",
+                "topics": ["stub-topic"],
+                "importance_score": int(production_score),
+                "importance_reason": "stub",
+                "categories": [],
+                "entities": ["StubEntity"],
+            })
+        }
+
+    # Merge eval: check for same-story phrases
     has_same_story_phrase = (
         "same story" in system_content or "same underlying story" in system_content
     )
