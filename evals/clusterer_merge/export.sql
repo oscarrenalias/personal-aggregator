@@ -1,14 +1,21 @@
 -- Read-only export query: one JSON object per merge pair.
 -- Run via: .claude/skills/prod-db/prod-db.sh psql -qAt -f - < evals/clusterer_merge/export.sql
 -- exported_at is added by build_dataset.py; all other dataset fields are produced here.
+-- Source: llm_calls WHERE service='clusterer' AND operation='merge'.
+-- Retention: JANITOR_LLM_TELEMETRY_RETENTION_DAYS (default 30 days), so an export covers
+--   approximately the last month of merge decisions.
+-- shadow_verdicts is always '{}' from the gpt-4.1 cutover onward; the shadow experiment
+--   table is no longer used as the pair source.
 WITH pairs AS (
     SELECT
         ref_id,
         MIN(created_at)                    AS first_seen,
         split_part(ref_id, ':', 1)::bigint AS id_a,
         split_part(ref_id, ':', 2)::bigint AS id_b
-    FROM llm_shadow_results
-    WHERE operation = 'merge'
+    FROM llm_calls
+    WHERE service   = 'clusterer'
+      AND operation = 'merge'
+      AND ref_id IS NOT NULL
     GROUP BY ref_id
 ),
 valid_pairs AS (
@@ -24,19 +31,6 @@ valid_pairs AS (
     FROM pairs p
     JOIN threads ta ON ta.id = p.id_a
     JOIN threads tb ON tb.id = p.id_b
-),
-shadow_verdicts_agg AS (
-    SELECT
-        ref_id,
-        jsonb_object_agg(
-            experiment || '/' || arm,
-            (output->>'same_story')::boolean
-        ) AS verdicts
-    FROM llm_shadow_results
-    WHERE operation = 'merge'
-      AND status = 'ok'
-      AND output->>'same_story' IS NOT NULL
-    GROUP BY ref_id
 ),
 member_counts AS (
     SELECT thread_id, COUNT(*) AS member_count
@@ -96,12 +90,11 @@ SELECT
             'member_count',    COALESCE(mcb.member_count, 0),
             'recent_articles', COALESCE(mab.recent_articles, '[]'::json)
         ),
-        'shadow_verdicts', COALESCE(sv.verdicts, '{}'::jsonb)
+        'shadow_verdicts', '{}'::jsonb
     )
 FROM valid_pairs vp
 LEFT JOIN member_counts       mca ON mca.thread_id = vp.id_a
 LEFT JOIN member_counts       mcb ON mcb.thread_id = vp.id_b
 LEFT JOIN members_agg         maa ON maa.thread_id = vp.id_a
 LEFT JOIN members_agg         mab ON mab.thread_id = vp.id_b
-LEFT JOIN shadow_verdicts_agg  sv ON sv.ref_id      = vp.ref_id
 ORDER BY vp.ref_id;

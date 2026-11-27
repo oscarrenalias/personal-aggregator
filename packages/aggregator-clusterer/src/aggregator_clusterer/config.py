@@ -1,9 +1,26 @@
-from typing import List
+from typing import List, Optional
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 
 from aggregator_common.config import Settings as BaseSettings
 from aggregator_common.experiment import PROMPT_VARIANTS
+from aggregator_common.llm_params import REASONING_EFFORTS
+
+
+def _validate_reasoning_effort(v: object, setting_name: str) -> Optional[str]:
+    if v is None or v == "":
+        return None
+    if not isinstance(v, str):
+        raise ValueError(
+            f"{setting_name}='{v}' is not valid; "
+            f"valid values: {sorted(REASONING_EFFORTS)}"
+        )
+    if v not in REASONING_EFFORTS:
+        raise ValueError(
+            f"{setting_name}='{v}' is not valid; "
+            f"valid values: {sorted(REASONING_EFFORTS)}"
+        )
+    return v
 
 
 class ClustererSettings(BaseSettings):
@@ -91,6 +108,21 @@ class ClustererSettings(BaseSettings):
     clusterer_classify_prompt_variant: str = Field("v1", description="Prompt variant for clusterer.classify; validated against PROMPT_VARIANTS at startup")
     clusterer_merge_prompt_variant: str = Field("v1", description="Prompt variant for clusterer.merge; validated against PROMPT_VARIANTS at startup")
 
+    # Per-operation LLM settings for classify (None = fall back to shared clusterer_llm_* value)
+    clusterer_classify_llm_model: Optional[str] = Field(None, description="LLM model for classify; falls back to CLUSTERER_LLM_MODEL when unset")
+    clusterer_classify_llm_max_output_tokens: Optional[int] = Field(None, description="Max output tokens for classify; falls back to CLUSTERER_LLM_MAX_OUTPUT_TOKENS when unset")
+    clusterer_classify_llm_reasoning_effort: Optional[str] = Field(None, description="Reasoning effort for classify; None = standard sampling")
+
+    # Per-operation LLM settings for merge
+    clusterer_merge_llm_model: Optional[str] = Field(None, description="LLM model for merge; falls back to CLUSTERER_LLM_MODEL when unset")
+    clusterer_merge_llm_max_output_tokens: int = Field(128, description="Max output tokens for merge (today's hard-coded value)")
+    clusterer_merge_llm_reasoning_effort: Optional[str] = Field(None, description="Reasoning effort for merge; None = standard sampling")
+
+    # Per-operation LLM settings for consolidate_facts (None = fall back to shared clusterer_llm_* value)
+    clusterer_facts_llm_model: Optional[str] = Field(None, description="LLM model for consolidate_facts; falls back to CLUSTERER_LLM_MODEL when unset")
+    clusterer_facts_llm_max_output_tokens: Optional[int] = Field(None, description="Max output tokens for facts; falls back to CLUSTERER_LLM_MAX_OUTPUT_TOKENS when unset")
+    clusterer_facts_llm_reasoning_effort: Optional[str] = Field(None, description="Reasoning effort for consolidate_facts; None = standard sampling")
+
     @field_validator("clusterer_classify_prompt_variant")
     @classmethod
     def validate_classify_prompt_variant(cls, v: str) -> str:
@@ -106,3 +138,32 @@ class ClustererSettings(BaseSettings):
         if v not in valid:
             raise ValueError(f"CLUSTERER_MERGE_PROMPT_VARIANT='{v}' is not valid; valid values: {sorted(valid)}")
         return v
+
+    @field_validator("clusterer_classify_llm_reasoning_effort", mode="before")
+    @classmethod
+    def validate_classify_effort(cls, v: object) -> Optional[str]:
+        return _validate_reasoning_effort(v, "CLUSTERER_CLASSIFY_LLM_REASONING_EFFORT")
+
+    @field_validator("clusterer_merge_llm_reasoning_effort", mode="before")
+    @classmethod
+    def validate_merge_effort(cls, v: object) -> Optional[str]:
+        return _validate_reasoning_effort(v, "CLUSTERER_MERGE_LLM_REASONING_EFFORT")
+
+    @field_validator("clusterer_facts_llm_reasoning_effort", mode="before")
+    @classmethod
+    def validate_facts_effort(cls, v: object) -> Optional[str]:
+        return _validate_reasoning_effort(v, "CLUSTERER_FACTS_LLM_REASONING_EFFORT")
+
+    @model_validator(mode="after")
+    def _resolve_per_op_fallbacks(self) -> "ClustererSettings":
+        if self.clusterer_classify_llm_model is None:
+            object.__setattr__(self, "clusterer_classify_llm_model", self.clusterer_llm_model)
+        if self.clusterer_classify_llm_max_output_tokens is None:
+            object.__setattr__(self, "clusterer_classify_llm_max_output_tokens", self.clusterer_llm_max_output_tokens)
+        if self.clusterer_merge_llm_model is None:
+            object.__setattr__(self, "clusterer_merge_llm_model", self.clusterer_llm_model)
+        if self.clusterer_facts_llm_model is None:
+            object.__setattr__(self, "clusterer_facts_llm_model", self.clusterer_llm_model)
+        if self.clusterer_facts_llm_max_output_tokens is None:
+            object.__setattr__(self, "clusterer_facts_llm_max_output_tokens", self.clusterer_llm_max_output_tokens)
+        return self

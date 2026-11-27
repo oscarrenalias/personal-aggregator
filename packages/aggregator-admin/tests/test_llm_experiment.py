@@ -1217,7 +1217,12 @@ class TestEnvExampleExperimentConfig:
         assert len(matching) == 1, f"Expected exactly one '# LLM_EXPERIMENT=' line, got {len(matching)}"
 
         raw_json = matching[0][len(prefix):]
-        cfg = _exp_module._parse_config(raw_json)
+        # Force enabled=true so _parse_config validates the full structure;
+        # .env.example ships with enabled:false but the test checks JSON shape only.
+        import json as _json
+        raw_data = _json.loads(raw_json)
+        raw_data["enabled"] = True
+        cfg = _exp_module._parse_config(_json.dumps(raw_data))
         assert cfg is not None, "LLM_EXPERIMENT config in .env.example failed to parse"
         assert cfg.name == "luna-prompts-v3-2026-11"
 

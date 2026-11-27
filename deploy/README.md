@@ -379,6 +379,75 @@ To return to tracking the latest release, set `APP_VERSION=latest` and run
 
 ---
 
+## LLM cutover (gpt-4.1 retirement)
+
+OpenAI retires `gpt-4.1` and `gpt-4.1-mini` on **2027-01-14**. The shadow experiments (`gpt41-retirement-2026-10`, `luna-prompts-v2-2026-11`, `luna-prompts-v3-2026-11`) and the offline merge eval have validated replacement settings for every operation. Run this procedure on the Pi to migrate production.
+
+### Step-by-step procedure
+
+1. **Deploy the cutover release:**
+   ```bash
+   curl -fsSL https://raw.githubusercontent.com/oscarrenalias/personal-aggregator/main/deploy/bootstrap.sh | sh
+   ```
+   Or, if you use the lightweight path:
+   ```bash
+   cd /opt/personal-aggregator
+   sudo ./install.sh update
+   ```
+
+2. **Edit `/opt/personal-aggregator/.env`** — set the following values and remove (or disable) the `LLM_EXPERIMENT` line:
+   ```
+   LLM_MODEL=gpt-6-luna
+   LLM_REASONING_EFFORT=low
+   LLM_MAX_OUTPUT_TOKENS=2000
+   SUMMARIZE_RANK_PROMPT_VARIANT=v2
+   WEB_IMPORTANT_THRESHOLD=66
+   CLUSTERER_LLM_MODEL=gpt-6-luna
+   CLUSTERER_CLASSIFY_PROMPT_VARIANT=v3
+   CLUSTERER_CLASSIFY_LLM_REASONING_EFFORT=none
+   CLUSTERER_CLASSIFY_LLM_MAX_OUTPUT_TOKENS=512
+   CLUSTERER_MERGE_PROMPT_VARIANT=v4b
+   CLUSTERER_MERGE_LLM_MODEL=gpt-6.1-terra
+   CLUSTERER_MERGE_LLM_REASONING_EFFORT=none
+   CLUSTERER_MERGE_LLM_MAX_OUTPUT_TOKENS=128
+   CLUSTERER_FACTS_LLM_REASONING_EFFORT=low
+   CLUSTERER_FACTS_LLM_MAX_OUTPUT_TOKENS=2000
+   BRIEF_LLM_MODEL=openai/responses/gpt-6-luna
+   BRIEF_LLM_REASONING_EFFORT=low
+   BRIEF_LLM_MAX_OUTPUT_TOKENS=8192
+   BRIEF_PROMPT_VARIANT=v2
+   JANITOR_ARTICLE_RETENTION_DAYS=14
+   ```
+
+3. **Restart the stack:**
+   ```bash
+   sudo systemctl restart aggregator
+   ```
+
+4. **Run the cutover clean-up** via the `aggregator` admin wrapper:
+   ```bash
+   # Dry run first — check the row counts that will be removed:
+   sudo /opt/personal-aggregator/aggregator ops llm-cutover-cleanup
+   # Then apply:
+   sudo /opt/personal-aggregator/aggregator ops llm-cutover-cleanup --yes
+   ```
+   This empties `llm_shadow_results` (keeping the table for future experiments) and truncates `thread_merge_verdicts` (cached merge verdicts from the old model that must be cleared). The command refuses to run while `LLM_EXPERIMENT` is still enabled.
+
+5. **Verify** using the `metrics-review` skill, about one hour later and again the next day:
+   - `llm_calls` for `summarize_rank`, `clusterer`, and `brief` shows only the new models (`gpt-6-luna`, `gpt-6.1-terra`, `openai/responses/gpt-6-luna`), with 0 errors.
+   - Merge calls return non-empty content.
+   - The next scheduled brief is `ready`.
+
+### Rollback
+
+Restore your previous `.env` values (gpt-4.1-mini settings) and restart:
+```bash
+sudo systemctl restart aggregator
+```
+The `thread_merge_verdicts` table will rebuild itself as new pairs are evaluated. The deleted `llm_shadow_results` rows are not needed for rollback. This rollback is valid until the gpt-4.1 retirement date (2027-01-14).
+
+---
+
 ## Postgres data backup
 
 Postgres data is stored in the **`pgdata` named Docker volume**. Back it up with:

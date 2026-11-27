@@ -99,3 +99,23 @@ def test_sql_starts_with_select_or_with():
     assert re.match(r"^(SELECT|WITH)\b", sql_no_comments, re.IGNORECASE), (
         "export.sql should start with SELECT or WITH (read-only)"
     )
+
+
+def test_source_is_llm_calls():
+    """export.sql must source merge pairs from llm_calls, not llm_shadow_results."""
+    sql = _load_sql()
+    # Strip comments before checking identifiers
+    sql_no_comments = re.sub(r"--[^\n]*", "", sql)
+    sql_no_comments = re.sub(r"/\*.*?\*/", "", sql_no_comments, flags=re.DOTALL)
+    tokens = re.findall(r"\b\w+\b", sql_no_comments)
+    assert "llm_calls" in tokens, (
+        "export.sql must reference llm_calls as the pair source"
+    )
+
+
+def test_llm_shadow_results_absent():
+    """export.sql must not reference llm_shadow_results (deprecated pair source)."""
+    sql = _load_sql()
+    assert "llm_shadow_results" not in sql, (
+        "export.sql must not reference llm_shadow_results; pairs now come from llm_calls"
+    )

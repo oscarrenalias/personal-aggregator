@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 import aggregator_common.experiment as experiment
 from aggregator_common.experiment import CallOutcome
+from aggregator_common.llm_params import apply_reasoning_params
 from aggregator_common.models import Article, ClassificationLabel, Thread
 from aggregator_clusterer.candidates import CandidateMatch
 from aggregator_clusterer.config import ClustererSettings
@@ -475,15 +476,16 @@ def classify_article(
     decision = experiment.decide("clusterer.classify", str(article.id))
 
     control_kwargs: dict = {
-        "model": settings.clusterer_llm_model,
+        "model": settings.clusterer_classify_llm_model,
         "messages": messages,
-        "max_tokens": settings.clusterer_llm_max_output_tokens,
+        "max_tokens": settings.clusterer_classify_llm_max_output_tokens,
         "temperature": settings.clusterer_llm_temperature,
         "timeout": settings.clusterer_llm_timeout_seconds,
         "metadata": {"service": "clusterer", "operation": "classify", "ref_id": str(article.id)},
     }
     if decision is not None:
         control_kwargs["metadata"] = decision.control_metadata(control_kwargs["metadata"])
+    control_kwargs = apply_reasoning_params(control_kwargs, settings.clusterer_classify_llm_reasoning_effort)
 
     attempt_fn = _make_attempt_fn(presented_ids)
     control_outcome = attempt_fn(control_kwargs)
@@ -496,7 +498,7 @@ def classify_article(
             logger.debug(
                 "classification token usage article_id=%s model=%s prompt_tokens=%s completion_tokens=%s",
                 article.id,
-                getattr(response, "model", settings.clusterer_llm_model),
+                getattr(response, "model", settings.clusterer_classify_llm_model),
                 getattr(usage, "prompt_tokens", 0),
                 getattr(usage, "completion_tokens", 0),
             )

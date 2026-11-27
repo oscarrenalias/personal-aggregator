@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 from aggregator_common import experiment
 from aggregator_common.db import SessionFactory as _DefaultSessionFactory
 from aggregator_common.experiment import CallOutcome
+from aggregator_common.llm_params import apply_reasoning_params
 from aggregator_common.models import Article, Thread, ThreadMembership
 from aggregator_common.queries import list_unassigned_ready_articles
 from aggregator_clusterer.candidates import get_candidates
@@ -146,14 +147,17 @@ def _make_llm_facts_fn(settings: ClustererSettings) -> Callable[[int, list[str]]
         base_metadata: dict = {"service": "clusterer", "operation": "consolidate_facts", "ref_id": ref_id}
         decision = experiment.decide("clusterer.consolidate_facts", ref_id)
 
-        control_kwargs: dict = {
-            "model": settings.clusterer_llm_model,
-            "messages": messages,
-            "max_tokens": settings.clusterer_llm_max_output_tokens,
-            "temperature": settings.clusterer_llm_temperature,
-            "timeout": settings.clusterer_llm_timeout_seconds,
-            "metadata": decision.control_metadata(base_metadata) if decision is not None else base_metadata,
-        }
+        control_kwargs: dict = apply_reasoning_params(
+            {
+                "model": settings.clusterer_facts_llm_model,
+                "messages": messages,
+                "max_tokens": settings.clusterer_facts_llm_max_output_tokens,
+                "temperature": settings.clusterer_llm_temperature,
+                "timeout": settings.clusterer_llm_timeout_seconds,
+                "metadata": decision.control_metadata(base_metadata) if decision is not None else base_metadata,
+            },
+            settings.clusterer_facts_llm_reasoning_effort,
+        )
 
         def attempt(call_kwargs: dict) -> CallOutcome:
             response = litellm.completion(**call_kwargs)
@@ -198,14 +202,17 @@ def _make_llm_merge_fn(settings: ClustererSettings) -> Callable[[Thread, Thread]
         base_metadata: dict = {"service": "clusterer", "operation": "merge", "ref_id": ref_id}
         decision = experiment.decide("clusterer.merge", ref_id)
 
-        control_kwargs: dict = {
-            "model": settings.clusterer_llm_model,
-            "messages": messages,
-            "max_tokens": 128,
-            "temperature": 0.0,
-            "timeout": settings.clusterer_llm_timeout_seconds,
-            "metadata": decision.control_metadata(base_metadata) if decision is not None else base_metadata,
-        }
+        control_kwargs: dict = apply_reasoning_params(
+            {
+                "model": settings.clusterer_merge_llm_model,
+                "messages": messages,
+                "max_tokens": settings.clusterer_merge_llm_max_output_tokens,
+                "temperature": 0.0,
+                "timeout": settings.clusterer_llm_timeout_seconds,
+                "metadata": decision.control_metadata(base_metadata) if decision is not None else base_metadata,
+            },
+            settings.clusterer_merge_llm_reasoning_effort,
+        )
 
         def attempt(call_kwargs: dict) -> CallOutcome:
             response = litellm.completion(**call_kwargs)

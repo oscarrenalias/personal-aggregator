@@ -877,3 +877,78 @@ class TestClassifyThreeRowShadow:
             _exp_module._counters = orig_counters
             _exp_module._budget = orig_budget
             db_mod.SessionFactory = original_factory
+
+
+# ---------------------------------------------------------------------------
+# AC5-AC7: classify-specific LLM settings (model, tokens, reasoning_effort)
+# ---------------------------------------------------------------------------
+
+class TestClassifyLLMSettings:
+    """Verify classify_article uses classify-specific model/token/reasoning_effort settings."""
+
+    def _capture_classify_kwargs(self, db_session, settings, payload=None):
+        """Run classify_article and return the kwargs passed to litellm.completion."""
+        if payload is None:
+            payload = {
+                "label": "new_thread",
+                "thread_id": None,
+                "confidence": 0.9,
+                "new_facts": [],
+                "reason": "Test",
+            }
+        from .conftest import make_source, make_article
+
+        src = make_source(db_session, url=f"https://llm-settings-{id(settings)}.test/feed.xml")
+        article = make_article(db_session, source_id=src.id, dedup_key=f"llm-s-{id(settings)}")
+
+        captured = {}
+
+        def _capture(**kwargs):
+            captured.update(kwargs)
+            response = MagicMock()
+            response.choices = [MagicMock()]
+            response.choices[0].message.content = json.dumps(payload)
+            response.usage = None
+            return response
+
+        with patch("aggregator_clusterer.classification.litellm.completion", side_effect=_capture):
+            classify_article(article, [], db_session, settings)
+
+        return captured
+
+    def test_defaults_unchanged(self, db_session):
+        """With no classify-specific overrides, kwargs are dict-equal to the previous hardcoded values."""
+        settings = ClustererSettings()
+        kwargs = self._capture_classify_kwargs(db_session, settings)
+
+        assert kwargs["model"] == "gpt-4.1"
+        assert kwargs["max_tokens"] == 512
+        assert kwargs["temperature"] == 0.0
+        assert "reasoning_effort" not in kwargs
+        assert "max_completion_tokens" not in kwargs
+
+    def test_luna_none_v3_kwargs(self, db_session, monkeypatch):
+        """With luna-none-v3 config, classify kwargs match the expected shadow arm setup (§7)."""
+        monkeypatch.setenv("CLUSTERER_CLASSIFY_LLM_MODEL", "gpt-6-luna")
+        monkeypatch.setenv("CLUSTERER_CLASSIFY_LLM_MAX_OUTPUT_TOKENS", "512")
+        monkeypatch.setenv("CLUSTERER_CLASSIFY_LLM_REASONING_EFFORT", "none")
+        settings = ClustererSettings()
+
+        kwargs = self._capture_classify_kwargs(db_session, settings)
+
+        assert kwargs["model"] == "gpt-6-luna"
+        assert kwargs.get("max_completion_tokens") == 512
+        assert "max_tokens" not in kwargs
+        assert kwargs["temperature"] == 0.0
+        assert kwargs["reasoning_effort"] == "none"
+        assert "reasoning_effort" in kwargs.get("allowed_openai_params", [])
+
+    def test_merge_model_does_not_affect_classify(self, db_session, monkeypatch):
+        """Changing CLUSTERER_MERGE_LLM_MODEL has no effect on classify kwargs."""
+        monkeypatch.setenv("CLUSTERER_MERGE_LLM_MODEL", "gpt-6-luna")
+        settings = ClustererSettings()
+
+        kwargs = self._capture_classify_kwargs(db_session, settings)
+
+        assert kwargs["model"] == "gpt-4.1"
+        assert "reasoning_effort" not in kwargs
