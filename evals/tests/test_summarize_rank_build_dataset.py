@@ -124,6 +124,21 @@ def test_overwrite_refusal(tmp_path):
     assert out.read_text(encoding="utf-8") == "existing"
 
 
+def test_overwrite_zero_byte_allowed(tmp_path):
+    """A 0-byte output file (from a failed export) must be overwritable."""
+    out = tmp_path / "articles.jsonl"
+    out.write_bytes(b"")  # empty file left by a failed export run
+
+    input_file = tmp_path / "input.jsonl"
+    input_file.write_text(json.dumps(VALID_RECORD), encoding="utf-8")
+
+    sr_build.main(["--out", str(out), "--input", str(input_file)])
+
+    lines = out.read_text(encoding="utf-8").splitlines()
+    assert len(lines) == 1
+    assert json.loads(lines[0])["article_id"] == 100
+
+
 def test_blank_lines_skipped(tmp_path):
     input_file = tmp_path / "input.jsonl"
     input_file.write_text(

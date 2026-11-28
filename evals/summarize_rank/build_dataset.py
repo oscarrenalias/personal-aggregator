@@ -60,9 +60,9 @@ def main(argv=None):
     args = parser.parse_args(argv)
 
     out_path = Path(args.out)
-    if out_path.exists():
+    if out_path.exists() and out_path.stat().st_size > 0:
         print(
-            f"error: output file already exists: {out_path}\n"
+            f"error: output file already exists and is non-empty: {out_path}\n"
             "Datasets are immutable; choose a new filename.",
             file=sys.stderr,
         )
