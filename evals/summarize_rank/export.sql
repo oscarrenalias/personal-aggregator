@@ -5,7 +5,7 @@
 -- stratified so ~1/3 have importance_score >= 60 (threshold band 56-76 well represented).
 -- Includes the interest_profile text (singleton row) and enabled categories (name, description).
 WITH profile AS (
-    SELECT text AS interest_profile_text
+    SELECT profile_text AS interest_profile_text
     FROM interest_profile
     LIMIT 1
 ),
