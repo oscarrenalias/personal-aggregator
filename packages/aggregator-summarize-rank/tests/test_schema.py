@@ -105,15 +105,15 @@ class TestEntitiesField:
         assert "   " not in r.entities
         assert len(r.entities) == 2
 
-    def test_entities_truncated_to_8(self):
+    def test_entities_truncated_to_6(self):
         r = RankResult(summary="s", topics=[], importance_score=0, importance_reason="r",
                        entities=["E1", "E2", "E3", "E4", "E5", "E6", "E7", "E8", "E9", "E10"])
-        assert len(r.entities) <= 8
+        assert len(r.entities) <= 6
 
-    def test_entities_exactly_8_unchanged(self):
+    def test_entities_exactly_6_unchanged(self):
         r = RankResult(summary="s", topics=[], importance_score=0, importance_reason="r",
-                       entities=["E1", "E2", "E3", "E4", "E5", "E6", "E7", "E8"])
-        assert len(r.entities) == 8
+                       entities=["E1", "E2", "E3", "E4", "E5", "E6"])
+        assert len(r.entities) == 6
 
     def test_entities_whitespace_only_entries_removed(self):
         r = RankResult(summary="s", topics=[], importance_score=0, importance_reason="r",
@@ -136,8 +136,8 @@ class TestPromptVersion:
     def test_prompt_version_v2_is_1_4_0(self):
         assert PROMPT_VERSION_V2 == "1.4.0"
 
-    def test_prompt_version_v3_is_1_5_0(self):
-        assert PROMPT_VERSION_V3 == "1.5.0"
+    def test_prompt_version_v3_is_1_5_1(self):
+        assert PROMPT_VERSION_V3 == "1.5.1"
 
     def test_all_three_versions_distinct(self):
         assert PROMPT_VERSION != PROMPT_VERSION_V2
