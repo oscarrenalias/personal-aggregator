@@ -2,7 +2,7 @@ from pydantic import BaseModel, field_validator, model_validator
 
 PROMPT_VERSION = "1.3.0"
 PROMPT_VERSION_V2 = "1.4.0"
-PROMPT_VERSION_V3 = "1.5.0"
+PROMPT_VERSION_V3 = "1.5.1"
 
 
 class RankResult(BaseModel):
@@ -34,5 +34,5 @@ class RankResult(BaseModel):
             key = stripped.casefold()
             if key not in seen:
                 seen[key] = stripped
-        self.entities = list(seen.values())[:8]
+        self.entities = list(seen.values())[:6]
         return self

@@ -459,8 +459,8 @@ class TestV3PromptVersionAndMessages:
     def test_get_prompt_version_v3(self):
         assert get_prompt_version("v3") == PROMPT_VERSION_V3
 
-    def test_v3_version_is_1_5_0(self):
-        assert PROMPT_VERSION_V3 == "1.5.0"
+    def test_v3_version_is_1_5_1(self):
+        assert PROMPT_VERSION_V3 == "1.5.1"
 
     def test_build_messages_v3_returns_two_messages(self, default_settings):
         msgs = build_messages({"clean_text": "x" * 300}, "", default_settings, variant="v3")

@@ -81,7 +81,7 @@ _SYSTEM_NEUTRAL_V2 = _SYSTEM_NEUTRAL.replace(
 
 _SYSTEM_SUFFIX = "\n\nRespond with valid JSON matching the RankResult schema."
 
-_STEP3_ENTITIES = "3. Extract up to 8 named entities (people, organisations, places, products, named events) as a list of short strings."
+_STEP3_ENTITIES = "3. List the named entities central to this story (people, organisations, places, products, named events), most important first, at most 6, using each one's common full name. Do not include the publication, outlet or website that published the article, and leave out names mentioned only in passing."
 
 _SYSTEM_WITH_PROFILE_V3 = (
     _SYSTEM_WITH_PROFILE_V2
